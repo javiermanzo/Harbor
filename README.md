@@ -188,4 +188,4 @@ Harbor was created by [Javier Manzo](https://www.linkedin.com/in/javiermanzo/).
 
 ## License
 
-Harbor is available under the MIT license. See the  [LICENSE](https://github.com/javiermanzo/Harbor/LICENSE.md)  file for more info.
+Harbor is available under the MIT license. See the  [LICENSE](https://github.com/javiermanzo/Harbor/blob/main/LICENSE.md)  file for more info.

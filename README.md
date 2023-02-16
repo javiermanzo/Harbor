@@ -6,7 +6,6 @@ Harbor is a library for making API requests in Swift in a simple way using async
 ##  Requirements 
 - Swift 5
 - iOS 13.0
-
 ## Installation
 
 You can add Harbor to your project using [CocoaPods](https://cocoapods.org/) or [Swift Package Manager](https://swift.org/package-manager/).
@@ -62,6 +61,7 @@ To make a request using Harbor, you need to create a class that implements the `
             ]
         }
     }
+
 
 #### HServiceProtocolWithResult
     class MyRequestWithResult: HServiceProtocolWithResult {
@@ -147,6 +147,14 @@ After that, you have to set your Auth provider:
     Harbor.setAuthProvider(MyAuthProvider())
 
 If the request class has the `needAuth` property set to `true`, Harbor will call the `getCredentialsHeader` method of the authentication provider to get the authentication headers before executing the request.
+
+### Cancel Request
+You can cancel the task of the request if it is running. `request()` will return `cancelled`.
+
+    let task = Task {
+        let response = await MyRequestWithResult().request()
+    }
+    task.cancel()
 
 ## Debug
 

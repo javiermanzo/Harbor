@@ -4,8 +4,10 @@
 Harbor is a library for making API requests in Swift in a simple way using async/await.
 
 ##  Requirements 
+
 - Swift 5
 - iOS 13.0
+
 ## Installation
 
 You can add Harbor to your project using [CocoaPods](https://cocoapods.org/) or [Swift Package Manager](https://swift.org/package-manager/).
@@ -61,7 +63,6 @@ To make a request using Harbor, you need to create a class that implements the `
             ]
         }
     }
-
 
 #### HServiceProtocolWithResult
     class MyRequestWithResult: HServiceProtocolWithResult {

@@ -7,3 +7,9 @@ DerivedData/
 .swiftpm/config/registries.json
 .swiftpm/
 .netrc
+
+Example/HarborExample.xcworkspace
+Example/HarborExample.xcodeproj/xcuserdata/
+Example/Pods
+Example/Podfile.lock
+Example/output

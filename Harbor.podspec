@@ -1,6 +1,6 @@
 Pod::Spec.new do |s|
   s.name             = 'Harbor'
-  s.version          = '0.1.1'
+  s.version          = '0.1.2'
   s.summary          = 'Networking library.'
   s.homepage         = 'https://github.com/javiermanzo/Harbor'
   s.license          = { :type => 'MIT', :file => 'LICENSE.md' }

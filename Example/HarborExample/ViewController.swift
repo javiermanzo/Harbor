@@ -43,7 +43,7 @@ class ViewController: UIViewController {
             
             switch response {
             case .success(let result):
-                textAlert = result.quote
+                textAlert = result.totalResults
             case .cancelled:
                 textAlert = "Service Cancelled"
             case .error(let error):

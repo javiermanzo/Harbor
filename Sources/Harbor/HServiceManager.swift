@@ -175,30 +175,28 @@ internal final class HServiceManager {
     
     private static func compositeURL(url: String, pathParams: [String: String]?, queryParams: [String: String]?) -> URL? {
         var compositeUrl = url
-        
-        if let pp = pathParams {
-            for (key, value) in pp {
-                compositeUrl = url.replacingOccurrences(of: "{\(key)}", with: value)
+
+        if let pathParams {
+            for (key, value) in pathParams {
+                compositeUrl = compositeUrl.replacingOccurrences(of: "{\(key)}", with: value)
             }
         }
-        
+
         var url: URL? = URL(string: compositeUrl)
-        
-        if let urlComponents = URLComponents(string: compositeUrl),
-           let qp = queryParams, !qp.isEmpty {
+
+        if var urlComponents = URLComponents(string: compositeUrl), let queryParams, !queryParams.isEmpty {
             var queryItems = [URLQueryItem]()
-            
-            for (key, value) in qp {
+
+            for (key, value) in queryParams {
                 queryItems.append(URLQueryItem(name: key, value: value))
             }
-            
-            queryItems.sort(by: { q1, q2 in
-                return q1.name < q2.name
-            })
-            
+
+            queryItems.sort(by: { $0.name < $1.name })
+
+            urlComponents.queryItems = queryItems
             url = urlComponents.url
         }
-        
+
         return url
     }
     

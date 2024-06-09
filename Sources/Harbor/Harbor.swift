@@ -8,12 +8,10 @@
 import Foundation
 
 public class Harbor {
-    
-    internal static var authProvider: HAuthProviderProtocol?
-    
+
     private init() {}
     
     public static func setAuthProvider(_ authProvider: HAuthProviderProtocol) {
-        self.authProvider = authProvider
+        HServiceManager.authProvider = authProvider
     }
 }

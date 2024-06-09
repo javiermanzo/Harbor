@@ -8,14 +8,13 @@
 import Foundation
 
 public enum HServiceError: Error {
-    case apiError(statusCode: Int, errorData: Data)
+    case apiError(statusCode: Int, data: Data)
+    case invalidHttpResponse
+    case invalidRequest
     case authProviderNeeded
-    case badResponseError
     case codableError
+    case noConnectionError
     case malformedRequestError
-    case noConectionError
-    case requestError(statusCode: Int, response: HTTPURLResponse)
     case timeoutError
 }
-
 

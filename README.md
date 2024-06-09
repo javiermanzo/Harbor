@@ -144,15 +144,15 @@ You `setAuthProvider` method of the `Harbor` class to set the authentication pro
 You have to create a class that implements `HAuthProviderProtocol`
 
     class MyAuthProvider: HAuthProviderProtocol {
-        func getCredentialHeader() -> HAuthCredentialHeader {
-            // Return a HAuthCredentialHeader instance
+        func getCredentialHeader() -> HAuthorizationHeader {
+            // Return a HAuthorizationHeader instance
         }
     }
 After that, you have to set your Auth provider:
 
     Harbor.setAuthProvider(MyAuthProvider())
 
-If the request class has the `needAuth` property set to `true`, Harbor will call the `getCredentialHeader` method of the authentication provider to get the HAuthCredentialHeader instance to set it in the header before executing the request.
+If the request class has the `needAuth` property set to `true`, Harbor will call the `getAuthorizationHeader` method of the authentication provider to get the HAuthorizationHeader instance to set it in the header before executing the request.
 
 ### Cancel Request
 You can cancel the task of the request if it is running. `request()` will return `cancelled`.

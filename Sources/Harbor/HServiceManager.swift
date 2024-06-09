@@ -19,7 +19,7 @@ internal final class HServiceManager {
         }
 
         if service.needAuth {
-            if let authCredential = await authProvider?.getCredentialHeader() {
+            if let authCredential = await authProvider?.getAuthorizationHeader() {
                 if service.headerParameters == nil {
                     service.headerParameters = [String: String]()
                 }
@@ -97,7 +97,7 @@ internal final class HServiceManager {
         }
 
         if service.needAuth {
-            if let authCredential = await authProvider?.getCredentialHeader() {
+            if let authCredential = await authProvider?.getAuthorizationHeader() {
                 if service.headerParameters == nil {
                     service.headerParameters = [String: String]()
                 }
@@ -245,12 +245,13 @@ private extension HServiceManager {
     // This method checks that the used authorization headers is an old one
     static func hasNewAuthorizationHeader(service: HServiceProtocolBase) async -> Bool {
         guard let headerParameters = service.headerParameters,
-              let authCredentialHeader = await authProvider?.getCredentialHeader(),
-              let authorization = headerParameters[authCredentialHeader.key],
-              let currentAuthorization = headerParameters[authCredentialHeader.key]
+              let currentAuthorizationHeader = await authProvider?.getAuthorizationHeader(),
+              let usedAuthorization = headerParameters[currentAuthorizationHeader.key]
         else { return false }
 
-        if authorization != currentAuthorization {
+        let currentAuthorization = currentAuthorizationHeader.value
+
+        if usedAuthorization != currentAuthorization {
             return true
         }
 

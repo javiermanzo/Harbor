@@ -14,4 +14,8 @@ public class Harbor {
     public static func setAuthProvider(_ authProvider: HAuthProviderProtocol) {
         HServiceManager.authProvider = authProvider
     }
+
+    public static func setDefaultHeaderParameters(_ headerParameters: [String: String]?) {
+        HServiceManager.defaultHeaderParameters = headerParameters
+    }
 }

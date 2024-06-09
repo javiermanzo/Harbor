@@ -9,15 +9,17 @@ import Foundation
 import SystemConfiguration
 
 internal final class HServiceManager {
-    
+
+    internal static var authProvider: HAuthProviderProtocol?
+
     // MARK: -  Request With Result
     static func request<T: Codable, P: HServiceProtocolWithResult>(model: T.Type, service: P) async -> HResponseWithResult<T> {
         if !self.isConnectedToNetwork() {
-            return .error(HServiceError.noConectionError)
+            return .error(.noConnectionError)
         }
         
         if service.needAuth {
-            if let authProvider = Harbor.authProvider {
+            if let authProvider = Self.authProvider {
                 if service.headers == nil {
                     service.headers = [String: String]()
                 }
@@ -27,7 +29,7 @@ internal final class HServiceManager {
                 async let result = self.requestHandler(model: model, service: service)
                 return await result
             } else {
-                return .error(HServiceError.authProviderNeeded)
+                return .error(.authProviderNeeded)
             }
         } else {
             async let result = self.requestHandler(model: model, service: service)
@@ -37,7 +39,7 @@ internal final class HServiceManager {
     
     private static func requestHandler<T: Codable, P: HServiceProtocolWithResult>(model: T.Type, service: P) async -> HResponseWithResult<T> {
         guard let request = self.buildRequest(service: service) else {
-            return .error(HServiceError.malformedRequestError)
+            return .error(.malformedRequestError)
         }
         
         if let service = service as? HDebugServiceProtocol {
@@ -48,46 +50,49 @@ internal final class HServiceManager {
             let (data, response) = try await URLSession.shared.data(for: request)
             
             guard let httpResponse = response as? HTTPURLResponse else {
-                return .error(.badResponseError)
+                return .error(.invalidHttpResponse)
             }
             
             if let service = service as? HDebugServiceProtocol {
                 service.printResponse(httpResponse: httpResponse, data: data)
             }
             
-            if !(200..<300).contains(httpResponse.statusCode) {
-                return .error(.apiError(statusCode: httpResponse.statusCode, errorData: data))
-            } else if let parsedResponse = service.parseData(data: data, model: model) {
-                return .success(parsedResponse)
-            } else {
-                return .error(.codableError)
+            switch httpResponse.statusCode {
+            case 200 ... 299:
+                if let parsedResponse = service.parseData(data: data, model: model) {
+                    return .success(parsedResponse)
+                } else {
+                    return .error(.codableError)
+                }
+            default:
+                return .error(.apiError(statusCode: httpResponse.statusCode, data: data))
             }
         } catch let error as URLError {
             switch error.code {
             case .cancelled:
                 return .cancelled
             case .badURL, .cannotConnectToHost, .serverCertificateUntrusted:
-                return .error(HServiceError.malformedRequestError)
+                return .error(.malformedRequestError)
             case .timedOut:
-                return .error(HServiceError.timeoutError)
+                return .error(.timeoutError)
             case .notConnectedToInternet, .networkConnectionLost:
-                return .error(HServiceError.noConectionError)
+                return .error(.noConnectionError)
             default:
-                return .error(HServiceError.badResponseError)
+                return .error(.invalidHttpResponse)
             }
         } catch let error {
-            return .error(HServiceError.badResponseError)
+            return .error(.invalidHttpResponse)
         }
     }
     
     // MARK: -  Request Without Result
     static func request<P: HServiceProtocol>(service: P) async -> HResponse {
         if !self.isConnectedToNetwork() {
-            return .error(HServiceError.noConectionError)
+            return .error(.noConnectionError)
         }
         
         if service.needAuth {
-            if let authProvider = Harbor.authProvider {
+            if let authProvider = Self.authProvider {
                 if service.headers == nil {
                     service.headers = [String: String]()
                 }
@@ -97,7 +102,7 @@ internal final class HServiceManager {
                 async let result = self.requestHandler(service: service)
                 return await result
             } else {
-                return .error(HServiceError.authProviderNeeded)
+                return .error(.authProviderNeeded)
             }
         } else {
             async let result = self.requestHandler(service: service)
@@ -107,7 +112,7 @@ internal final class HServiceManager {
     
     private static func requestHandler<P: HServiceProtocol>(service: P) async -> HResponse {
         guard let request = self.buildRequest(service: service) else {
-            return .error(HServiceError.malformedRequestError)
+            return .error(.malformedRequestError)
         }
         
         if let service = service as? HDebugServiceProtocol {
@@ -118,33 +123,34 @@ internal final class HServiceManager {
             let (data, response) = try await URLSession.shared.data(for: request)
             
             guard let httpResponse = response as? HTTPURLResponse else {
-                return .error(.badResponseError)
+                return .error(.invalidRequest)
             }
             
             if let service = service as? HDebugServiceProtocol {
                 service.printResponse(httpResponse: httpResponse, data: data)
             }
-            
-            if !(200..<300).contains(httpResponse.statusCode) {
-                return .error(.apiError(statusCode: httpResponse.statusCode, errorData: data))
-            } else {
+
+            switch httpResponse.statusCode {
+            case 200 ... 299:
                 return .success
+            default:
+                return .error(.apiError(statusCode: httpResponse.statusCode, data: data))
             }
         } catch let error as URLError {
             switch error.code {
             case .cancelled:
                 return .cancelled
             case .badURL, .cannotConnectToHost, .serverCertificateUntrusted:
-                return .error(HServiceError.malformedRequestError)
+                return .error(.malformedRequestError)
             case .timedOut:
-                return .error(HServiceError.timeoutError)
+                return .error(.timeoutError)
             case .notConnectedToInternet, .networkConnectionLost:
-                return .error(HServiceError.noConectionError)
+                return .error(.noConnectionError)
             default:
-                return .error(HServiceError.badResponseError)
+                return .error(.invalidHttpResponse)
             }
         } catch let error {
-            return .error(HServiceError.badResponseError)
+            return .error(.invalidHttpResponse)
         }
     }
     

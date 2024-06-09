@@ -9,7 +9,7 @@ import Foundation
 import Harbor
 
 class KanyeQuoteGetService: HServiceProtocolWithResult {
-    typealias T = KanyeQuote
+    typealias Model = KanyeQuote
 
     var url: String = "https://api.kanye.rest/"
 

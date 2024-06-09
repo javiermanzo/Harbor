@@ -38,13 +38,13 @@ extension HServiceProtocolBase {
 
 // MARK: -  Protocol With Result
 public protocol HServiceProtocolWithResult: HServiceProtocolBase {
-    associatedtype T: Codable
+    associatedtype Model: Codable
     func parseData<T: Codable> (data: Data, model: T.Type) -> T?
-    func request() async -> HResponseWithResult<T>
+    func request() async -> HResponseWithResult<Model>
 }
 
 public extension HServiceProtocolWithResult {
-    public func parseData<T: Codable> (data: Data, model: T.Type) -> T? {
+    func parseData<T: Codable> (data: Data, model: T.Type) -> T? {
         let decoder = JSONDecoder()
         do {
             return try decoder.decode(T.self, from: data)
@@ -53,8 +53,8 @@ public extension HServiceProtocolWithResult {
         }
     }
     
-    public func request() async -> HResponseWithResult<T> {
-        return await HServiceManager.request(model: T.self, service: self)
+    func request() async -> HResponseWithResult<Model> {
+        return await HServiceManager.request(model: Model.self, service: self)
     }
 }
 
@@ -64,7 +64,7 @@ public protocol HServiceProtocol: HServiceProtocolBase {
 }
 
 public extension HServiceProtocol {
-    public func request() async -> HResponse {
+    func request() async -> HResponse {
         return await HServiceManager.request(service: self)
     }
 }

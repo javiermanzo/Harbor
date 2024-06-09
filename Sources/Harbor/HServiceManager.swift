@@ -15,7 +15,7 @@ internal final class HServiceManager {
     // MARK: -  Request With Result
     static func request<T: Codable, P: HServiceProtocolWithResult>(model: T.Type, service: P) async -> HResponseWithResult<T> {
         if !self.isConnectedToNetwork() {
-            return .error(HServiceError.noConnectionError)
+            return .error(.noConnectionError)
         }
         
         if service.needAuth {
@@ -29,7 +29,7 @@ internal final class HServiceManager {
                 async let result = self.requestHandler(model: model, service: service)
                 return await result
             } else {
-                return .error(HServiceError.authProviderNeeded)
+                return .error(.authProviderNeeded)
             }
         } else {
             async let result = self.requestHandler(model: model, service: service)
@@ -39,7 +39,7 @@ internal final class HServiceManager {
     
     private static func requestHandler<T: Codable, P: HServiceProtocolWithResult>(model: T.Type, service: P) async -> HResponseWithResult<T> {
         guard let request = self.buildRequest(service: service) else {
-            return .error(HServiceError.malformedRequestError)
+            return .error(.malformedRequestError)
         }
         
         if let service = service as? HDebugServiceProtocol {
@@ -88,7 +88,7 @@ internal final class HServiceManager {
     // MARK: -  Request Without Result
     static func request<P: HServiceProtocol>(service: P) async -> HResponse {
         if !self.isConnectedToNetwork() {
-            return .error(HServiceError.noConnectionError)
+            return .error(.noConnectionError)
         }
         
         if service.needAuth {
@@ -102,7 +102,7 @@ internal final class HServiceManager {
                 async let result = self.requestHandler(service: service)
                 return await result
             } else {
-                return .error(HServiceError.authProviderNeeded)
+                return .error(.authProviderNeeded)
             }
         } else {
             async let result = self.requestHandler(service: service)
@@ -112,7 +112,7 @@ internal final class HServiceManager {
     
     private static func requestHandler<P: HServiceProtocol>(service: P) async -> HResponse {
         guard let request = self.buildRequest(service: service) else {
-            return .error(HServiceError.malformedRequestError)
+            return .error(.malformedRequestError)
         }
         
         if let service = service as? HDebugServiceProtocol {

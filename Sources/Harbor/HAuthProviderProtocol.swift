@@ -8,7 +8,7 @@
 import Foundation
 
 public protocol HAuthProviderProtocol {
-    func getCredentialsHeader() async -> HAuthCredentialHeader
+    func getCredentialHeader() async -> HAuthCredentialHeader
     func authFailed()
 }
 

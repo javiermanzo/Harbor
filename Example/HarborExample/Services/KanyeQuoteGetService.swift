@@ -15,7 +15,7 @@ class KanyeQuoteGetService: HServiceProtocolWithResult {
 
     var httpMethod: HHttpMethod = .get
 
-    var headers: [String : String]?
+    var headerParameters: [String : String]?
 
     var queryParameters: [String : String]? = nil
 

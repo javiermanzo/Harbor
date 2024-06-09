@@ -11,7 +11,7 @@ import Foundation
 public protocol HServiceProtocolBase: AnyObject {
     var url: String { get set }
     var httpMethod: HHttpMethod { get set }
-    var headers: [String: String]? { get set }
+    var headerParameters: [String: String]? { get set }
     var queryParameters: [String: String]? { get set }
     var pathParameters: [String: String]? { get set }
     var body: [String: Any]? { get set }

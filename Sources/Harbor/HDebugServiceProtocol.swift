@@ -38,7 +38,7 @@ public extension HDebugServiceProtocol {
             let info: String = "{\n\tneedAuth: " + String(describing: service.needAuth) +
             "\n\turl: " + String(describing: request.url) +
             "\n\thttpMethod: " + String(describing: service.httpMethod) +
-            "\n\theaders: " + String(describing: service.headers) +
+            "\n\theaderParameters: " + String(describing: service.headerParameters) +
             "\n\tqueryParameters: " + String(describing: service.queryParameters) +
             "\n\tpathParameters: " + String(describing: service.pathParameters) +
             "\n\tbody: " + String(describing: service.body) +

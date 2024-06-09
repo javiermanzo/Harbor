@@ -12,6 +12,7 @@ public enum HServiceError: Error {
     case invalidHttpResponse
     case invalidRequest
     case authProviderNeeded
+    case authNeeded
     case codableError
     case noConnectionError
     case malformedRequestError

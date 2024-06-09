@@ -8,5 +8,11 @@
 import Foundation
 
 public protocol HAuthProviderProtocol {
-    func getCredentialsHeader() async -> [String: String]
+    func getCredentialHeader() async -> HAuthCredentialHeader
+    func authFailed()
+}
+
+public struct HAuthCredentialHeader {
+    let key: String
+    let value: String
 }

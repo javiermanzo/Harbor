@@ -1,3 +1,4 @@
+
 <p align="center" width="100%">
     <img width="40%" src="https://raw.githubusercontent.com/javiermanzo/Harbor/main/Resources/Harbor.png"> 
 </p>
@@ -8,7 +9,7 @@
 
 Harbor is a library for making API requests in Swift in a simple way using async/await.
 
-##  Requirements 
+## Requirements
 
 - Swift 5
 - iOS 13.0
@@ -18,163 +19,209 @@ Harbor is a library for making API requests in Swift in a simple way using async
 You can add Harbor to your project using [CocoaPods](https://cocoapods.org/) or [Swift Package Manager](https://swift.org/package-manager/).
 
 ### CocoaPods
+
 Add the following line to your Podfile:
 
-`pod 'Harbor'` 
-
+```ruby
+pod 'Harbor'
+```
 
 ### Swift Package Manager
+
 Add the following to your `Package.swift` file:
 
-    dependencies: [
-        .package(url: "https://github.com/javiermanzo/Harbor.git")
-    ]
+```swift
+dependencies: [
+    .package(url: "https://github.com/javiermanzo/Harbor.git")
+]
+```
 
 ## Usage
 
 To make a request using Harbor, you need to create a class that implements the `HServiceProtocolWithResult` protocol if you want to parse the response, or `HServiceProtocol` if the response doesn't need to be parsed.
 
 ### Service Protocol
+
 #### HServiceProtocol
-    class MyRequest: HServiceProtocol {
+
+```swift
+class MyRequest: HServiceProtocol {
+    
+    var url: String = "YOUR_URL/{PATH_PARAM}"
+    
+    var httpMethod: HHttpMethod = .post
+    
+    var headers: [String : String]?
+    
+    var queryParameters: [String : String]? = nil
+    
+    var pathParameters: [String : String]? = nil
+    
+    var body: [String : Any]? = nil
+    
+    var needAuth: Bool = true
+    
+    var timeout: TimeInterval = 5
+    
+    init() {
+        self.pathParameters = [
+            "PATH_PARAM" : "value"
+        ]
         
-        var url: String = "YOUR_URL/{PATH_PARAM}"
+        self.body = [
+            "bodyParameter" : "value"
+        ]
         
-        var httpMethod: HHttpMethod = .post
-        
-        var headers: [String : String]?
-        
-        var queryParameters: [String : String]? = nil
-        
-        var pathParameters: [String : String]? = nil
-        
-        var body: [String : Any]? = nil
-        
-        var needAuth: Bool = true
-        
-        var timeout: TimeInterval = 5
-        
-        init() {
-            self.pathParameters = [
-                "PATH_PARAM" : "value"
-            ]
-            
-            self.body = [
-                "bodyParameter" : "value"
-            ]
-            
-            self.headers = [
-                "header" : "value"
-            ]
-        }
+        self.headers = [
+            "header" : "value"
+        ]
     }
+}
+```
 
 #### HServiceProtocolWithResult
-    class MyRequestWithResult: HServiceProtocolWithResult {
+
+```swift
+class MyRequestWithResult: HServiceProtocolWithResult {
+    
+    typealias T = MyModel
+    
+    var url: String = "YOUR_URL/{PATH_PARAM}"
+    
+    var httpMethod: HHttpMethod = .get
+    
+    var headers: [String : String]?
+    
+    var queryParameters: [String : String]? = nil
+    
+    var pathParameters: [String : String]? = nil
+    
+    var body: [String : Any]? = nil
+    
+    var needAuth: Bool = true
+    
+    var timeout: TimeInterval = 5
+    
+    init() {
+        self.pathParameters = [
+            "PATH_PARAM" : "value"
+        ]
         
-        typealias T = MyModel
+        self.queryParameters = [
+            "queryParameter" : "value"
+        ]
         
-        var url: String = "YOUR_URL/{PATH_PARAM}"
-        
-        var httpMethod: HHttpMethod = .get
-        
-        var headers: [String : String]?
-        
-        var queryParameters: [String : String]? = nil
-        
-        var pathParameters: [String : String]? = nil
-        
-        var body: [String : Any]? = nil
-        
-        var needAuth: Bool = true
-        
-        var timeout: TimeInterval = 5
-        
-        init() {
-            self.pathParameters = [
-                "PATH_PARAM" : "value"
-            ]
-            
-            self.queryParameters = [
-                "queryParameter" : "value"
-            ]
-            
-            self.headers = [
-                "header" : "value"
-            ]
-        }
+        self.headers = [
+            "header" : "value"
+        ]
     }
+}
+```
 
 Once the request class is created, you can execute the request using the `request` method.
 
-    Task {
-         let response = await MyRequestWithResult().request()
-    }
+```swift
+Task {
+    let response = await MyRequestWithResult().request()
+}
+```
 
 ### Response
+
 #### HResponse
+
 If you use `HServiceProtocol`, the result of calling `request()` will be an `HResponse` enum.
 
-    switch response {
-    case .success:
-         break
-    case .cancelled:
-         break
-    case .error(let error):
-         break
-    }
+```swift
+switch response {
+case .success:
+    break
+case .cancelled:
+    break
+case .error(let error):
+    break
+}
+```
 
 #### HResponseWithResult
+
 If you use `HServiceProtocolWithResult`, the result of calling `request()` will be an `HResponseWithResult` enum.
 
-    switch response {
-    case .success(let result):
-         break
-    case .cancelled:
-         break
-    case .error(let error):
-         break
-    }
+```swift
+switch response {
+case .success(let result):
+    break
+case .cancelled:
+    break
+case .error(let error):
+    break
+}
+```
 
 ### Auth Provider
-You can also implement the `HAuthProviderProtocol` if you need to handle authentication. 
 
-You `setAuthProvider` method of the `Harbor` class to set the authentication provider.
+You can also implement the `HAuthProviderProtocol` if you need to handle authentication. Use the `setAuthProvider` method of the `Harbor` class to set the authentication provider.
 
-You have to create a class that implements `HAuthProviderProtocol`
+You need to create a class that implements `HAuthProviderProtocol`:
 
-    class MyAuthProvider: HAuthProviderProtocol {
-        func getCredentialHeader() -> HAuthorizationHeader {
-            // Return a HAuthorizationHeader instance
-        }
+```swift
+class MyAuthProvider: HAuthProviderProtocol {
+    func getCredentialHeader() -> HAuthorizationHeader {
+        // Return a HAuthorizationHeader instance
     }
-After that, you have to set your Auth provider:
+}
+```
 
-    Harbor.setAuthProvider(MyAuthProvider())
+After that, set your Auth provider:
 
-If the request class has the `needAuth` property set to `true`, Harbor will call the `getAuthorizationHeader` method of the authentication provider to get the HAuthorizationHeader instance to set it in the header before executing the request.
+```swift
+Harbor.setAuthProvider(MyAuthProvider())
+```
+
+If the request class has the `needAuth` property set to `true`, Harbor will call the `getAuthorizationHeader` method of the authentication provider to get the `HAuthorizationHeader` instance to set it in the header before executing the request.
+
+### Default Headers
+
+Harbor allows you to set default headers that will be included in every request. This can be useful for adding common headers such as user agent or content types to all your API requests.
+
+To set default headers, you can call the `setDefaultHeaders` method:
+
+```swift
+Harbor.setDefaultHeaders([
+    "Authorization": "Bearer YOUR_ACCESS_TOKEN",
+    "Content-Type": "application/json"
+])
+```
+
+Before each request is executed, Harbor will merge the default headers with the headers specified in the request class. This ensures that all necessary headers are included in the request.
+
+
+With this feature, you can manage your request headers more efficiently and ensure consistency across all your API requests.
 
 ### Cancel Request
+
 You can cancel the task of the request if it is running. `request()` will return `cancelled`.
 
-    let task = Task {
-        let response = await MyRequestWithResult().request()
-    }
-    task.cancel()
+```swift
+let task = Task {
+    let response = await MyRequestWithResult().request()
+}
+task.cancel()
+```
 
 ## Debug
 
-You can print debug information about your request using the `HDebugServiceProtocol` protocol. 
-Implement the protocol in the request class.
+You can print debug information about your request using the `HDebugServiceProtocol` protocol. Implement the protocol in the request class.
 
+```swift
+class MyRequest: HServiceProtocolWithResult, HDebugServiceProtocol {
+    var debugType: HDebugServiceType = .requestAndResponse
+    
+    // ...
+}
+```
 
-    class MyRequest: HServiceProtocolWithResult, HDebugServiceProtocol {
-        var  debugType: HDebugServiceType = .requestAndResponse
-        
-        ....
-    }
-
-`debugType` defines what you want to print in console. The options are  `none, request, response or requestAndResponse`.
+`debugType` defines what you want to print in the console. The options are `none, request, response or requestAndResponse`.
 
 When your request is called, you will see in the Xcode console the information about your request.
 
@@ -188,4 +235,4 @@ Harbor was created by [Javier Manzo](https://www.linkedin.com/in/javiermanzo/).
 
 ## License
 
-Harbor is available under the MIT license. See the  [LICENSE](https://github.com/javiermanzo/Harbor/blob/main/LICENSE.md)  file for more info.
+Harbor is available under the MIT license. See the [LICENSE](https://github.com/javiermanzo/Harbor/blob/main/LICENSE.md) file for more info.

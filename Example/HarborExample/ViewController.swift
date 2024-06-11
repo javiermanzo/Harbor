@@ -45,7 +45,7 @@ final class ViewController: UIViewController {
                 textAlert = result.quote
             case .cancelled:
                 textAlert = "Request Cancelled"
-            case .error(let error):
+            case .error:
                 textAlert = "Request Error"
             }
             

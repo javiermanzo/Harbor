@@ -38,6 +38,54 @@ dependencies: [
 
 ## Usage
 
+### Configuration
+This provides a centralized way to manage common configuration.
+
+To set up the configuration, you can create an instance of the `HConfig` struct and pass it to the `configure` method.
+
+#### Default Headers
+
+With the configuration setup, you can include default headers in every request. This can be useful for adding common headers such as authorization tokens or content types to all your API requests.
+
+To configure the default headers:
+```swift
+Harbor.configure(HConfig(
+    defaultHeaderParameters: [
+        "MY_CUSTOM_HEADER": "VALUE"
+    ],
+    ...
+))
+```
+
+Before each request is executed, Harbor will merge the default headers with the headers specified in the request class. This ensures that all necessary headers are included in the request.
+
+With this feature, you can manage your request headers more efficiently and ensure consistency across all your API requests.
+
+#### Auth Provider
+
+You can also implement the `HAuthProviderProtocol` if you need to handle authentication. Use the `configure` method of the `Harbor` class to set the authentication provider.
+
+You need to create a class that implements `HAuthProviderProtocol`:
+
+```swift
+class MyAuthProvider: HAuthProviderProtocol {
+    func getCredentialHeader() -> HAuthorizationHeader {
+        // Return a HAuthorizationHeader instance
+    }
+}
+```
+
+After that, set your Auth provider:
+
+```swift
+Harbor.configure(HConfig(
+    authProvider: MyAuthProvider(),
+    ...
+))
+```
+
+If the request class has the `needsAuth` property set to `true`, Harbor will call the `getAuthorizationHeader` method of the authentication provider to get the `HAuthorizationHeader` instance to set it in the header before executing the request.
+
 ### Request Protocols
 
 To make a request using Harbor, you need to create a class that implements one of the following protocols.
@@ -124,44 +172,6 @@ case .error(let error):
     break
 }
 ```
-
-### Auth Provider
-
-You can also implement the `HAuthProviderProtocol` if you need to handle authentication. Use the `setAuthProvider` method of the `Harbor` class to set the authentication provider.
-
-You need to create a class that implements `HAuthProviderProtocol`:
-
-```swift
-class MyAuthProvider: HAuthProviderProtocol {
-    func getCredentialHeader() -> HAuthorizationHeader {
-        // Return a HAuthorizationHeader instance
-    }
-}
-```
-
-After that, set your Auth provider:
-
-```swift
-Harbor.setAuthProvider(MyAuthProvider())
-```
-
-If the request class has the `needAuth` property set to `true`, Harbor will call the `getAuthorizationHeader` method of the authentication provider to get the `HAuthorizationHeader` instance to set it in the header before executing the request.
-
-### Default Headers
-
-Harbor allows you to set default headers that will be included in every request. This can be useful for adding common headers such as user agent or content types to all your API requests.
-
-To set default headers, you can call the `setDefaultHeaders` method:
-
-```swift
-Harbor.setDefaultHeaders([
-    "MY_CUSTOM_HEADER": "VALUE"
-])
-```
-
-Before each request is executed, Harbor will merge the default headers with the headers specified in the request class. This ensures that all necessary headers are included in the request.
-
-With this feature, you can manage your request headers more efficiently and ensure consistency across all your API requests.
 
 ### Cancel Request
 

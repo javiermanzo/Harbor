@@ -10,12 +10,8 @@ import Foundation
 public final class Harbor {
 
     private init() {}
-    
-    public static func setAuthProvider(_ authProvider: HAuthProviderProtocol) {
-        HRequestManager.authProvider = authProvider
-    }
 
-    public static func setDefaultHeaderParameters(_ headerParameters: [String: String]?) {
-        HRequestManager.defaultHeaderParameters = headerParameters
+    public static func configure(_ config: HConfig) {
+        HRequestManager.config = config
     }
 }

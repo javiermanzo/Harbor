@@ -8,12 +8,10 @@
 import Foundation
 import Harbor
 
-class KanyeQuoteGetService: HServiceProtocolWithResult {
+final class KanyeQuoteGetService: HServiceGetRequestProtocol {
     typealias Model = KanyeQuote
 
     var url: String = "https://api.kanye.rest/"
-
-    var httpMethod: HHttpMethod = .get
 
     var headerParameters: [String : String]?
 
@@ -23,11 +21,9 @@ class KanyeQuoteGetService: HServiceProtocolWithResult {
 
     var body: [String : Any]? = nil
 
-    var needAuth: Bool = false
+    var needsAuth: Bool = false
 
     var timeout: TimeInterval = 5
 
-    init() {
-
-    }
+    init() { }
 }

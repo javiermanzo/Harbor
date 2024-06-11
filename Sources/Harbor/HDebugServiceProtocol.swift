@@ -19,13 +19,14 @@ public enum HDebugServiceType {
 }
 
 public extension HDebugServiceProtocol {
-    func printResponse(httpResponse: HTTPURLResponse, data : Data) {
+    func printResponse(httpResponse: HTTPURLResponse, data: Data, duration: Double) {
         if self.debugType == .response || self.debugType == .requestAndResponse {
-            let responseData:String = String(data: data, encoding: String.Encoding.ascii) ?? "<uknown>"
+            let responseData: String = String(data: data, encoding: String.Encoding.ascii) ?? "<uknown>"
             print("📎------------------------------------------------------------------------------📎")
             print("-----------------------------------RESPONSE---------------------------------------")
             print("🌐 Service: " + String(describing: self) + "<" + String(describing: ObjectIdentifier(self)) + ">" + "\n" +
                   "ℹ️ Response: " + httpResponse.debugDescription + "\n" +
+                  "⌛️ Response time: \(String(format: "%.2f", duration))ms \n" +
                   "🏋️ Data size: " + data.debugDescription + "\n" +
                   "📄 Data value: " + responseData)
             print("📎------------------------------------------------------------------------------📎")
@@ -33,17 +34,23 @@ public extension HDebugServiceProtocol {
     }
     
     func printRequest(request: URLRequest) {
-        if let service = self as? HServiceProtocolBase,
+        if let service = self as? HServiceBaseRequestProtocol,
            self.debugType == .request || self.debugType == .requestAndResponse {
-            let info: String = "{\n\tneedAuth: " + String(describing: service.needAuth) +
+            var info: String = "{\n\tneedsAuth: " + String(describing: service.needsAuth) +
             "\n\turl: " + String(describing: request.url) +
             "\n\thttpMethod: " + String(describing: service.httpMethod) +
-            "\n\theaderParameters: " + String(describing: service.headerParameters) +
-            "\n\tqueryParameters: " + String(describing: service.queryParameters) +
-            "\n\tpathParameters: " + String(describing: service.pathParameters) +
-            "\n\tbody: " + String(describing: service.body) +
-            "\n\ttimeout: " + String(describing: service.timeout) +
-            "\n}"
+            "\n\theaders: " + String(describing: service.headerParameters) +
+            "\n\tpathParameters: " + String(describing: service.pathParameters)
+            
+            if let s = self as? (any HServiceGetRequestProtocol) {
+                info += "\n\tqueryParameters: " + String(describing: s.queryParameters)
+            }
+            
+            if let s = self as? HServiceBodyRequestProtocol {
+                info += "\n\tbody: " + String(describing: s.bodyParameters)
+            }
+            
+            info += "\n}"
             
             let curl = self.generateCurl(request: request)
             

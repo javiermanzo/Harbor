@@ -7,8 +7,8 @@
 
 import UIKit
 
-class ViewController: UIViewController {
-    
+final class ViewController: UIViewController {
+
     let myButton: UIButton = {
         let button = UIButton()
         button.translatesAutoresizingMaskIntoConstraints = false
@@ -17,7 +17,6 @@ class ViewController: UIViewController {
         button.backgroundColor = .systemBlue
         return button
     }()
-    
     
     override func viewDidLoad() {
         super.viewDidLoad()

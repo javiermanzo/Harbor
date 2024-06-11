@@ -11,8 +11,7 @@ import SystemConfiguration
 internal final class HRequestManager {
 
     // TODO: Move to a config class
-    internal static var authProvider: HAuthProviderProtocol?
-    internal static var defaultHeaderParameters: [String: String]?
+    internal static var config: HConfig = HConfig()
 }
 
 // MARK: - Request With Result
@@ -23,7 +22,7 @@ extension HRequestManager {
         }
         
         if request.needsAuth {
-            if let authCredential = await authProvider?.getAuthorizationHeader() {
+            if let authCredential = await Self.config.authProvider?.getAuthorizationHeader() {
                 if request.headerParameters == nil {
                     request.headerParameters = [String: String]()
                 }
@@ -74,7 +73,7 @@ extension HRequestManager {
                 }
             case 401:
                 if await !hasNewAuthorizationHeader(request: request) {
-                    Self.authProvider?.authFailed()
+                    Self.config.authProvider?.authFailed()
                 }
                 return .error(.authNeeded)
             default:
@@ -107,7 +106,7 @@ extension HRequestManager {
         }
         
         if request.needsAuth {
-            if let authCredential = await authProvider?.getAuthorizationHeader() {
+            if let authCredential = await Self.config.authProvider?.getAuthorizationHeader() {
                 if request.headerParameters == nil {
                     request.headerParameters = [String: String]()
                 }
@@ -154,7 +153,7 @@ extension HRequestManager {
                 return .success
             case 401:
                 if await !hasNewAuthorizationHeader(request: request) {
-                    Self.authProvider?.authFailed()
+                    Self.config.authProvider?.authFailed()
                 }
                 return .error(.authNeeded)
             default:
@@ -278,8 +277,8 @@ private extension HRequestManager {
     }
     
     static func getHeaderParameters(requestHeaderParameters: [String: String]? = nil) -> [String: String] {
-        var headers: [String: String] = defaultHeaderParameters ?? [String: String]()
-        
+        var headers: [String: String] = Self.config.defaultHeaderParameters ?? [String: String]()
+
         if let requestHeaderParameters, !requestHeaderParameters.isEmpty {
             headers.merge(requestHeaderParameters, uniquingKeysWith: { (_, new) in new })
         }
@@ -293,7 +292,7 @@ private extension HRequestManager {
     // This method checks that the used authorization headers is an old one
     static func hasNewAuthorizationHeader(request: HRequestBaseRequestProtocol) async -> Bool {
         guard let headerParameters = request.headerParameters,
-              let currentAuthorizationHeader = await authProvider?.getAuthorizationHeader(),
+              let currentAuthorizationHeader = await Self.config.authProvider?.getAuthorizationHeader(),
               let usedAuthorization = headerParameters[currentAuthorizationHeader.key]
         else { return false }
         

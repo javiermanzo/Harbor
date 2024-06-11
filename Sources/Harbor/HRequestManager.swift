@@ -1,5 +1,5 @@
 //
-//  HServiceManager.swift
+//  HRequestManager.swift
 //  Harbor
 //
 //  Created by Javier Manzo on 16/02/2023.
@@ -8,15 +8,15 @@
 import Foundation
 import SystemConfiguration
 
-internal final class HServiceManager {
-    
+internal final class HRequestManager {
+
     // TODO: Move to a config class
     internal static var authProvider: HAuthProviderProtocol?
     internal static var defaultHeaderParameters: [String: String]?
 }
 
 // MARK: - Request With Result
-extension HServiceManager {
+extension HRequestManager {
     static func request<T: Codable, P: HServiceResultRequestProtocol>(model: T.Type, service: P) async -> HResponseWithResult<T> {
         if !self.isConnectedToNetwork() {
             return .error(.noConnectionError)
@@ -100,7 +100,7 @@ extension HServiceManager {
 }
 
 // MARK: - Request Without Result
-extension HServiceManager {
+extension HRequestManager {
     static func request<P: HServiceEmptyResponseProtocol>(service: P) async -> HResponse {
         if !self.isConnectedToNetwork() {
             return .error(.noConnectionError)
@@ -180,7 +180,7 @@ extension HServiceManager {
 }
 
 // MARK: - Request Builder Functions
-private extension HServiceManager {
+private extension HRequestManager {
     static func buildRequest<P: HServiceBaseRequestProtocol>(service: P) -> URLRequest? {
         let url: URL?
         
@@ -289,7 +289,7 @@ private extension HServiceManager {
 }
 
 // MARK: - Auth Validation Functions
-private extension HServiceManager {
+private extension HRequestManager {
     // This method checks that the used authorization headers is an old one
     static func hasNewAuthorizationHeader(service: HServiceBaseRequestProtocol) async -> Bool {
         guard let headerParameters = service.headerParameters,
@@ -308,7 +308,7 @@ private extension HServiceManager {
 }
 
 // MARK: - Connectivity Functions
-private extension HServiceManager {
+private extension HRequestManager {
     static func isConnectedToNetwork() -> Bool {
         var zeroAddress = sockaddr_in(sin_len: 0, sin_family: 0, sin_port: 0, sin_addr: in_addr(s_addr: 0), sin_zero: (0, 0, 0, 0, 0, 0, 0, 0))
         zeroAddress.sin_len = UInt8(MemoryLayout.size(ofValue: zeroAddress))

@@ -29,7 +29,7 @@ public protocol HServiceEmptyResponseProtocol: HServiceBaseRequestProtocol {
 
 public extension HServiceEmptyResponseProtocol {
     func request() async -> HResponse {
-        return await HServiceManager.request(service: self)
+        return await HRequestManager.request(service: self)
     }
 }
 
@@ -42,7 +42,7 @@ public protocol HServiceResultRequestProtocol: HServiceBaseRequestProtocol {
 
 public extension HServiceResultRequestProtocol {
     func request() async -> HResponseWithResult<Model> {
-        return await HServiceManager.request(model: Model.self, service: self)
+        return await HRequestManager.request(model: Model.self, service: self)
     }
     
     func parseData<Model: Codable> (data: Data, model: Model.Type) -> Model? {

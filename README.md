@@ -38,53 +38,86 @@ dependencies: [
 
 ## Usage
 
-### Request Protocols
+To make a request using Harbor, you need to create a class that implements the `HServiceProtocolWithResult` protocol if you want to parse the response, or `HServiceProtocol` if the response doesn't need to be parsed.
 
-To make a request using Harbor, you need to create a class that implements one of the following protocols.
+### Service Protocol
 
-#### HServiceGetRequestProtocol
-Use the `HServiceGetRequestProtocol` protocol if you want to send a GET request. This protocol includes query parameters that can be added to the request URL.
+#### HServiceProtocol
 
-##### Extra Properties:
-- `queryParameters`: A dictionary of query parameters that will be added to the URL.
-- `Model`: The result of the request will be parsed to this entity.
+```swift
+class MyRequest: HServiceProtocol {
+    
+    var url: String = "YOUR_URL/{PATH_PARAM}"
+    
+    var httpMethod: HHttpMethod = .post
+    
+    var headers: [String : String]?
+    
+    var queryParameters: [String : String]? = nil
+    
+    var pathParameters: [String : String]? = nil
+    
+    var body: [String : Any]? = nil
+    
+    var needAuth: Bool = true
+    
+    var timeout: TimeInterval = 5
+    
+    init() {
+        self.pathParameters = [
+            "PATH_PARAM" : "value"
+        ]
+        
+        self.body = [
+            "bodyParameter" : "value"
+        ]
+        
+        self.headers = [
+            "header" : "value"
+        ]
+    }
+}
+```
 
+#### HServiceProtocolWithResult
 
-#### HServicePostRequestProtocol
-Use the `HServicePostRequestProtocol` protocol if you want to send a POST request.
+```swift
+class MyRequestWithResult: HServiceProtocolWithResult {
+    
+    typealias T = MyModel
+    
+    var url: String = "YOUR_URL/{PATH_PARAM}"
+    
+    var httpMethod: HHttpMethod = .get
+    
+    var headers: [String : String]?
+    
+    var queryParameters: [String : String]? = nil
+    
+    var pathParameters: [String : String]? = nil
+    
+    var body: [String : Any]? = nil
+    
+    var needAuth: Bool = true
+    
+    var timeout: TimeInterval = 5
+    
+    init() {
+        self.pathParameters = [
+            "PATH_PARAM" : "value"
+        ]
+        
+        self.queryParameters = [
+            "queryParameter" : "value"
+        ]
+        
+        self.headers = [
+            "header" : "value"
+        ]
+    }
+}
+```
 
-##### Extra Properties:
-- `bodyParameters`: A dictionary of parameters that will be included in the body of the request.
-- `bodyType`: Specifies the type of data being sent in the body of the request. It can be either `json` or `multipart`.
-
-
-#### HServicePatchRequestProtocol
-Use the `HServicePatchRequestProtocol` protocol if you want to send a PATCH request.
-
-##### Extra Properties:
-- `bodyParameters`: A dictionary of parameters that will be included in the body of the request.
-- `bodyType`: Specifies the type of data being sent in the body of the request. It can be either `json` or `multipart`.
-
-
-#### HServicePutRequestProtocol
-Use the `HServicePutRequestProtocol` protocol if you want to send a PUT request.
-
-##### Extra Properties:
-- `bodyParameters`: A dictionary of parameters that will be included in the body of the request.
-- `bodyType`: Specifies the type of data being sent in the body of the request. It can be either `json` or `multipart`.
-
-
-#### HServiceDeleteRequestProtocol
-Use the `HServiceDeleteRequestProtocol` protocol if you want to send a DELETE request.
-
-
-#### HServiceResultRequestProtocol
-Use the `HServiceResultRequestProtocol` protocol if you want to parse the response into a specific model. This protocol requires you to define the type of model you expect in the response.
-
-##### Extra Properties:
-- `Model`: The result of the request will be parsed to this entity.
-
-### Request Calling
 Once the request class is created, you can execute the request using the `request` method.
 
 ```swift
@@ -97,7 +130,7 @@ Task {
 
 #### HResponse
 
-If you use a protocol different from `HServiceGetRequestProtocol` or `HServiceResultRequestProtocol`, the result of calling `request()` will be an `HResponse` enum.
+If you use `HServiceProtocol`, the result of calling `request()` will be an `HResponse` enum.
 
 ```swift
 switch response {
@@ -112,7 +145,7 @@ case .error(let error):
 
 #### HResponseWithResult
 
-If you use `HServiceGetRequestProtocol` or `HServiceResultRequestProtocol`, the result of calling `request()` will be an `HResponseWithResult` enum.
+If you use `HServiceProtocolWithResult`, the result of calling `request()` will be an `HResponseWithResult` enum.
 
 ```swift
 switch response {
@@ -155,11 +188,13 @@ To set default headers, you can call the `setDefaultHeaders` method:
 
 ```swift
 Harbor.setDefaultHeaders([
-    "MY_CUSTOM_HEADER": "VALUE"
+    "Authorization": "Bearer YOUR_ACCESS_TOKEN",
+    "Content-Type": "application/json"
 ])
 ```
 
 Before each request is executed, Harbor will merge the default headers with the headers specified in the request class. This ensures that all necessary headers are included in the request.
+
 
 With this feature, you can manage your request headers more efficiently and ensure consistency across all your API requests.
 
@@ -179,7 +214,7 @@ task.cancel()
 You can print debug information about your request using the `HDebugServiceProtocol` protocol. Implement the protocol in the request class.
 
 ```swift
-class MyRequest: HServiceResultRequestProtocol, HDebugServiceProtocol {
+class MyRequest: HServiceProtocolWithResult, HDebugServiceProtocol {
     var debugType: HDebugServiceType = .requestAndResponse
     
     // ...

@@ -36,144 +36,137 @@ To make a request using Harbor, you need to create a class that implements the `
 
 ### Service Protocol
 #### HServiceProtocol
-    class MyRequest: HServiceProtocol {
+```swift
+class MyRequest: HServiceProtocol {
+    
+    var url: String = "YOUR_URL/{PATH_PARAM}"
+    var httpMethod: HHttpMethod = .post
+    var headers: [String : String]?
+    var queryParameters: [String : String]? = nil
+    var pathParameters: [String : String]? = nil
+    var body: [String : Any]? = nil
+    var needAuth: Bool = true
+    var timeout: TimeInterval = 5
+    
+    init() {
+        self.pathParameters = [
+            "PATH_PARAM" : "value"
+        ]
         
-        var url: String = "YOUR_URL/{PATH_PARAM}"
+        self.body = [
+            "bodyParameter" : "value"
+        ]
         
-        var httpMethod: HHttpMethod = .post
-        
-        var headers: [String : String]?
-        
-        var queryParameters: [String : String]? = nil
-        
-        var pathParameters: [String : String]? = nil
-        
-        var body: [String : Any]? = nil
-        
-        var needAuth: Bool = true
-        
-        var timeout: TimeInterval = 5
-        
-        init() {
-            self.pathParameters = [
-                "PATH_PARAM" : "value"
-            ]
-            
-            self.body = [
-                "bodyParameter" : "value"
-            ]
-            
-            self.headers = [
-                "header" : "value"
-            ]
-        }
+        self.headers = [
+            "header" : "value"
+        ]
     }
+}
+```
 
 #### HServiceProtocolWithResult
-    class MyRequestWithResult: HServiceProtocolWithResult {
+```swift
+class MyRequestWithResult: HServiceProtocolWithResult {
+    
+    typealias T = MyModel
+    var url: String = "YOUR_URL/{PATH_PARAM}"
+    var httpMethod: HHttpMethod = .get
+    var headers: [String : String]?
+    var queryParameters: [String : String]? = nil
+    var pathParameters: [String : String]? = nil
+    var body: [String : Any]? = nil
+    var needAuth: Bool = true
+    var timeout: TimeInterval = 5
+    
+    init() {
+        self.pathParameters = [
+            "PATH_PARAM" : "value"
+        ]
         
-        typealias T = MyModel
+        self.queryParameters = [
+            "queryParameter" : "value"
+        ]
         
-        var url: String = "YOUR_URL/{PATH_PARAM}"
-        
-        var httpMethod: HHttpMethod = .get
-        
-        var headers: [String : String]?
-        
-        var queryParameters: [String : String]? = nil
-        
-        var pathParameters: [String : String]? = nil
-        
-        var body: [String : Any]? = nil
-        
-        var needAuth: Bool = true
-        
-        var timeout: TimeInterval = 5
-        
-        init() {
-            self.pathParameters = [
-                "PATH_PARAM" : "value"
-            ]
-            
-            self.queryParameters = [
-                "queryParameter" : "value"
-            ]
-            
-            self.headers = [
-                "header" : "value"
-            ]
-        }
+        self.headers = [
+            "header" : "value"
+        ]
     }
+}
+```
 
 Once the request class is created, you can execute the request using the `request` method.
-
-    Task {
-         let response = await MyRequestWithResult().request()
-    }
+```swift
+Task {
+     let response = await MyRequestWithResult().request()
+}
+```
 
 ### Response
 #### HResponse
 If you use `HServiceProtocol`, the result of calling `request()` will be an `HResponse` enum.
-
-    switch response {
-    case .success:
-         break
-    case .cancelled:
-         break
-    case .error(let error):
-         break
-    }
-
+```swift
+switch response {
+case .success:
+     break
+case .cancelled:
+     break
+case .error(let error):
+     break
+}
+```
 #### HResponseWithResult
 If you use `HServiceProtocolWithResult`, the result of calling `request()` will be an `HResponseWithResult` enum.
-
-    switch response {
-    case .success(let result):
-         break
-    case .cancelled:
-         break
-    case .error(let error):
-         break
-    }
-
+```swift
+switch response {
+case .success(let result):
+     break
+case .cancelled:
+     break
+case .error(let error):
+     break
+}
+```
 ### Auth Provider
 You can also implement the `HAuthProviderProtocol` protocol if you need to handle authentication. 
 
 You `setAuthProvider` method of the `Harbor` class to set the authentication provider.
 
 You have to create a class that implements `HAuthProviderProtocol`
-
-    class MyAuthProvider: HAuthProviderProtocol {
-        func getCredentialsHeader() -> [String : String] {
-            // Return the authentication headers
-        }
+```swift
+class MyAuthProvider: HAuthProviderProtocol {
+    func getCredentialsHeader() -> [String : String] {
+        // Return the authentication headers
     }
+}
+```
 After that, you have to set your Auth provider:
 
-    Harbor.setAuthProvider(MyAuthProvider())
+```swift 
+Harbor.setAuthProvider(MyAuthProvider())
+```
 
 If the request class has the `needAuth` property set to `true`, Harbor will call the `getCredentialsHeader` method of the authentication provider to get the authentication headers before executing the request.
 
 ### Cancel Request
 You can cancel the task of the request if it is running. `request()` will return `cancelled`.
 
-    let task = Task {
-        let response = await MyRequestWithResult().request()
-    }
-    task.cancel()
-
+```swift
+let task = Task {
+    let response = await MyRequestWithResult().request()
+}
+task.cancel()
+```
 ## Debug
 
 You can print debug information about your request using the `HDebugServiceProtocol` protocol. 
 Implement the protocol in the request class.
 
-
-    class MyRequest: HServiceProtocolWithResult, HDebugServiceProtocol {
-        var  debugType: HDebugServiceType = .requestAndResponse
-        
-        ....
-    }
-
+```swift
+class MyRequest: HServiceProtocolWithResult, HDebugServiceProtocol {
+    var debugType: HDebugServiceType = .requestAndResponse
+    ....
+}
+```
 `debugType` defines what you want to print in console. The options are  `none, request, response or requestAndResponse`.
 
 When your request is called, you will see in the Xcode console the information about your request.

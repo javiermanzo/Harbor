@@ -46,7 +46,7 @@ extension HRequestManager {
             return .error(.malformedRequestError)
         }
         
-        if let service = service as? HDebugServiceProtocol {
+        if let service = service as? HDebugRequestProtocol {
             service.printRequest(request: urlRequest)
         }
         
@@ -61,7 +61,7 @@ extension HRequestManager {
                 return .error(.invalidHttpResponse)
             }
             
-            if let service = service as? HDebugServiceProtocol {
+            if let service = service as? HDebugRequestProtocol {
                 service.printResponse(httpResponse: httpResponse, data: data, duration: duration)
             }
             
@@ -130,7 +130,7 @@ extension HRequestManager {
             return .error(.malformedRequestError)
         }
         
-        if let service = service as? HDebugServiceProtocol {
+        if let service = service as? HDebugRequestProtocol {
             service.printRequest(request: urlRequest)
         }
         
@@ -145,7 +145,7 @@ extension HRequestManager {
                 return .error(.invalidHttpResponse)
             }
             
-            if let service = service as? HDebugServiceProtocol {
+            if let service = service as? HDebugRequestProtocol {
                 service.printResponse(httpResponse: httpResponse, data: data, duration: duration)
             }
             

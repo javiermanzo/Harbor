@@ -1,5 +1,5 @@
 //
-//  HDebugServiceProtocol.swift
+//  HDebugRequestProtocol.swift
 //  Harbor
 //
 //  Created by Javier Manzo on 16/02/2023.
@@ -7,24 +7,24 @@
 
 import Foundation
 
-public protocol HDebugServiceProtocol: AnyObject {
-    var debugType: HDebugServiceType { get set }
+public protocol HDebugRequestProtocol: AnyObject {
+    var debugType: HDebugRequestType { get set }
 }
 
-public enum HDebugServiceType {
+public enum HDebugRequestType {
     case none
     case request
     case response
     case requestAndResponse
 }
 
-public extension HDebugServiceProtocol {
+public extension HDebugRequestProtocol {
     func printResponse(httpResponse: HTTPURLResponse, data: Data, duration: Double) {
         if self.debugType == .response || self.debugType == .requestAndResponse {
             let responseData: String = String(data: data, encoding: String.Encoding.ascii) ?? "<uknown>"
             print("📎------------------------------------------------------------------------------📎")
             print("-----------------------------------RESPONSE---------------------------------------")
-            print("🌐 Service: " + String(describing: self) + "<" + String(describing: ObjectIdentifier(self)) + ">" + "\n" +
+            print("🌐 Request: " + String(describing: self) + "<" + String(describing: ObjectIdentifier(self)) + ">" + "\n" +
                   "ℹ️ Response: " + httpResponse.debugDescription + "\n" +
                   "⌛️ Response time: \(String(format: "%.2f", duration))ms \n" +
                   "🏋️ Data size: " + data.debugDescription + "\n" +
@@ -33,15 +33,15 @@ public extension HDebugServiceProtocol {
         }
     }
     
-    func printRequest(request: URLRequest) {
-        if let service = self as? HServiceBaseRequestProtocol,
+    func printRequest(urlRequest: URLRequest) {
+        if let request = self as? HServiceBaseRequestProtocol,
            self.debugType == .request || self.debugType == .requestAndResponse {
-            var info: String = "{\n\tneedsAuth: " + String(describing: service.needsAuth) +
-            "\n\turl: " + String(describing: request.url) +
-            "\n\thttpMethod: " + String(describing: service.httpMethod) +
-            "\n\theaders: " + String(describing: service.headerParameters) +
-            "\n\tpathParameters: " + String(describing: service.pathParameters)
-            
+            var info: String = "{\n\tneedsAuth: " + String(describing: request.needsAuth) +
+            "\n\turl: " + String(describing: urlRequest.url) +
+            "\n\thttpMethod: " + String(describing: request.httpMethod) +
+            "\n\theaders: " + String(describing: request.headerParameters) +
+            "\n\tpathParameters: " + String(describing: request.pathParameters)
+
             if let s = self as? (any HServiceGetRequestProtocol) {
                 info += "\n\tqueryParameters: " + String(describing: s.queryParameters)
             }
@@ -52,27 +52,27 @@ public extension HDebugServiceProtocol {
             
             info += "\n}"
             
-            let curl = self.generateCurl(request: request)
-            
+            let curl = self.generateCurl(urlRequest: urlRequest)
+
             print("📎------------------------------------------------------------------------------📎")
             print("------------------------------------REQUEST---------------------------------------")
-            print("🌐 Service:" + String(describing: service) + "<" + String(describing: ObjectIdentifier(self)) + ">" + "\n" +
+            print("🌐 Request:" + String(describing: request) + "<" + String(describing: ObjectIdentifier(self)) + ">" + "\n" +
                   "ℹ️ Details: " + info + "\n" +
                   "🏃‍♂️ curl: " + curl)
             print("📎------------------------------------------------------------------------------📎")
         }
     }
     
-    private func generateCurl(request: URLRequest) -> String {
+    private func generateCurl(urlRequest: URLRequest) -> String {
         var components = ["$ curl -v"]
         
-        guard let url = request.url,
+        guard let url = urlRequest.url,
               let /*host*/_ = url.host
         else {
             return "$ curl command could not be created"
         }
         
-        if let httpMethod = request.httpMethod, httpMethod != "GET" {
+        if let httpMethod = urlRequest.httpMethod, httpMethod != "GET" {
             components.append("-X \(httpMethod)")
         }
         
@@ -89,7 +89,7 @@ public extension HDebugServiceProtocol {
         URLSession.shared.configuration.httpAdditionalHeaders?.filter {  $0.0 != AnyHashable("Cookie") }
             .forEach { headers[$0.0] = $0.1 }
         
-        request.allHTTPHeaderFields?.filter { $0.0 != "Cookie" }
+        urlRequest.allHTTPHeaderFields?.filter { $0.0 != "Cookie" }
             .forEach { headers[$0.0] = $0.1 }
         
         components += headers.map {
@@ -98,7 +98,7 @@ public extension HDebugServiceProtocol {
             return "-H \"\($0.key): \(escapedValue)\""
         }
         
-        if let httpBodyData = request.httpBody, let httpBody = String(data: httpBodyData, encoding: .utf8) {
+        if let httpBodyData = urlRequest.httpBody, let httpBody = String(data: httpBodyData, encoding: .utf8) {
             var escapedBody = httpBody.replacingOccurrences(of: "\\\"", with: "\\\\\"")
             escapedBody = escapedBody.replacingOccurrences(of: "\"", with: "\\\"")
             

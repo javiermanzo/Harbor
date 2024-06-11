@@ -176,11 +176,11 @@ task.cancel()
 
 ## Debug
 
-You can print debug information about your request using the `HDebugServiceProtocol` protocol. Implement the protocol in the request class.
+You can print debug information about your request using the `HDebugRequestProtocol` protocol. Implement the protocol in the request class.
 
 ```swift
-class MyRequest: HServiceResultRequestProtocol, HDebugServiceProtocol {
-    var debugType: HDebugServiceType = .requestAndResponse
+class MyRequest: HServiceResultRequestProtocol, HDebugRequestProtocol {
+    var debugType: HDebugRequestType = .requestAndResponse
     
     // ...
 }

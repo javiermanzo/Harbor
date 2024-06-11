@@ -38,18 +38,18 @@ final class ViewController: UIViewController {
     @objc func buttonTapped()  {
         Task {
             let textAlert: String
-            let response = await KanyeQuoteGetService().request()
+            let response = await KanyeQuoteGetRequest().request()
             
             switch response {
             case .success(let result):
                 textAlert = result.quote
             case .cancelled:
-                textAlert = "Service Cancelled"
+                textAlert = "Request Cancelled"
             case .error(let error):
-                textAlert = "Service Error"
+                textAlert = "Request Error"
             }
             
-            self.presentAlert(title: "Service", message: textAlert)
+            self.presentAlert(title: "Request Info", message: textAlert)
         }
     }
     

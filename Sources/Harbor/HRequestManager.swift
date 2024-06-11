@@ -17,7 +17,7 @@ internal final class HRequestManager {
 
 // MARK: - Request With Result
 extension HRequestManager {
-    static func request<T: Codable, P: HServiceResultRequestProtocol>(model: T.Type, service: P) async -> HResponseWithResult<T> {
+    static func request<T: Codable, P: HRequestWithResultProtocol>(model: T.Type, service: P) async -> HResponseWithResult<T> {
         if !self.isConnectedToNetwork() {
             return .error(.noConnectionError)
         }
@@ -41,7 +41,7 @@ extension HRequestManager {
         }
     }
     
-    private static func requestHandler<T: Codable, P: HServiceResultRequestProtocol>(model: T.Type, service: P) async -> HResponseWithResult<T> {
+    private static func requestHandler<T: Codable, P: HRequestWithResultProtocol>(model: T.Type, service: P) async -> HResponseWithResult<T> {
         guard let urlRequest = self.buildRequest(service: service) else {
             return .error(.malformedRequestError)
         }
@@ -101,7 +101,7 @@ extension HRequestManager {
 
 // MARK: - Request Without Result
 extension HRequestManager {
-    static func request<P: HServiceEmptyResponseProtocol>(service: P) async -> HResponse {
+    static func request<P: HRequestWithEmptyResponseProtocol>(service: P) async -> HResponse {
         if !self.isConnectedToNetwork() {
             return .error(.noConnectionError)
         }
@@ -125,7 +125,7 @@ extension HRequestManager {
         }
     }
     
-    private static func requestHandler<P: HServiceEmptyResponseProtocol>(service: P) async -> HResponse {
+    private static func requestHandler<P: HRequestWithEmptyResponseProtocol>(service: P) async -> HResponse {
         guard let urlRequest = self.buildRequest(service: service) else {
             return .error(.malformedRequestError)
         }
@@ -181,12 +181,12 @@ extension HRequestManager {
 
 // MARK: - Request Builder Functions
 private extension HRequestManager {
-    static func buildRequest<P: HServiceBaseRequestProtocol>(service: P) -> URLRequest? {
+    static func buildRequest<P: HRequestBaseRequestProtocol>(service: P) -> URLRequest? {
         let url: URL?
         
         switch service.httpMethod {
         case .get:
-            guard let service = service as? (any HServiceGetRequestProtocol) else { return nil }
+            guard let service = service as? (any HGetRequestProtocol) else { return nil }
             url = compositeURL(url: service.url, pathParameters: service.pathParameters, queryParameters: service.queryParameters)
         case .post, .put, .patch, .delete:
             url = compositeURL(url: service.url, pathParameters: service.pathParameters)
@@ -201,7 +201,7 @@ private extension HRequestManager {
         // TODO: Move to a config class
         request.httpShouldHandleCookies = false
         
-        if let service = service as? HServiceBodyRequestProtocol, let parameters = service.bodyParameters {
+        if let service = service as? HRequestWithBodyProtocol, let parameters = service.bodyParameters {
             switch service.bodyType {
             case .json:
                 request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -243,7 +243,7 @@ private extension HRequestManager {
         return url
     }
     
-    static func dataBody(params: [String: Any], type: HServiceRequestDataType, boundary: String? = nil) -> Data? {
+    static func dataBody(params: [String: Any], type: HRequestDataType, boundary: String? = nil) -> Data? {
         if type == .multipart, let boundary {
             return handleFormData(with: params, boundary: boundary)
         }
@@ -291,7 +291,7 @@ private extension HRequestManager {
 // MARK: - Auth Validation Functions
 private extension HRequestManager {
     // This method checks that the used authorization headers is an old one
-    static func hasNewAuthorizationHeader(service: HServiceBaseRequestProtocol) async -> Bool {
+    static func hasNewAuthorizationHeader(service: HRequestBaseRequestProtocol) async -> Bool {
         guard let headerParameters = service.headerParameters,
               let currentAuthorizationHeader = await authProvider?.getAuthorizationHeader(),
               let usedAuthorization = headerParameters[currentAuthorizationHeader.key]

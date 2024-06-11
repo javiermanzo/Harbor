@@ -34,7 +34,7 @@ public extension HDebugRequestProtocol {
     }
     
     func printRequest(urlRequest: URLRequest) {
-        if let request = self as? HServiceBaseRequestProtocol,
+        if let request = self as? HRequestBaseRequestProtocol,
            self.debugType == .request || self.debugType == .requestAndResponse {
             var info: String = "{\n\tneedsAuth: " + String(describing: request.needsAuth) +
             "\n\turl: " + String(describing: urlRequest.url) +
@@ -42,11 +42,11 @@ public extension HDebugRequestProtocol {
             "\n\theaders: " + String(describing: request.headerParameters) +
             "\n\tpathParameters: " + String(describing: request.pathParameters)
 
-            if let s = self as? (any HServiceGetRequestProtocol) {
+            if let s = self as? (any HGetRequestProtocol) {
                 info += "\n\tqueryParameters: " + String(describing: s.queryParameters)
             }
             
-            if let s = self as? HServiceBodyRequestProtocol {
+            if let s = self as? HRequestWithBodyProtocol {
                 info += "\n\tbody: " + String(describing: s.bodyParameters)
             }
             

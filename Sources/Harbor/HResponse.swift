@@ -13,9 +13,8 @@ public enum HResponse {
     case error(HRequestError)
 }
 
-public enum HResponseWithResult<T> {
-    case success(T)
+public enum HResponseWithResult<Model: Sendable>: Sendable {
+    case success(Model)
     case cancelled
     case error(HRequestError)
 }
-

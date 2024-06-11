@@ -10,12 +10,12 @@ import Foundation
 public enum HResponse {
     case success
     case cancelled
-    case error(HServiceError)
+    case error(HRequestError)
 }
 
 public enum HResponseWithResult<T> {
     case success(T)
     case cancelled
-    case error(HServiceError)
+    case error(HRequestError)
 }
 

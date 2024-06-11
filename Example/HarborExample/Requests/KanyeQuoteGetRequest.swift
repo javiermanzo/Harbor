@@ -1,5 +1,5 @@
 //
-//  KanyeQuoteGetService.swift
+//  KanyeQuoteGetRequest.swift
 //  HarborExample
 //
 //  Created by Javier Manzo on 21/02/2023.
@@ -8,7 +8,7 @@
 import Foundation
 import Harbor
 
-final class KanyeQuoteGetService: HServiceGetRequestProtocol {
+final class KanyeQuoteGetRequest: HGetRequestProtocol {
     typealias Model = KanyeQuote
 
     var url: String = "https://api.kanye.rest/"

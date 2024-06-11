@@ -12,10 +12,10 @@ public final class Harbor {
     private init() {}
     
     public static func setAuthProvider(_ authProvider: HAuthProviderProtocol) {
-        HServiceManager.authProvider = authProvider
+        HRequestManager.authProvider = authProvider
     }
 
     public static func setDefaultHeaderParameters(_ headerParameters: [String: String]?) {
-        HServiceManager.defaultHeaderParameters = headerParameters
+        HRequestManager.defaultHeaderParameters = headerParameters
     }
 }

@@ -42,44 +42,44 @@ dependencies: [
 
 To make a request using Harbor, you need to create a class that implements one of the following protocols.
 
-#### HServiceGetRequestProtocol
-Use the `HServiceGetRequestProtocol` protocol if you want to send a GET request. This protocol includes query parameters that can be added to the request URL.
+#### HGetRequestProtocol
+Use the `HGetRequestProtocol` protocol if you want to send a GET request.
 
 ##### Extra Properties:
 - `queryParameters`: A dictionary of query parameters that will be added to the URL.
 - `Model`: The result of the request will be parsed to this entity.
 
 
-#### HServicePostRequestProtocol
-Use the `HServicePostRequestProtocol` protocol if you want to send a POST request.
+#### HPostRequestProtocol
+Use the `HPostRequestProtocol` protocol if you want to send a POST request.
 
 ##### Extra Properties:
 - `bodyParameters`: A dictionary of parameters that will be included in the body of the request.
 - `bodyType`: Specifies the type of data being sent in the body of the request. It can be either `json` or `multipart`.
 
 
-#### HServicePatchRequestProtocol
-Use the `HServicePatchRequestProtocol` protocol if you want to send a PATCH request.
+#### HPatchRequestProtocol
+Use the `HPatchRequestProtocol` protocol if you want to send a PATCH request.
 
 ##### Extra Properties:
 - `bodyParameters`: A dictionary of parameters that will be included in the body of the request.
 - `bodyType`: Specifies the type of data being sent in the body of the request. It can be either `json` or `multipart`.
 
 
-#### HServicePutRequestProtocol
-Use the `HServicePutRequestProtocol` protocol if you want to send a PUT request.
+#### HPutRequestProtocol
+Use the `HPutRequestProtocol` protocol if you want to send a PUT request.
 
 ##### Extra Properties:
 - `bodyParameters`: A dictionary of parameters that will be included in the body of the request.
 - `bodyType`: Specifies the type of data being sent in the body of the request. It can be either `json` or `multipart`.
 
 
-#### HServiceDeleteRequestProtocol
-Use the `HServiceDeleteRequestProtocol` protocol if you want to send a DELETE request.
+#### HDeleteRequestProtocol
+Use the `HDeleteRequestProtocol` protocol if you want to send a DELETE request.
 
 
-#### HServiceResultRequestProtocol
-Use the `HServiceResultRequestProtocol` protocol if you want to parse the response into a specific model. This protocol requires you to define the type of model you expect in the response.
+#### HRequestWithResultProtocol
+Use the `HRequestWithResultProtocol` protocol if you want to parse the response into a specific model. This protocol requires you to define the type of model you expect in the response.
 
 ##### Extra Properties:
 - `Model`: The result of the request will be parsed to this entity.
@@ -97,7 +97,7 @@ Task {
 
 #### HResponse
 
-If you use a protocol different from `HServiceGetRequestProtocol` or `HServiceResultRequestProtocol`, the result of calling `request()` will be an `HResponse` enum.
+If you use a protocol different from `HGetRequestProtocol` or `HRequestWithResultProtocol`, the result of calling `request()` will be an `HResponse` enum.
 
 ```swift
 switch response {
@@ -112,7 +112,7 @@ case .error(let error):
 
 #### HResponseWithResult
 
-If you use `HServiceGetRequestProtocol` or `HServiceResultRequestProtocol`, the result of calling `request()` will be an `HResponseWithResult` enum.
+If you use `HGetRequestProtocol` or `HRequestWithResultProtocol`, the result of calling `request()` will be an `HResponseWithResult` enum.
 
 ```swift
 switch response {
@@ -176,11 +176,11 @@ task.cancel()
 
 ## Debug
 
-You can print debug information about your request using the `HDebugServiceProtocol` protocol. Implement the protocol in the request class.
+You can print debug information about your request using the `HDebugRequestProtocol` protocol. Implement the protocol in the request class.
 
 ```swift
-class MyRequest: HServiceResultRequestProtocol, HDebugServiceProtocol {
-    var debugType: HDebugServiceType = .requestAndResponse
+class MyRequest: HRequestWithResultProtocol, HDebugRequestProtocol {
+    var debugType: HDebugRequestType = .requestAndResponse
     
     // ...
 }

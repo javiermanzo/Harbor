@@ -1,5 +1,5 @@
 //
-//  HServiceProtocol.swift
+//  HRequestProtocol.swift
 //  Harbor
 //
 //  Created by Javier Manzo on 16/02/2023.
@@ -8,13 +8,13 @@
 import Foundation
 
 // MARK: - Request Data Type
-public enum HServiceRequestDataType {
+public enum HRequestDataType {
     case json
     case multipart
 }
 
 // MARK: - Base Protocol
-public protocol HServiceBaseRequestProtocol: AnyObject {
+public protocol HRequestBaseRequestProtocol: AnyObject {
     var url: String { get }
     var httpMethod: HHttpMethod { get }
     var needsAuth: Bool { get }
@@ -23,26 +23,26 @@ public protocol HServiceBaseRequestProtocol: AnyObject {
 }
 
 // MARK: - Request with Empty Result Protocol
-public protocol HServiceEmptyResponseProtocol: HServiceBaseRequestProtocol {
+public protocol HRequestWithEmptyResponseProtocol: HRequestBaseRequestProtocol {
     func request() async -> HResponse
 }
 
-public extension HServiceEmptyResponseProtocol {
+public extension HRequestWithEmptyResponseProtocol {
     func request() async -> HResponse {
-        return await HServiceManager.request(service: self)
+        return await HRequestManager.request(request: self)
     }
 }
 
 // MARK: - Request with Result Protocol
-public protocol HServiceResultRequestProtocol: HServiceBaseRequestProtocol {
+public protocol HRequestWithResultProtocol: HRequestBaseRequestProtocol {
     associatedtype Model: Codable
     func parseData<Model: Codable> (data: Data, model: Model.Type) -> Model?
     func request() async -> HResponseWithResult<Model>
 }
 
-public extension HServiceResultRequestProtocol {
+public extension HRequestWithResultProtocol {
     func request() async -> HResponseWithResult<Model> {
-        return await HServiceManager.request(model: Model.self, service: self)
+        return await HRequestManager.request(model: Model.self, request: self)
     }
     
     func parseData<Model: Codable> (data: Data, model: Model.Type) -> Model? {
@@ -57,36 +57,36 @@ public extension HServiceResultRequestProtocol {
 }
 
 // MARK: - Request with Body Protocol
-public protocol HServiceBodyRequestProtocol: HServiceEmptyResponseProtocol {
-    var bodyType: HServiceRequestDataType { get set }
+public protocol HRequestWithBodyProtocol: HRequestWithEmptyResponseProtocol {
+    var bodyType: HRequestDataType { get set }
     var bodyParameters: [String: Any]? { get set }
 }
 
 // MARK: - Request types
-public protocol HServiceGetRequestProtocol: HServiceResultRequestProtocol {
+public protocol HGetRequestProtocol: HRequestWithResultProtocol {
     var queryParameters: [String: String]? { get set }
 }
-public protocol HServicePostRequestProtocol: HServiceBodyRequestProtocol {}
-public protocol HServicePatchRequestProtocol: HServiceBodyRequestProtocol {}
-public protocol HServicePutRequestProtocol: HServiceBodyRequestProtocol {}
-public protocol HServiceDeleteRequestProtocol: HServiceEmptyResponseProtocol {}
+public protocol HPostRequestProtocol: HRequestWithBodyProtocol {}
+public protocol HPatchRequestProtocol: HRequestWithBodyProtocol {}
+public protocol HPutRequestProtocol: HRequestWithBodyProtocol {}
+public protocol HDeleteRequestProtocol: HRequestWithEmptyResponseProtocol {}
 
-public extension HServiceGetRequestProtocol {
+public extension HGetRequestProtocol {
     var httpMethod: HHttpMethod { .get }
 }
 
-public extension HServicePostRequestProtocol {
+public extension HPostRequestProtocol {
     var httpMethod: HHttpMethod { .post }
 }
 
-public extension HServicePatchRequestProtocol {
+public extension HPatchRequestProtocol {
     var httpMethod: HHttpMethod { .patch }
 }
 
-public extension HServicePutRequestProtocol {
+public extension HPutRequestProtocol {
     var httpMethod: HHttpMethod { .put }
 }
 
-public extension HServiceDeleteRequestProtocol {
+public extension HDeleteRequestProtocol {
     var httpMethod: HHttpMethod { .delete }
 }

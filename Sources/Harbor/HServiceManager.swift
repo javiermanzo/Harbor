@@ -10,16 +10,19 @@ import SystemConfiguration
 
 internal final class HServiceManager {
     
+    // TODO: Move to a config class
     internal static var authProvider: HAuthProviderProtocol?
     internal static var defaultHeaderParameters: [String: String]?
-    
-    // MARK: -  Request With Result
-    static func request<T: Codable, P: HServiceProtocolWithResult>(model: T.Type, service: P) async -> HResponseWithResult<T> {
+}
+
+// MARK: - Request With Result
+extension HServiceManager {
+    static func request<T: Codable, P: HServiceResultRequestProtocol>(model: T.Type, service: P) async -> HResponseWithResult<T> {
         if !self.isConnectedToNetwork() {
             return .error(.noConnectionError)
         }
         
-        if service.needAuth {
+        if service.needsAuth {
             if let authCredential = await authProvider?.getAuthorizationHeader() {
                 if service.headerParameters == nil {
                     service.headerParameters = [String: String]()
@@ -38,24 +41,28 @@ internal final class HServiceManager {
         }
     }
     
-    private static func requestHandler<T: Codable, P: HServiceProtocolWithResult>(model: T.Type, service: P) async -> HResponseWithResult<T> {
-        guard let request = self.buildRequest(service: service) else {
+    private static func requestHandler<T: Codable, P: HServiceResultRequestProtocol>(model: T.Type, service: P) async -> HResponseWithResult<T> {
+        guard let urlRequest = self.buildRequest(service: service) else {
             return .error(.malformedRequestError)
         }
         
         if let service = service as? HDebugServiceProtocol {
-            service.printRequest(request: request)
+            service.printRequest(request: urlRequest)
         }
         
         do {
-            let (data, response) = try await URLSession.shared.data(for: request)
+            let startTime = Date()
             
-            guard let httpResponse = response as? HTTPURLResponse else {
+            let (data, httpResponse) = try await URLSession.shared.data(for: urlRequest)
+            
+            let duration = Date().timeIntervalSince(startTime) * 1000
+            
+            guard let httpResponse = httpResponse as? HTTPURLResponse else {
                 return .error(.invalidHttpResponse)
             }
             
             if let service = service as? HDebugServiceProtocol {
-                service.printResponse(httpResponse: httpResponse, data: data)
+                service.printResponse(httpResponse: httpResponse, data: data, duration: duration)
             }
             
             switch httpResponse.statusCode {
@@ -90,14 +97,16 @@ internal final class HServiceManager {
             return .error(.invalidHttpResponse)
         }
     }
-    
-    // MARK: -  Request Without Result
-    static func request<P: HServiceProtocol>(service: P) async -> HResponse {
+}
+
+// MARK: - Request Without Result
+extension HServiceManager {
+    static func request<P: HServiceEmptyResponseProtocol>(service: P) async -> HResponse {
         if !self.isConnectedToNetwork() {
             return .error(.noConnectionError)
         }
         
-        if service.needAuth {
+        if service.needsAuth {
             if let authCredential = await authProvider?.getAuthorizationHeader() {
                 if service.headerParameters == nil {
                     service.headerParameters = [String: String]()
@@ -116,24 +125,28 @@ internal final class HServiceManager {
         }
     }
     
-    private static func requestHandler<P: HServiceProtocol>(service: P) async -> HResponse {
-        guard let request = self.buildRequest(service: service) else {
+    private static func requestHandler<P: HServiceEmptyResponseProtocol>(service: P) async -> HResponse {
+        guard let urlRequest = self.buildRequest(service: service) else {
             return .error(.malformedRequestError)
         }
         
         if let service = service as? HDebugServiceProtocol {
-            service.printRequest(request: request)
+            service.printRequest(request: urlRequest)
         }
         
         do {
-            let (data, response) = try await URLSession.shared.data(for: request)
+            let startTime = Date()
             
-            guard let httpResponse = response as? HTTPURLResponse else {
-                return .error(.invalidRequest)
+            let (data, httpResponse) = try await URLSession.shared.data(for: urlRequest)
+            
+            let duration = Date().timeIntervalSince(startTime) * 1000
+            
+            guard let httpResponse = httpResponse as? HTTPURLResponse else {
+                return .error(.invalidHttpResponse)
             }
             
             if let service = service as? HDebugServiceProtocol {
-                service.printResponse(httpResponse: httpResponse, data: data)
+                service.printResponse(httpResponse: httpResponse, data: data, duration: duration)
             }
             
             switch httpResponse.statusCode {
@@ -164,48 +177,60 @@ internal final class HServiceManager {
             return .error(.invalidHttpResponse)
         }
     }
-    
-    
-    // MARK: -  Private Base Methods
-    private static func buildRequest<P: HServiceProtocolBase>(service: P) -> URLRequest? {
-        guard let url = compositeURL(url: service.url, pathParams: service.pathParameters, queryParams:  service.queryParameters) else { return nil }
+}
+
+// MARK: - Request Builder Functions
+private extension HServiceManager {
+    static func buildRequest<P: HServiceBaseRequestProtocol>(service: P) -> URLRequest? {
+        let url: URL?
+        
+        switch service.httpMethod {
+        case .get:
+            guard let service = service as? (any HServiceGetRequestProtocol) else { return nil }
+            url = compositeURL(url: service.url, pathParameters: service.pathParameters, queryParameters: service.queryParameters)
+        case .post, .put, .patch, .delete:
+            url = compositeURL(url: service.url, pathParameters: service.pathParameters)
+        }
+        
+        guard let url else { return nil }
         
         var request = URLRequest(url: url)
         
         request.allHTTPHeaderFields = getHeaderParameters(serviceHeaderParameters: service.headerParameters)
-        if let headers = service.headerParameters, !headers.isEmpty {
-            for (key, value) in headers {
-                request.setValue(value, forHTTPHeaderField: key)
-            }
-        }
-        
         request.httpMethod = service.httpMethod.rawValue
+        // TODO: Move to a config class
+        request.httpShouldHandleCookies = false
         
-        request.timeoutInterval = service.timeout
-        
-        if let body = service.dataBody() {
-            request.httpBody = body
-            request.setValue( "\(body.count)", forHTTPHeaderField: "Content-Length")
+        if let service = service as? HServiceBodyRequestProtocol, let parameters = service.bodyParameters {
+            switch service.bodyType {
+            case .json:
+                request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                request.httpBody = dataBody(params: parameters, type: .json, boundary: nil)
+            case .multipart:
+                let boundary = "Boundary-\(UUID().uuidString)"
+                request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+                request.httpBody = dataBody(params: parameters, type: .multipart, boundary: boundary)
+            }
         }
         
         return request
     }
     
-    private static func compositeURL(url: String, pathParams: [String: String]?, queryParams: [String: String]?) -> URL? {
+    static func compositeURL(url: String, pathParameters: [String: String]? = nil, queryParameters: [String: String]? = nil) -> URL? {
         var compositeUrl = url
         
-        if let pathParams {
-            for (key, value) in pathParams {
+        if let pathParameters {
+            for (key, value) in pathParameters {
                 compositeUrl = compositeUrl.replacingOccurrences(of: "{\(key)}", with: value)
             }
         }
         
         var url: URL? = URL(string: compositeUrl)
         
-        if var urlComponents = URLComponents(string: compositeUrl), let queryParams, !queryParams.isEmpty {
+        if var urlComponents = URLComponents(string: compositeUrl), let queryParameters, !queryParameters.isEmpty {
             var queryItems = [URLQueryItem]()
             
-            for (key, value) in queryParams {
+            for (key, value) in queryParameters {
                 queryItems.append(URLQueryItem(name: key, value: value))
             }
             
@@ -218,7 +243,41 @@ internal final class HServiceManager {
         return url
     }
     
-    private static func getHeaderParameters(serviceHeaderParameters: [String: String]? = nil) -> [String: String] {
+    static func dataBody(params: [String: Any], type: HServiceRequestDataType, boundary: String? = nil) -> Data? {
+        if type == .multipart, let boundary {
+            return handleFormData(with: params, boundary: boundary)
+        }
+        
+        do {
+            return try JSONSerialization.data(withJSONObject: params, options: .prettyPrinted)
+        } catch {
+            return nil
+        }
+    }
+    
+    static func handleFormData(with params: [String: Any], boundary: String) -> Data? {
+        let httpBody = NSMutableData()
+        for (key, value) in params {
+            guard let value = value as? String else {
+                return nil
+            }
+            
+            httpBody.appendString(convertFormField(named: key, value: value, using: boundary))
+        }
+        
+        httpBody.appendString("--\(boundary)--")
+        return httpBody as Data
+    }
+    
+    static func convertFormField(named name: String, value: String, using boundary: String) -> String {
+        var fieldString = "--\(boundary)\r\n"
+        fieldString += "Content-Disposition: form-data; name=\"\(name)\"\r\n"
+        fieldString += "\r\n"
+        fieldString += "\(value)\r\n"
+        return fieldString
+    }
+    
+    static func getHeaderParameters(serviceHeaderParameters: [String: String]? = nil) -> [String: String] {
         var headers: [String: String] = defaultHeaderParameters ?? [String: String]()
         
         if let serviceHeaderParameters, !serviceHeaderParameters.isEmpty {
@@ -227,8 +286,30 @@ internal final class HServiceManager {
         
         return headers
     }
-    
-    private static func isConnectedToNetwork() -> Bool {
+}
+
+// MARK: - Auth Validation Functions
+private extension HServiceManager {
+    // This method checks that the used authorization headers is an old one
+    static func hasNewAuthorizationHeader(service: HServiceBaseRequestProtocol) async -> Bool {
+        guard let headerParameters = service.headerParameters,
+              let currentAuthorizationHeader = await authProvider?.getAuthorizationHeader(),
+              let usedAuthorization = headerParameters[currentAuthorizationHeader.key]
+        else { return false }
+        
+        let currentAuthorization = currentAuthorizationHeader.value
+        
+        if usedAuthorization != currentAuthorization {
+            return true
+        }
+        
+        return false
+    }
+}
+
+// MARK: - Connectivity Functions
+private extension HServiceManager {
+    static func isConnectedToNetwork() -> Bool {
         var zeroAddress = sockaddr_in(sin_len: 0, sin_family: 0, sin_port: 0, sin_addr: in_addr(s_addr: 0), sin_zero: (0, 0, 0, 0, 0, 0, 0, 0))
         zeroAddress.sin_len = UInt8(MemoryLayout.size(ofValue: zeroAddress))
         zeroAddress.sin_family = sa_family_t(AF_INET)
@@ -250,23 +331,5 @@ internal final class HServiceManager {
         let ret = (isReachable && !needsConnection)
         
         return ret
-    }
-}
-
-private extension HServiceManager {
-    // This method checks that the used authorization headers is an old one
-    static func hasNewAuthorizationHeader(service: HServiceProtocolBase) async -> Bool {
-        guard let headerParameters = service.headerParameters,
-              let currentAuthorizationHeader = await authProvider?.getAuthorizationHeader(),
-              let usedAuthorization = headerParameters[currentAuthorizationHeader.key]
-        else { return false }
-        
-        let currentAuthorization = currentAuthorizationHeader.value
-        
-        if usedAuthorization != currentAuthorization {
-            return true
-        }
-        
-        return false
     }
 }

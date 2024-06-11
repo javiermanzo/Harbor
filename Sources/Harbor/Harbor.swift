@@ -7,7 +7,7 @@
 
 import Foundation
 
-public class Harbor {
+public final class Harbor {
 
     private init() {}
     

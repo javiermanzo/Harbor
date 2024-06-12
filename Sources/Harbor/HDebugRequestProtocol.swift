@@ -7,7 +7,7 @@
 
 import Foundation
 
-public protocol HDebugRequestProtocol: AnyObject {
+public protocol HDebugRequestProtocol {
     var debugType: HDebugRequestType { get set }
 }
 
@@ -24,7 +24,7 @@ public extension HDebugRequestProtocol {
             let responseData: String = String(data: data, encoding: String.Encoding.ascii) ?? "<uknown>"
             print("📎------------------------------------------------------------------------------📎")
             print("-----------------------------------RESPONSE---------------------------------------")
-            print("🌐 Request: " + String(describing: self) + "<" + String(describing: ObjectIdentifier(self)) + ">" + "\n" +
+            print("🌐 Request: " + String(describing: self) + "<" + String(describing: self) + ">" + "\n" +
                   "ℹ️ Response: " + httpResponse.debugDescription + "\n" +
                   "⌛️ Response time: \(String(format: "%.2f", duration))ms \n" +
                   "🏋️ Data size: " + data.debugDescription + "\n" +
@@ -56,7 +56,7 @@ public extension HDebugRequestProtocol {
 
             print("📎------------------------------------------------------------------------------📎")
             print("------------------------------------REQUEST---------------------------------------")
-            print("🌐 Request:" + String(describing: request) + "<" + String(describing: ObjectIdentifier(self)) + ">" + "\n" +
+            print("🌐 Request:" + String(describing: request) + "<" + String(describing: self) + ">" + "\n" +
                   "ℹ️ Details: " + info + "\n" +
                   "🏃‍♂️ curl: " + curl)
             print("📎------------------------------------------------------------------------------📎")

@@ -14,11 +14,11 @@ public enum HRequestDataType {
 }
 
 // MARK: - Base Protocol
-public protocol HRequestBaseRequestProtocol: AnyObject {
+public protocol HRequestBaseRequestProtocol {
     var url: String { get }
     var httpMethod: HHttpMethod { get }
     var needsAuth: Bool { get }
-    var pathParameters: [String: String]? { get set }
+    var pathParameters: [String: String]? { get }
     var headerParameters: [String: String]? { get set }
 }
 
@@ -64,7 +64,7 @@ public protocol HRequestWithBodyProtocol: HRequestWithEmptyResponseProtocol {
 
 // MARK: - Request types
 public protocol HGetRequestProtocol: HRequestWithResultProtocol {
-    var queryParameters: [String: String]? { get set }
+    var queryParameters: [String: String]? { get }
 }
 public protocol HPostRequestProtocol: HRequestWithBodyProtocol {}
 public protocol HPatchRequestProtocol: HRequestWithBodyProtocol {}

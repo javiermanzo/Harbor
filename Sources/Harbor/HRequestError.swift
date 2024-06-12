@@ -7,7 +7,7 @@
 
 import Foundation
 
-public enum HRequestError: Error {
+public enum HRequestError: Error, Sendable {
     case apiError(statusCode: Int, data: Data)
     case invalidHttpResponse
     case invalidRequest
@@ -18,4 +18,3 @@ public enum HRequestError: Error {
     case malformedRequestError
     case timeoutError
 }
-

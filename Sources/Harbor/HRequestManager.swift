@@ -16,20 +16,21 @@ internal final class HRequestManager {
 
 // MARK: - Request With Result
 extension HRequestManager {
-    static func request<T: Codable, P: HRequestWithResultProtocol>(model: T.Type, request: P) async -> HResponseWithResult<T> {
+
+    static func request<Model: Codable>(model: Model.Type, request: any HRequestWithResultProtocol) async -> HResponseWithResult<Model> {
         if !self.isConnectedToNetwork() {
             return .error(.noConnectionError)
         }
         
         if request.needsAuth {
             if let authCredential = await Self.config.authProvider?.getAuthorizationHeader() {
-                if request.headerParameters == nil {
-                    request.headerParameters = [String: String]()
-                }
-                
-                request.headerParameters?[authCredential.key] = authCredential.value
+                var mutableRequest = request
+                var headerParameters = request.headerParameters ?? [:]
+                headerParameters[authCredential.key] = authCredential.value
+                mutableRequest.headerParameters = headerParameters
 
-                async let result = self.requestHandler(model: model, request: request)
+                let requestCopy = mutableRequest
+                async let result = self.requestHandler(model: model, request: requestCopy)
                 return await result
             } else {
                 return .error(.authProviderNeeded)
@@ -40,7 +41,7 @@ extension HRequestManager {
         }
     }
     
-    private static func requestHandler<T: Codable, P: HRequestWithResultProtocol>(model: T.Type, request: P) async -> HResponseWithResult<T> {
+    private static func requestHandler<Model: Codable>(model: Model.Type, request: any HRequestWithResultProtocol) async -> HResponseWithResult<Model> {
         guard let urlRequest = self.buildUrlRequest(request: request) else {
             return .error(.malformedRequestError)
         }
@@ -92,7 +93,7 @@ extension HRequestManager {
             default:
                 return .error(.invalidHttpResponse)
             }
-        } catch let error {
+        } catch {
             return .error(.invalidHttpResponse)
         }
     }
@@ -100,20 +101,20 @@ extension HRequestManager {
 
 // MARK: - Request Without Result
 extension HRequestManager {
-    static func request<P: HRequestWithEmptyResponseProtocol>(request: P) async -> HResponse {
+    static func request(request: any HRequestWithEmptyResponseProtocol) async -> HResponse {
         if !self.isConnectedToNetwork() {
             return .error(.noConnectionError)
         }
         
         if request.needsAuth {
             if let authCredential = await Self.config.authProvider?.getAuthorizationHeader() {
-                if request.headerParameters == nil {
-                    request.headerParameters = [String: String]()
-                }
-                
-                request.headerParameters?[authCredential.key] = authCredential.value
+                var mutableRequest = request
+                var headerParameters = request.headerParameters ?? [:]
+                headerParameters[authCredential.key] = authCredential.value
+                mutableRequest.headerParameters = headerParameters
 
-                async let result = self.requestHandler(request: request)
+                let requestCopy = mutableRequest
+                async let result = self.requestHandler(request: requestCopy)
                 return await result
             } else {
                 return .error(.authProviderNeeded)
@@ -172,7 +173,7 @@ extension HRequestManager {
             default:
                 return .error(.invalidHttpResponse)
             }
-        } catch let error {
+        } catch {
             return .error(.invalidHttpResponse)
         }
     }

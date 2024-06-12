@@ -72,6 +72,8 @@ extension HRequestManager {
                 } else {
                     return .error(.codableError)
                 }
+            case 304:
+                return .noChanges
             case 401:
                 if await !hasNewAuthorizationHeader(request: request) {
                     Self.config.authProvider?.authFailed()
@@ -152,6 +154,8 @@ extension HRequestManager {
             switch httpResponse.statusCode {
             case 200 ... 299:
                 return .success
+            case 304:
+                return .noChanges
             case 401:
                 if await !hasNewAuthorizationHeader(request: request) {
                     Self.config.authProvider?.authFailed()

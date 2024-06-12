@@ -43,6 +43,8 @@ final class ViewController: UIViewController {
             switch response {
             case .success(let result):
                 textAlert = result.quote
+            case .noChanges:
+                textAlert = "No Changes"
             case .cancelled:
                 textAlert = "Request Cancelled"
             case .error:

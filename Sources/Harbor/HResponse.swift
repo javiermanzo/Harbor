@@ -9,12 +9,14 @@ import Foundation
 
 public enum HResponse {
     case success
+    case noChanges
     case cancelled
     case error(HRequestError)
 }
 
 public enum HResponseWithResult<Model: Sendable>: Sendable {
     case success(Model)
+    case noChanges
     case cancelled
     case error(HRequestError)
 }

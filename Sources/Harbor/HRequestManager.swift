@@ -180,7 +180,7 @@ extension HRequestManager {
 }
 
 // MARK: - Request Builder Functions
-private extension HRequestManager {
+internal extension HRequestManager {
     static func buildUrlRequest<P: HRequestBaseRequestProtocol>(request: P) -> URLRequest? {
         let url: URL?
         

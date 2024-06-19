@@ -23,8 +23,5 @@ jobs:
     - name: Select Xcode 15.4
       run: sudo xcode-select -s /Applications/Xcode_15.4.app/Contents/Developer
 
-    - name: Build
-      run: swift build -v
-      
     - name: Run tests
-      run: swift test -v
+      run: swift test -v --enable-code-coverage

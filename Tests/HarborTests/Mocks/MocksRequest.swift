@@ -43,7 +43,7 @@ final class MockPostRequestService: HPostRequestProtocol {
     }
 }
 
-final class MockPostMultipartRequestService: HPostRequestProtocol {
+final class MockPostBodyRequestService: HPostRequestProtocol {
     var headerParameters: [String: String]?
     var needsAuth: Bool
     var pathParameters: [String: String]?

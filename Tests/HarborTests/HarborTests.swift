@@ -5,11 +5,11 @@ final class HarborTests: XCTestCase {
 
     func testShouldAddSinglePathParameterCorrectlyToURL() throws {
         // Given
-        let baseUrl = "example.com/api/v1/users/{ID}"
-        let expectedURL = "example.com/api/v1/users/1"
+        let baseUrl = "https://api.github.com/users/{USER}/"
+        let expectedURL = "https://api.github.com/users/OmarJalil/"
 
         // When
-        let url = HRequestManager.compositeURL(url: baseUrl, pathParameters: ["ID": "1"], queryParameters: nil)
+        let url = HRequestManager.compositeURL(url: baseUrl, pathParameters: ["USER": "OmarJalil"], queryParameters: nil)
 
         // Then
         XCTAssertEqual(expectedURL, url?.absoluteString)
@@ -17,11 +17,11 @@ final class HarborTests: XCTestCase {
 
     func testShouldAddMultiplePathParametersCorrectlyToURL() throws {
         // Given
-        let baseUrl = "example.com/api/v1/users/{ID}/profile/{USERNAME}/"
-        let expectedURL = "example.com/api/v1/users/1/profile/jalil/"
+        let baseUrl = "https://api.github.com/users/{USER}/following/{FOLLOWS}/"
+        let expectedURL = "https://api.github.com/users/OmarJalil/following/javiermanzo/"
 
         // When
-        let url = HRequestManager.compositeURL(url: baseUrl, pathParameters: ["USERNAME": "jalil", "ID": "1"], queryParameters: nil)
+        let url = HRequestManager.compositeURL(url: baseUrl, pathParameters: ["FOLLOWS": "javiermanzo", "USER": "OmarJalil"], queryParameters: nil)
 
         // Then
         XCTAssertEqual(expectedURL, url?.absoluteString)
@@ -33,6 +33,7 @@ final class HarborTests: XCTestCase {
 
         // When
         let request = HRequestManager.buildUrlRequest(request: service)
+        
         // Then
         XCTAssertNotNil(request)
         XCTAssertEqual(request?.url?.absoluteString, "https://example.com?id=123&sort=desc")

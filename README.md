@@ -5,6 +5,34 @@
 
 ![Swift](https://img.shields.io/badge/Swift-5-orange?style=flat-square) ![Platforms](https://img.shields.io/badge/Platforms-iOS-yellowgreen?style=flat-square) ![CocoaPods Compatible](https://img.shields.io/cocoapods/v/Harbor.svg?style=flat-square) ![Swift Package Manager](https://img.shields.io/badge/Swift_Package_Manager-compatible-orange?style=flat-square)
 
+
+## Table of Contents
+- [Requirements](#requirements)
+- [Installation](#installation)
+  - [CocoaPods](#cocoapods)
+  - [Swift Package Manager](#swift-package-manager)
+- [Usage](#usage)
+  - [Configuration](#configuration)
+    - [Default Headers](#default-headers)
+    - [Auth Provider](#auth-provider)
+  - [Request Protocols](#request-protocols)
+    - [HGetRequestProtocol](#hgetrequestprotocol)
+    - [HPostRequestProtocol](#hpostrequestprotocol)
+    - [HPatchRequestProtocol](#hpatchrequestprotocol)
+    - [HPutRequestProtocol](#hputrequestprotocol)
+    - [HDeleteRequestProtocol](#hdeleterequestprotocol)
+    - [HRequestWithResultProtocol](#hrequestwithresultprotocol)
+  - [Request Calling](#request-calling)
+  - [Response](#response)
+    - [HResponse](#hresponse)
+    - [HResponseWithResult](#hresponsewithresult)
+  - [Cancel Request](#cancel-request)
+  - [mTLS Support](#mtls-support)
+  - [Debug](#debug)
+- [Contributing](#contributing)
+- [Author](#author)
+- [License](#license)
+
 # Harbor
 
 Harbor is a library for making API requests in Swift in a simple way using async/await.
@@ -189,8 +217,8 @@ Harbor supports mutual TLS (mTLS) for enhanced security in API requests. This fe
 To set up mTLS, include the `HmTLS` configuration when initializing `HConfig` and configure Harbor with it:
 
 ```swift
-let mTLSConfig = HmTLS(p12FileUrl: yourP12FileUrl, password: "yourPassword")
-let config = HConfig(mTLS: mTLSConfig)
+let mTLS = HmTLS(p12FileUrl: yourP12FileUrl, password: "yourPassword")
+let config = HConfig(mTLS: mTLS)
 Harbor.configure(config)
 ```
 

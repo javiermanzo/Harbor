@@ -5,6 +5,34 @@
 
 ![Swift](https://img.shields.io/badge/Swift-5-orange?style=flat-square) ![Platforms](https://img.shields.io/badge/Platforms-iOS-yellowgreen?style=flat-square) ![CocoaPods Compatible](https://img.shields.io/cocoapods/v/Harbor.svg?style=flat-square) ![Swift Package Manager](https://img.shields.io/badge/Swift_Package_Manager-compatible-orange?style=flat-square)
 
+
+## Table of Contents
+- [Requirements](#requirements)
+- [Installation](#installation)
+  - [CocoaPods](#cocoapods)
+  - [Swift Package Manager](#swift-package-manager)
+- [Usage](#usage)
+  - [Configuration](#configuration)
+    - [Default Headers](#default-headers)
+    - [Auth Provider](#auth-provider)
+  - [Request Protocols](#request-protocols)
+    - [HGetRequestProtocol](#hgetrequestprotocol)
+    - [HPostRequestProtocol](#hpostrequestprotocol)
+    - [HPatchRequestProtocol](#hpatchrequestprotocol)
+    - [HPutRequestProtocol](#hputrequestprotocol)
+    - [HDeleteRequestProtocol](#hdeleterequestprotocol)
+    - [HRequestWithResultProtocol](#hrequestwithresultprotocol)
+  - [Request Calling](#request-calling)
+  - [Response](#response)
+    - [HResponse](#hresponse)
+    - [HResponseWithResult](#hresponsewithresult)
+  - [Cancel Request](#cancel-request)
+  - [mTLS Support](#mtls-support)
+  - [Debug](#debug)
+- [Contributing](#contributing)
+- [Author](#author)
+- [License](#license)
+
 # Harbor
 
 Harbor is a library for making API requests in Swift in a simple way using async/await.
@@ -49,12 +77,10 @@ With the configuration setup, you can include default headers in every request. 
 
 To configure the default headers:
 ```swift
-Harbor.configure(HConfig(
-    defaultHeaderParameters: [
+let config = HConfig(defaultHeaderParameters: [
         "MY_CUSTOM_HEADER": "VALUE"
-    ],
-    ...
-))
+    ])
+Harbor.configure(config)
 ```
 
 Before each request is executed, Harbor will merge the default headers with the headers specified in the request class. This ensures that all necessary headers are included in the request.
@@ -78,10 +104,8 @@ class MyAuthProvider: HAuthProviderProtocol {
 After that, set your Auth provider:
 
 ```swift
-Harbor.configure(HConfig(
-    authProvider: MyAuthProvider(),
-    ...
-))
+let config = HConfig(authProvider: MyAuthProvider())
+Harbor.configure(config)
 ```
 
 If the request class has the `needsAuth` property set to `true`, Harbor will call the `getAuthorizationHeader` method of the authentication provider to get the `HAuthorizationHeader` instance to set it in the header before executing the request.
@@ -183,6 +207,23 @@ let task = Task {
 }
 task.cancel()
 ```
+
+### mTLS Support
+
+Harbor supports mutual TLS (mTLS) for enhanced security in API requests. This feature allows clients to present certificates to the server, ensuring both the client and server authenticate each other.
+
+#### Usage
+
+To set up mTLS, include the `HmTLS` configuration when initializing `HConfig` and configure Harbor with it:
+
+```swift
+let mTLS = HmTLS(p12FileUrl: yourP12FileUrl, password: "yourPassword")
+let config = HConfig(mTLS: mTLS)
+Harbor.configure(config)
+```
+
+When mTLS is configured, Harbor will handle the client certificate challenges using the provided p12 file and password.
+
 
 ## Debug
 

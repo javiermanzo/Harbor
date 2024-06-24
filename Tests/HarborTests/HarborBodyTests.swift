@@ -1,6 +1,6 @@
 //
-//  HarborMultipartTests.swift
-//  
+//  HarborBodyTests.swift
+//
 //
 //  Created by Jalil on 18/06/24.
 //
@@ -8,10 +8,10 @@
 import XCTest
 @testable import Harbor
 
-final class HarborMultipartTests: XCTestCase {
+final class HarborBodyTests: XCTestCase {
 
     func testBuildRequestWithMultipartBodyType() throws {
-        let service = MockPostMultipartRequestService(url: "https://example.com", bodyParameters: ["foo": "bar"], bodyType: .multipart)
+        let service = MockPostBodyRequestService(url: "https://example.com", bodyParameters: ["foo": "bar"], bodyType: .multipart)
 
         let url = try XCTUnwrap(URL(string: service.url))
         let request = try XCTUnwrap(HRequestManager.buildUrlRequest(request: service))
@@ -23,7 +23,7 @@ final class HarborMultipartTests: XCTestCase {
     }
 
     func testBuildRequestWithEmptyMultipartBodyParameters() throws {
-        let service = MockPostMultipartRequestService(url: "https://example.com", bodyParameters: nil, bodyType: .multipart)
+        let service = MockPostBodyRequestService(url: "https://example.com", bodyParameters: nil, bodyType: .multipart)
 
         let url = try XCTUnwrap(URL(string: service.url))
         let request = try XCTUnwrap(HRequestManager.buildUrlRequest(request: service))
@@ -33,8 +33,8 @@ final class HarborMultipartTests: XCTestCase {
         XCTAssertNil(request.allHTTPHeaderFields?["Content-Type"])
     }
 
-    func testBuildRequestWithNonMultipartBodyType() throws {
-        let service = MockPostMultipartRequestService(url: "https://example.com", bodyParameters: ["foo": "bar"], bodyType: .json)
+    func testBuildRequestWithJsonBodyType() throws {
+        let service = MockPostBodyRequestService(url: "https://example.com", bodyParameters: ["foo": "bar"], bodyType: .json)
         let expectedContentType = "application/json"
 
         let url = try XCTUnwrap(URL(string: service.url))

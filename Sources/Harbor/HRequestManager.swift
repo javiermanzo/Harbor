@@ -50,8 +50,8 @@ extension HRequestManager {
 
         do {
             var sessionDelegate: HURLSessionDelegate?
-            if let mTLS = config.mTLS {
-                sessionDelegate = HURLSessionDelegate(mTLS: mTLS)
+            if config.mTLS != nil || config.sslPinningSHA256 != nil {
+                sessionDelegate = HURLSessionDelegate(mTLS: config.mTLS, sslPinningSHA256: config.sslPinningSHA256)
             }
 
             let session = URLSession(configuration: .default, delegate: sessionDelegate, delegateQueue: nil)
@@ -141,8 +141,8 @@ extension HRequestManager {
 
         do {
             var sessionDelegate: HURLSessionDelegate?
-            if let mTLS = config.mTLS {
-                sessionDelegate = HURLSessionDelegate(mTLS: mTLS)
+            if config.mTLS != nil || config.sslPinningSHA256 != nil {
+                sessionDelegate = HURLSessionDelegate(mTLS: config.mTLS, sslPinningSHA256: config.sslPinningSHA256)
             }
 
             let session = URLSession(configuration: .default, delegate: sessionDelegate, delegateQueue: nil)

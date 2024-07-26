@@ -40,7 +40,7 @@ Harbor is a library for making API requests in Swift in a simple way using async
 ## Requirements
 
 - Swift 5
-- iOS 13.0
+- iOS 15.0
 
 ## Installation
 
@@ -224,6 +224,18 @@ Harbor.configure(config)
 
 When mTLS is configured, Harbor will handle the client certificate challenges using the provided p12 file and password.
 
+### SSL Pinning
+
+Harbor supports SSL Pinning to enhance the security of your API requests. SSL Pinning ensures that the client checks the server's certificate against a known pinned certificate, adding an additional layer of security.
+
+#### Usage
+
+To configure SSL Pinning, include the `sslPinningSHA256` property when initializing `HConfig` and configure Harbor with it:
+
+```swift
+let sslPinningSHA256 = "yourSHA256CertificateHash"
+let config = HConfig(sslPinningSHA256: sslPinningSHA256)
+Harbor.configure(config)
 
 ## Debug
 

@@ -236,6 +236,7 @@ To configure SSL Pinning, include the `sslPinningSHA256` property when initializ
 let sslPinningSHA256 = "yourSHA256CertificateHash"
 let config = HConfig(sslPinningSHA256: sslPinningSHA256)
 Harbor.configure(config)
+```
 
 ## Debug
 

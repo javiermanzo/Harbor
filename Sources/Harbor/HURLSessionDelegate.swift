@@ -26,7 +26,7 @@ final class HURLSessionDelegate: NSObject, URLSessionDelegate {
             return completionHandler(result.disposition, result.credential)
         }
 
-        if let trust = challenge.protectionSpace.serverTrust,
+        if challenge.protectionSpace.serverTrust != nil,
            let sslPinningSHA256,
            let result = processSSLPinning(challenge, sslPinningSHA256: sslPinningSHA256) {
             return completionHandler(result.disposition, result.credential)

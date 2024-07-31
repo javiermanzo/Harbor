@@ -254,6 +254,7 @@ HarborJRPC.setURL("https://api.example.com/")
 Use this method to set the JSON RPC version:
 
 ```swift
+// It uses 2.0 as default 
 HarborJRPC.setJRPCVersion("2.0")
 ```
 ### Request Protocol

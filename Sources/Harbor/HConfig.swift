@@ -7,7 +7,7 @@
 
 import Foundation
 
-class HConfig {
+struct HConfig {
     var authProvider: HAuthProviderProtocol?
     var defaultHeaderParameters: [String: String]?
     var mTLS: HmTLS?

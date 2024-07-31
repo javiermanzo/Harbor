@@ -6,9 +6,8 @@
 //
 
 import Foundation
-import Harbor
 
-class HJRPCConfig {
+struct HJRPCConfig {
     var url: String = ""
     var jrpcVersion: String = "2.0"
 }

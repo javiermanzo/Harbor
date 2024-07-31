@@ -7,11 +7,11 @@
 
 import Foundation
 
-public struct HConfig {
-    let authProvider: HAuthProviderProtocol?
-    let defaultHeaderParameters: [String: String]?
-    let mTLS: HmTLS?
-    let sslPinningSHA256: String?
+open class HConfig {
+    public let authProvider: HAuthProviderProtocol?
+    public let defaultHeaderParameters: [String: String]?
+    public let mTLS: HmTLS?
+    public let sslPinningSHA256: String?
 
     public init(authProvider: HAuthProviderProtocol? = nil, 
                 defaultHeaderParameters: [String : String]? = nil,

@@ -17,7 +17,9 @@
 		3B339D8629A587AB00ACD0E3 /* HarborExampleUITestsLaunchTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B339D8529A587AB00ACD0E3 /* HarborExampleUITestsLaunchTests.swift */; };
 		3B339D9829A58A8400ACD0E3 /* KanyeQuote.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B339D9729A58A8400ACD0E3 /* KanyeQuote.swift */; };
 		3B339DA129A58CA400ACD0E3 /* Harbor in Frameworks */ = {isa = PBXBuildFile; productRef = 3B339DA029A58CA400ACD0E3 /* Harbor */; };
-		3BFA50342C187EA10039F6FD /* KanyeQuoteGetRequest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3BFA50332C187EA10039F6FD /* KanyeQuoteGetRequest.swift */; };
+		3B7B82652C59A08C0029C7A7 /* HarborJRPC in Frameworks */ = {isa = PBXBuildFile; productRef = 3B7B82642C59A08C0029C7A7 /* HarborJRPC */; };
+		3B7B82672C59A1DB0029C7A7 /* JRPCRequest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B7B82662C59A1DB0029C7A7 /* JRPCRequest.swift */; };
+		3BFA50342C187EA10039F6FD /* RESTRequest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3BFA50332C187EA10039F6FD /* RESTRequest.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -52,7 +54,8 @@
 		3B339D8529A587AB00ACD0E3 /* HarborExampleUITestsLaunchTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HarborExampleUITestsLaunchTests.swift; sourceTree = "<group>"; };
 		3B339D9729A58A8400ACD0E3 /* KanyeQuote.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KanyeQuote.swift; sourceTree = "<group>"; };
 		3B339D9E29A58C9200ACD0E3 /* Harbor */ = {isa = PBXFileReference; lastKnownFileType = wrapper; name = Harbor; path = ..; sourceTree = "<group>"; };
-		3BFA50332C187EA10039F6FD /* KanyeQuoteGetRequest.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = KanyeQuoteGetRequest.swift; sourceTree = "<group>"; };
+		3B7B82662C59A1DB0029C7A7 /* JRPCRequest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JRPCRequest.swift; sourceTree = "<group>"; };
+		3BFA50332C187EA10039F6FD /* RESTRequest.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = RESTRequest.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -61,6 +64,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				3B339DA129A58CA400ACD0E3 /* Harbor in Frameworks */,
+				3B7B82652C59A08C0029C7A7 /* HarborJRPC in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -146,7 +150,8 @@
 		3B339D9429A58A4200ACD0E3 /* Requests */ = {
 			isa = PBXGroup;
 			children = (
-				3BFA50332C187EA10039F6FD /* KanyeQuoteGetRequest.swift */,
+				3BFA50332C187EA10039F6FD /* RESTRequest.swift */,
+				3B7B82662C59A1DB0029C7A7 /* JRPCRequest.swift */,
 			);
 			path = Requests;
 			sourceTree = "<group>";
@@ -184,6 +189,7 @@
 			name = HarborExample;
 			packageProductDependencies = (
 				3B339DA029A58CA400ACD0E3 /* Harbor */,
+				3B7B82642C59A08C0029C7A7 /* HarborJRPC */,
 			);
 			productName = HarborExample;
 			productReference = 3B339D5F29A587A900ACD0E3 /* HarborExample.app */;
@@ -299,7 +305,8 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				3BFA50342C187EA10039F6FD /* KanyeQuoteGetRequest.swift in Sources */,
+				3B7B82672C59A1DB0029C7A7 /* JRPCRequest.swift in Sources */,
+				3BFA50342C187EA10039F6FD /* RESTRequest.swift in Sources */,
 				3B339D9829A58A8400ACD0E3 /* KanyeQuote.swift in Sources */,
 				3B339D6729A587A900ACD0E3 /* ViewController.swift in Sources */,
 				3B339D6329A587A900ACD0E3 /* AppDelegate.swift in Sources */,
@@ -638,6 +645,10 @@
 		3B339DA029A58CA400ACD0E3 /* Harbor */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = Harbor;
+		};
+		3B7B82642C59A08C0029C7A7 /* HarborJRPC */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = HarborJRPC;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

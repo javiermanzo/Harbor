@@ -6,13 +6,14 @@
 //
 
 import UIKit
+import HarborJRPC
 
 final class ViewController: UIViewController {
 
     let myButton: UIButton = {
         let button = UIButton()
         button.translatesAutoresizingMaskIntoConstraints = false
-        button.setTitle("Request", for: .normal)
+        button.setTitle("Request REST", for: .normal)
         button.setTitleColor(.black, for: .normal)
         button.backgroundColor = .systemBlue
         return button
@@ -20,7 +21,10 @@ final class ViewController: UIViewController {
     
     override func viewDidLoad() {
         super.viewDidLoad()
-        
+
+        let config = HJRPCConfig(url: "https://rpc.ankr.com/eth")
+        HarborJRPC.configure(config)
+
         view.backgroundColor = .green
         
         view.addSubview(myButton)
@@ -36,19 +40,35 @@ final class ViewController: UIViewController {
     }
     
     @objc func buttonTapped()  {
+//        Task {
+//            let textAlert: String
+//            let response = await RESTRequest().request()
+//            
+//            switch response {
+//            case .success(let result):
+//                textAlert = result.quote
+//            case .cancelled:
+//                textAlert = "Request Cancelled"
+//            case .error:
+//                textAlert = "Request Error"
+//            }
+//            
+//            self.presentAlert(title: "Request Info", message: textAlert)
+//        }
+
         Task {
             let textAlert: String
-            let response = await KanyeQuoteGetRequest().request()
-            
+            let response = await JRPCRequest().request()
+
             switch response {
             case .success(let result):
-                textAlert = result.quote
+                textAlert = result
             case .cancelled:
                 textAlert = "Request Cancelled"
-            case .error:
-                textAlert = "Request Error"
+            case .error(let error):
+                textAlert = "Request Error \(error.localizedDescription)"
             }
-            
+
             self.presentAlert(title: "Request Info", message: textAlert)
         }
     }

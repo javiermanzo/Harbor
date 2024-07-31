@@ -5,7 +5,6 @@
 
 ![Swift](https://img.shields.io/badge/Swift-5-orange?style=flat-square) ![Platforms](https://img.shields.io/badge/Platforms-iOS-yellowgreen?style=flat-square) ![CocoaPods Compatible](https://img.shields.io/cocoapods/v/Harbor.svg?style=flat-square) ![Swift Package Manager](https://img.shields.io/badge/Swift_Package_Manager-compatible-orange?style=flat-square)
 
-
 ## Table of Contents
 - [Requirements](#requirements)
 - [Installation](#installation)
@@ -15,6 +14,8 @@
   - [Configuration](#configuration)
     - [Default Headers](#default-headers)
     - [Auth Provider](#auth-provider)
+    - [mTLS Support](#mtls-support)
+    - [SSL Pinning](#ssl-pinning)
   - [Request Protocols](#request-protocols)
     - [HGetRequestProtocol](#hgetrequestprotocol)
     - [HPostRequestProtocol](#hpostrequestprotocol)
@@ -27,7 +28,6 @@
     - [HResponse](#hresponse)
     - [HResponseWithResult](#hresponsewithresult)
   - [Cancel Request](#cancel-request)
-  - [mTLS Support](#mtls-support)
   - [Debug](#debug)
 - [Contributing](#contributing)
 - [Author](#author)
@@ -56,7 +56,7 @@ pod 'Harbor'
 
 ### Swift Package Manager
 
-Add the following to your `Package.swift` file:
+Add the following to your Package.swift file:
 
 ```swift
 dependencies: [
@@ -69,27 +69,21 @@ dependencies: [
 ### Configuration
 This provides a centralized way to manage common configuration.
 
-To set up the configuration, you can create an instance of the `HConfig` struct and pass it to the `configure` method.
-
 #### Default Headers
 
-With the configuration setup, you can include default headers in every request. This can be useful for adding common headers such as authorization tokens or content types to all your API requests.
+You can include default headers in every request. This can be useful for adding common headers such as authorization tokens or content types to all your API requests.
 
 To configure the default headers:
+
 ```swift
-let config = HConfig(defaultHeaderParameters: [
-        "MY_CUSTOM_HEADER": "VALUE"
-    ])
-Harbor.configure(config)
+Harbor.setDefaultHeaderParameters([
+    "MY_CUSTOM_HEADER": "VALUE"
+])
 ```
-
-Before each request is executed, Harbor will merge the default headers with the headers specified in the request class. This ensures that all necessary headers are included in the request.
-
-With this feature, you can manage your request headers more efficiently and ensure consistency across all your API requests.
 
 #### Auth Provider
 
-You can also implement the `HAuthProviderProtocol` if you need to handle authentication. Use the `configure` method of the `Harbor` class to set the authentication provider.
+You can implement the `HAuthProviderProtocol` if you need to handle authentication. Use the `setAuthProvider` method of the `Harbor` class to set the authentication provider.
 
 You need to create a class that implements `HAuthProviderProtocol`:
 
@@ -104,11 +98,32 @@ class MyAuthProvider: HAuthProviderProtocol {
 After that, set your Auth provider:
 
 ```swift
-let config = HConfig(authProvider: MyAuthProvider())
-Harbor.configure(config)
+Harbor.setAuthProvider(MyAuthProvider())
 ```
 
-If the request class has the `needsAuth` property set to `true`, Harbor will call the `getAuthorizationHeader` method of the authentication provider to get the `HAuthorizationHeader` instance to set it in the header before executing the request.
+If the request class has the `needsAuth` property set to true, Harbor will call the `getAuthorizationHeader` method of the authentication provider to get the `HAuthorizationHeader` instance to set it in the header before executing the request.
+
+#### mTLS Support
+
+Harbor supports mutual TLS (mTLS) for enhanced security in API requests. This feature allows clients to present certificates to the server, ensuring both the client and server authenticate each other.
+
+To set up mTLS, use the `setMTLS` method:
+
+```swift
+let mTLS = HmTLS(p12FileUrl: yourP12FileUrl, password: "yourPassword")
+Harbor.setMTLS(mTLS)
+```
+
+#### SSL Pinning
+
+Harbor supports SSL Pinning to enhance the security of your API requests. SSL Pinning ensures that the client checks the server's certificate against a known pinned certificate, adding an additional layer of security.
+
+To configure SSL Pinning, use the `setSSlPinningSHA256` method:
+
+```swift
+let sslPinningSHA256 = "yourSHA256CertificateHash"
+Harbor.setSSlPinningSHA256(sslPinningSHA256)
+```
 
 ### Request Protocols
 
@@ -121,34 +136,29 @@ Use the `HGetRequestProtocol` protocol if you want to send a GET request.
 - `queryParameters`: A dictionary of query parameters that will be added to the URL.
 - `Model`: The result of the request will be parsed to this entity.
 
-
 #### HPostRequestProtocol
 Use the `HPostRequestProtocol` protocol if you want to send a POST request.
 
 ##### Extra Properties:
 - `bodyParameters`: A dictionary of parameters that will be included in the body of the request.
-- `bodyType`: Specifies the type of data being sent in the body of the request. It can be either `json` or `multipart`.
-
+- `bodyType`: Specifies the type of data being sent in the body of the request. It can be either json or multipart.
 
 #### HPatchRequestProtocol
 Use the `HPatchRequestProtocol` protocol if you want to send a PATCH request.
 
 ##### Extra Properties:
 - `bodyParameters`: A dictionary of parameters that will be included in the body of the request.
-- `bodyType`: Specifies the type of data being sent in the body of the request. It can be either `json` or `multipart`.
-
+- `bodyType`: Specifies the type of data being sent in the body of the request. It can be either json or multipart.
 
 #### HPutRequestProtocol
 Use the `HPutRequestProtocol` protocol if you want to send a PUT request.
 
 ##### Extra Properties:
 - `bodyParameters`: A dictionary of parameters that will be included in the body of the request.
-- `bodyType`: Specifies the type of data being sent in the body of the request. It can be either `json` or `multipart`.
-
+- `bodyType`: Specifies the type of data being sent in the body of the request. It can be either json or multipart.
 
 #### HDeleteRequestProtocol
 Use the `HDeleteRequestProtocol` protocol if you want to send a DELETE request.
-
 
 #### HRequestWithResultProtocol
 Use the `HRequestWithResultProtocol` protocol if you want to parse the response into a specific model. This protocol requires you to define the type of model you expect in the response.
@@ -208,37 +218,7 @@ let task = Task {
 task.cancel()
 ```
 
-### mTLS Support
-
-Harbor supports mutual TLS (mTLS) for enhanced security in API requests. This feature allows clients to present certificates to the server, ensuring both the client and server authenticate each other.
-
-#### Usage
-
-To set up mTLS, include the `HmTLS` configuration when initializing `HConfig` and configure Harbor with it:
-
-```swift
-let mTLS = HmTLS(p12FileUrl: yourP12FileUrl, password: "yourPassword")
-let config = HConfig(mTLS: mTLS)
-Harbor.configure(config)
-```
-
-When mTLS is configured, Harbor will handle the client certificate challenges using the provided p12 file and password.
-
-### SSL Pinning
-
-Harbor supports SSL Pinning to enhance the security of your API requests. SSL Pinning ensures that the client checks the server's certificate against a known pinned certificate, adding an additional layer of security.
-
-#### Usage
-
-To configure SSL Pinning, include the `sslPinningSHA256` property when initializing `HConfig` and configure Harbor with it:
-
-```swift
-let sslPinningSHA256 = "yourSHA256CertificateHash"
-let config = HConfig(sslPinningSHA256: sslPinningSHA256)
-Harbor.configure(config)
-```
-
-## Debug
+### Debug
 
 You can print debug information about your request using the `HDebugRequestProtocol` protocol. Implement the protocol in the request class.
 
@@ -250,7 +230,7 @@ class MyRequest: HRequestWithResultProtocol, HDebugRequestProtocol {
 }
 ```
 
-`debugType` defines what you want to print in the console. The options are `none, request, response or requestAndResponse`.
+`debugType` defines what you want to print in the console. The options are `none`, `request`, `response`, or `requestAndResponse`.
 
 When your request is called, you will see in the Xcode console the information about your request.
 

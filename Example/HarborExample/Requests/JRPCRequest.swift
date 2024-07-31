@@ -7,8 +7,11 @@
 
 import Foundation
 import HarborJRPC
+import Harbor
 
-struct JRPCRequest: HJRPCRequestProtocol {
+struct JRPCRequest: HJRPCRequestProtocol, HDebugRequestProtocol {
+    var debugType: HDebugRequestType = .requestAndResponse
+
     typealias Model = String
     var method: String = "eth_blockNumber"
     var needsAuth: Bool = false

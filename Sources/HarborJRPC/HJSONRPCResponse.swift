@@ -16,5 +16,4 @@ struct HJRPCResult<Model: Codable>: Codable {
 public struct HJRPCError: Codable, Sendable {
     let code: Int
     let message: String
-    let data: String?
 }

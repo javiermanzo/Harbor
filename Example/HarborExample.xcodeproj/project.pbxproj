@@ -9,7 +9,6 @@
 /* Begin PBXBuildFile section */
 		3B339D6329A587A900ACD0E3 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B339D6229A587A900ACD0E3 /* AppDelegate.swift */; };
 		3B339D6529A587A900ACD0E3 /* SceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B339D6429A587A900ACD0E3 /* SceneDelegate.swift */; };
-		3B339D6729A587A900ACD0E3 /* ViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B339D6629A587A900ACD0E3 /* ViewController.swift */; };
 		3B339D6C29A587AB00ACD0E3 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 3B339D6B29A587AB00ACD0E3 /* Assets.xcassets */; };
 		3B339D6F29A587AB00ACD0E3 /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 3B339D6D29A587AB00ACD0E3 /* LaunchScreen.storyboard */; };
 		3B339D7A29A587AB00ACD0E3 /* HarborExampleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B339D7929A587AB00ACD0E3 /* HarborExampleTests.swift */; };
@@ -19,6 +18,7 @@
 		3B339DA129A58CA400ACD0E3 /* Harbor in Frameworks */ = {isa = PBXBuildFile; productRef = 3B339DA029A58CA400ACD0E3 /* Harbor */; };
 		3B7B82652C59A08C0029C7A7 /* HarborJRPC in Frameworks */ = {isa = PBXBuildFile; productRef = 3B7B82642C59A08C0029C7A7 /* HarborJRPC */; };
 		3B7B82672C59A1DB0029C7A7 /* JRPCRequest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B7B82662C59A1DB0029C7A7 /* JRPCRequest.swift */; };
+		3B7B82692C5A78CF0029C7A7 /* RequestsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B7B82682C5A78CF0029C7A7 /* RequestsView.swift */; };
 		3BFA50342C187EA10039F6FD /* RESTRequest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3BFA50332C187EA10039F6FD /* RESTRequest.swift */; };
 /* End PBXBuildFile section */
 
@@ -43,7 +43,6 @@
 		3B339D5F29A587A900ACD0E3 /* HarborExample.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = HarborExample.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		3B339D6229A587A900ACD0E3 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
 		3B339D6429A587A900ACD0E3 /* SceneDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SceneDelegate.swift; sourceTree = "<group>"; };
-		3B339D6629A587A900ACD0E3 /* ViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ViewController.swift; sourceTree = "<group>"; };
 		3B339D6B29A587AB00ACD0E3 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		3B339D6E29A587AB00ACD0E3 /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; name = Base; path = Base.lproj/LaunchScreen.storyboard; sourceTree = "<group>"; };
 		3B339D7029A587AB00ACD0E3 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
@@ -55,6 +54,7 @@
 		3B339D9729A58A8400ACD0E3 /* KanyeQuote.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KanyeQuote.swift; sourceTree = "<group>"; };
 		3B339D9E29A58C9200ACD0E3 /* Harbor */ = {isa = PBXFileReference; lastKnownFileType = wrapper; name = Harbor; path = ..; sourceTree = "<group>"; };
 		3B7B82662C59A1DB0029C7A7 /* JRPCRequest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JRPCRequest.swift; sourceTree = "<group>"; };
+		3B7B82682C5A78CF0029C7A7 /* RequestsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RequestsView.swift; sourceTree = "<group>"; };
 		3BFA50332C187EA10039F6FD /* RESTRequest.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = RESTRequest.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -114,7 +114,7 @@
 				3B339D9429A58A4200ACD0E3 /* Requests */,
 				3B339D6229A587A900ACD0E3 /* AppDelegate.swift */,
 				3B339D6429A587A900ACD0E3 /* SceneDelegate.swift */,
-				3B339D6629A587A900ACD0E3 /* ViewController.swift */,
+				3B7B82682C5A78CF0029C7A7 /* RequestsView.swift */,
 				3B339D6B29A587AB00ACD0E3 /* Assets.xcassets */,
 				3B339D6D29A587AB00ACD0E3 /* LaunchScreen.storyboard */,
 				3B339D7029A587AB00ACD0E3 /* Info.plist */,
@@ -306,9 +306,9 @@
 			buildActionMask = 2147483647;
 			files = (
 				3B7B82672C59A1DB0029C7A7 /* JRPCRequest.swift in Sources */,
+				3B7B82692C5A78CF0029C7A7 /* RequestsView.swift in Sources */,
 				3BFA50342C187EA10039F6FD /* RESTRequest.swift in Sources */,
 				3B339D9829A58A8400ACD0E3 /* KanyeQuote.swift in Sources */,
-				3B339D6729A587A900ACD0E3 /* ViewController.swift in Sources */,
 				3B339D6329A587A900ACD0E3 /* AppDelegate.swift in Sources */,
 				3B339D6529A587A900ACD0E3 /* SceneDelegate.swift in Sources */,
 			);

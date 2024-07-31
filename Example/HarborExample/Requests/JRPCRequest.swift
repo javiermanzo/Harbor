@@ -14,6 +14,4 @@ struct JRPCRequest: HJRPCRequestProtocol {
     var needsAuth: Bool = false
     var headers: [String : String]? = nil
     var parameters: [String : Any]? = nil
-
-    init() {}
 }

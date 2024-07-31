@@ -29,12 +29,20 @@
     - [HResponseWithResult](#hresponsewithresult)
   - [Cancel Request](#cancel-request)
   - [Debug](#debug)
+  - [JSON RPC](#json-rpc)
+    - [Installation](#installation-1)
+    - [Configuration](#configuration-1)
+      - [Set URL](#set-url)
+      - [Set JSON RPC Version](#set-json-rpc-version)
+    - [Request Protocol](#request-protocol)
+      - [HJRPCRequestProtocol](#hjrpcrequestprotocol)
+    - [Response](#response-1)
 - [Contributing](#contributing)
 - [Author](#author)
 - [License](#license)
 
-# Harbor
 
+# Harbor
 Harbor is a library for making API requests in Swift in a simple way using async/await.
 
 ## Requirements
@@ -43,11 +51,9 @@ Harbor is a library for making API requests in Swift in a simple way using async
 - iOS 15.0
 
 ## Installation
-
 You can add Harbor to your project using [CocoaPods](https://cocoapods.org/) or [Swift Package Manager](https://swift.org/package-manager/).
 
 ### CocoaPods
-
 Add the following line to your Podfile:
 
 ```ruby
@@ -55,8 +61,7 @@ pod 'Harbor'
 ```
 
 ### Swift Package Manager
-
-Add the following to your Package.swift file:
+Add the following to your `Package.swift` file:
 
 ```swift
 dependencies: [
@@ -70,8 +75,7 @@ dependencies: [
 This provides a centralized way to manage common configuration.
 
 #### Default Headers
-
-You can include default headers in every request. This can be useful for adding common headers such as authorization tokens or content types to all your API requests.
+You can include default headers in every request.
 
 To configure the default headers:
 
@@ -82,7 +86,6 @@ Harbor.setDefaultHeaderParameters([
 ```
 
 #### Auth Provider
-
 You can implement the `HAuthProviderProtocol` if you need to handle authentication. Use the `setAuthProvider` method of the `Harbor` class to set the authentication provider.
 
 You need to create a class that implements `HAuthProviderProtocol`:
@@ -101,10 +104,9 @@ After that, set your Auth provider:
 Harbor.setAuthProvider(MyAuthProvider())
 ```
 
-If the request class has the `needsAuth` property set to true, Harbor will call the `getAuthorizationHeader` method of the authentication provider to get the `HAuthorizationHeader` instance to set it in the header before executing the request.
+If the request class has the `needsAuth` property set to `true`, Harbor will call the `getAuthorizationHeader` method of the authentication provider to get the `HAuthorizationHeader` instance to set it in the header before executing the request.
 
 #### mTLS Support
-
 Harbor supports mutual TLS (mTLS) for enhanced security in API requests. This feature allows clients to present certificates to the server, ensuring both the client and server authenticate each other.
 
 To set up mTLS, use the `setMTLS` method:
@@ -115,7 +117,6 @@ Harbor.setMTLS(mTLS)
 ```
 
 #### SSL Pinning
-
 Harbor supports SSL Pinning to enhance the security of your API requests. SSL Pinning ensures that the client checks the server's certificate against a known pinned certificate, adding an additional layer of security.
 
 To configure SSL Pinning, use the `setSSlPinningSHA256` method:
@@ -126,7 +127,6 @@ Harbor.setSSlPinningSHA256(sslPinningSHA256)
 ```
 
 ### Request Protocols
-
 To make a request using Harbor, you need to create a class that implements one of the following protocols.
 
 #### HGetRequestProtocol
@@ -178,7 +178,6 @@ Task {
 ### Response
 
 #### HResponse
-
 If you use a protocol different from `HGetRequestProtocol` or `HRequestWithResultProtocol`, the result of calling `request()` will be an `HResponse` enum.
 
 ```swift
@@ -193,7 +192,6 @@ case .error(let error):
 ```
 
 #### HResponseWithResult
-
 If you use `HGetRequestProtocol` or `HRequestWithResultProtocol`, the result of calling `request()` will be an `HResponseWithResult` enum.
 
 ```swift
@@ -208,7 +206,6 @@ case .error(let error):
 ```
 
 ### Cancel Request
-
 You can cancel the task of the request if it is running. `request()` will return `cancelled`.
 
 ```swift
@@ -219,7 +216,6 @@ task.cancel()
 ```
 
 ### Debug
-
 You can print debug information about your request using the `HDebugRequestProtocol` protocol. Implement the protocol in the request class.
 
 ```swift
@@ -234,14 +230,63 @@ class MyRequest: HRequestWithResultProtocol, HDebugRequestProtocol {
 
 When your request is called, you will see in the Xcode console the information about your request.
 
-## Contributing
 
+## JSON RPC
+Harbor also supports JSON RPC via the `HarborJRPC` package.
+
+### Installation
+To use HarborJRPC, add the following import to your file:
+
+```swift
+import HarborJRPC
+```
+
+### Configuration
+
+#### Set URL
+Use this method to set the URL for the JSON RPC requests:
+
+```swift
+HarborJRPC.setURL("https://api.example.com/")
+```
+
+#### Set JSON RPC Version
+Use this method to set the JSON RPC version:
+
+```swift
+HarborJRPC.setJRPCVersion("2.0")
+```
+### Request Protocol
+
+#### HJRPCRequestProtocol
+Use the `HJRPCRequestProtocol` protocol if you want to send a JRPC request.
+
+##### Properties:
+- `Model`: The model that conforms to the `Codable` protocol, representing the expected response structure.
+- `method`: A string that represents the JRPC method to be called.
+- `needsAuth`: A boolean indicating whether the request requires authentication.
+- `headers`: An optional dictionary containing any additional headers to be included in the request.
+- `parameters`: An optional dictionary of parameters to be included in the request.
+
+### Response
+To configure a request using HarborJRPC, create a struct or class that implements `HJRPCRequestProtocol`. The result of calling `request()` will be an `HJRPCResponse`:
+
+```swift
+switch response {
+case .success(let result):
+    break
+case .cancelled:
+    break
+case .error(let error):
+    break
+}
+```
+
+## Contributing
 If you run into any problems, please submit an [issue](https://github.com/javiermanzo/Harbor/issues). [Pull requests](https://github.com/javiermanzo/Harbor/pulls) are also welcome! 
 
 ## Author
-
 Harbor was created by [Javier Manzo](https://www.linkedin.com/in/javiermanzo/).
 
 ## License
-
 Harbor is available under the MIT license. See the [LICENSE](https://github.com/javiermanzo/Harbor/blob/main/LICENSE.md) file for more info.

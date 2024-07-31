@@ -45,12 +45,19 @@ extension HJRPCRequestProtocol {
         jsonRPCBody["id"] = UUID().uuidString
         jsonRPCBody["params"] = parameters
 
-        let request = HJRPCRequestWrapper<T>(bodyParameters: jsonRPCBody, url: url, needsAuth: needsAuth, headerParameters: headers)
+        var debugType: HDebugRequestType = .none
+
+        if let requestDebug = self as? HDebugRequestProtocol {
+            debugType = requestDebug.debugType
+        }
+
+        let request = HJRPCRequestWrapper<T>(debugType: debugType, bodyParameters: jsonRPCBody, url: url, needsAuth: needsAuth, headerParameters: headers)
         return request
     }
 }
 
-struct HJRPCRequestWrapper<Model: Codable>: HPostRequestProtocol, HRequestWithResultProtocol {
+struct HJRPCRequestWrapper<Model: Codable>: HPostRequestProtocol, HRequestWithResultProtocol, HDebugRequestProtocol {
+    var debugType: HDebugRequestType
     typealias Model = HJRPCResult<Model>
     var bodyType: HRequestDataType = .json
     var bodyParameters: [String : Any]?

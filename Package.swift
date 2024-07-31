@@ -11,6 +11,9 @@ let package = Package(
         .library(
             name: "Harbor",
             targets: ["Harbor"]),
+        .library(
+            name: "HarborJRPC",
+            targets: ["HarborJRPC"]),
     ],
     dependencies: [
         // Dependencies declare other packages that this package depends on.
@@ -25,6 +28,13 @@ let package = Package(
         .testTarget(
             name: "HarborTests",
             dependencies: ["Harbor"]),
+
+        .target(
+            name: "HarborJRPC",
+            dependencies: ["Harbor"]),
+        .testTarget(
+            name: "HarborJRPCTests",
+            dependencies: ["HarborJRPC"]),
     ],
     swiftLanguageVersions: [.v5]
 )

@@ -11,7 +11,19 @@ public final class Harbor {
 
     private init() {}
 
-    public static func configure(_ config: HConfig) {
-        HRequestManager.config = config
+    public static func setAuthProvider(_ authProvider: HAuthProviderProtocol?) {
+        HRequestManager.config.authProvider = authProvider
+    }
+
+    public static func setDefaultHeaderParameters(_ defaultHeaderParameters: [String: String]?) {
+        HRequestManager.config.defaultHeaderParameters = defaultHeaderParameters
+    }
+
+    public static func setMTLS(_ mTLS: HmTLS?) {
+        HRequestManager.config.mTLS = mTLS
+    }
+
+    public static func setSSlPinningSHA256(_ sslPinningSHA256: String?) {
+        HRequestManager.config.sslPinningSHA256 = sslPinningSHA256
     }
 }

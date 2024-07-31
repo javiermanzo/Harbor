@@ -22,8 +22,7 @@ final class ViewController: UIViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
 
-        let config = HJRPCConfig(url: "https://rpc.ankr.com/eth")
-        HarborJRPC.configure(config)
+        HarborJRPC.setURL("https://rpc.ankr.com/eth")
 
         view.backgroundColor = .green
         

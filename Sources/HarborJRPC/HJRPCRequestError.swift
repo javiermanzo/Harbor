@@ -11,6 +11,7 @@ import Harbor
 public enum HJRPCRequestError: Error, Sendable {
     case apiError(statusCode: Int, data: Data)
     case jrpcError(error: HJSONRPCError)
+    case urlNeeded
     case invalidHttpResponse
     case invalidRequest
     case authProviderNeeded

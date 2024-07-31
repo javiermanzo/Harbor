@@ -7,7 +7,7 @@
 
 import Foundation
 
-public enum HResponse {
+public enum HResponse: Sendable {
     case success
     case cancelled
     case error(HRequestError)

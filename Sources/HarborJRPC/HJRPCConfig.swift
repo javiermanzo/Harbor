@@ -9,10 +9,10 @@ import Foundation
 import Harbor
 
 public class HJRPCConfig: HConfig {
-    public let url: String
-    public let jrpcVersion: String
+    var url: String = ""
+    var jrpcVersion: String = "2.0"
 
-    public init(url: String, jrpcVersion: String = "2.0", authProvider: HAuthProviderProtocol? = nil,
+    public init(url: String = "", jrpcVersion: String = "2.0", authProvider: HAuthProviderProtocol? = nil,
                 defaultHeaderParameters: [String : String]? = nil,
                 mTLS: HmTLS? = nil,
                 sslPinningSHA256: String? = nil) {

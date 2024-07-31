@@ -13,7 +13,6 @@ public protocol HAuthProviderProtocol {
 }
 
 public struct HAuthorizationHeader {
-    // TODO: Remove public
     public let key: String
     public let value: String
 

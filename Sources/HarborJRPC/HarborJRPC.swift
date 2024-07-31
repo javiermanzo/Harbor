@@ -10,7 +10,11 @@ import Foundation
 public final class HarborJRPC {
     private init() {}
 
-    public static func configure(_ config: HJRPCConfig) {
-        HJRPCRequestManager.config = config
+    public static func setURL(_ url: String) {
+        HJRPCRequestManager.config.url = url
+    }
+
+    public static func setJRPCVersion(_ jrpcVersion: String) {
+        HJRPCRequestManager.config.jrpcVersion = jrpcVersion
     }
 }

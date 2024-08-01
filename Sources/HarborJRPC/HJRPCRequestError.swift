@@ -16,7 +16,7 @@ public enum HJRPCRequestError: Error, Sendable {
     case invalidRequest
     case authProviderNeeded
     case authNeeded
-    case codableError
+    case codableError(modelName: String, error: Error)
     case noConnectionError
     case malformedRequestError
     case timeoutError
@@ -35,8 +35,8 @@ extension HJRPCRequestError {
             return .authProviderNeeded
         case .authNeeded:
             return .authNeeded
-        case .codableError:
-            return .codableError
+        case .codableError(let modelName, let error):
+            return .codableError(modelName: modelName, error: error)
         case .noConnectionError:
             return .noConnectionError
         case .malformedRequestError:

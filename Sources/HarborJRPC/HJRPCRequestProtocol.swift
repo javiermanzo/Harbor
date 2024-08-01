@@ -27,16 +27,6 @@ public extension HJRPCRequestProtocol {
 extension HJRPCRequestProtocol {
     var url: String { HJRPCRequestManager.config.url }
 
-    func parseData<Model: Codable>(data: Data, model: Model.Type) -> HJRPCResult<Model>? {
-        let decoder = JSONDecoder()
-        do {
-            return try decoder.decode(HJRPCResult<Model>.self, from: data)
-        } catch {
-            print("Error decoding model: \(model.self)")
-            return nil
-        }
-    }
-
     func wrapRequest<T: Codable>(type: T.Type) -> HJRPCRequestWrapper<T> {
         var jsonRPCBody: [String: Any] = [:]
 

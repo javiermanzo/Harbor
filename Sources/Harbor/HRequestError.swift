@@ -13,7 +13,7 @@ public enum HRequestError: Error, Sendable {
     case invalidRequest
     case authProviderNeeded
     case authNeeded
-    case codableError
+    case codableError(modelName: String, error: Error)
     case noConnectionError
     case malformedRequestError
     case timeoutError

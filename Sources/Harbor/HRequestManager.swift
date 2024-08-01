@@ -72,10 +72,11 @@ extension HRequestManager {
 
             switch httpResponse.statusCode {
             case 200 ... 299:
-                if let parsedResponse = request.parseData(data: data, model: model) {
+                do {
+                    let parsedResponse = try request.parseData(data: data, model: model)
                     return .success(parsedResponse)
-                } else {
-                    return .error(.codableError)
+                } catch let parseError {
+                    return .error(.codableError(modelName: "\(model.self)", error: parseError))
                 }
             case 401:
                 if await !hasNewAuthorizationHeader(request: request) {

@@ -36,7 +36,7 @@ public extension HRequestWithEmptyResponseProtocol {
 // MARK: - Request with Result Protocol
 public protocol HRequestWithResultProtocol: HRequestBaseRequestProtocol {
     associatedtype Model: Codable
-    func parseData<Model: Codable> (data: Data, model: Model.Type) -> Model?
+    func parseData<Model: Codable> (data: Data, model: Model.Type) throws -> Model
     func request() async -> HResponseWithResult<Model>
 }
 
@@ -45,14 +45,9 @@ public extension HRequestWithResultProtocol {
         return await HRequestManager.request(model: Model.self, request: self)
     }
     
-    func parseData<Model: Codable> (data: Data, model: Model.Type) -> Model? {
+    func parseData<Model: Codable> (data: Data, model: Model.Type) throws -> Model {
         let decoder = JSONDecoder()
-        do {
-            return try decoder.decode(Model.self, from: data)
-        } catch {
-            print("Error decoding model: \(model.self)")
-            return nil
-        }
+        return try decoder.decode(Model.self, from: data)
     }
 }
 

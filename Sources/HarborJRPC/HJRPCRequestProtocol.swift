@@ -12,6 +12,7 @@ public protocol HJRPCRequestProtocol {
     associatedtype Model: Codable
     var method: String { get }
     var needsAuth: Bool { get }
+    var retries: Int? { get set}
     var headers: [String: String]? { get set }
     var parameters: [String: Any]? { get set }
 
@@ -37,7 +38,7 @@ extension HJRPCRequestProtocol {
 
         let debugType: HDebugRequestType = (self as? HDebugRequestProtocol)?.debugType ?? .none
 
-        let request = HJRPCRequestWrapper<T>(debugType: debugType, bodyParameters: jsonRPCBody, url: url, needsAuth: needsAuth, headerParameters: headers)
+        let request = HJRPCRequestWrapper<T>(debugType: debugType, bodyParameters: jsonRPCBody, url: url, needsAuth: needsAuth, retries: retries, headerParameters: headers)
         return request
     }
 }
@@ -49,6 +50,7 @@ struct HJRPCRequestWrapper<Model: Codable>: HPostRequestProtocol, HRequestWithRe
     var bodyParameters: [String : Any]?
     var url: String
     var needsAuth: Bool
+    var retries: Int?
     var pathParameters: [String : String]?
     var headerParameters: [String : String]?
 }

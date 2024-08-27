@@ -63,7 +63,13 @@ extension HRequestManager {
             let duration = Date().timeIntervalSince(startTime) * 1000
 
             guard let httpResponse = httpResponse as? HTTPURLResponse else {
-                return .error(.invalidHttpResponse)
+                if let retries = request.retries, retries > 0 {
+                    var mutableRequest = request
+                    mutableRequest.retries = retries - 1
+                    return await self.request(model: model, request: mutableRequest)
+                } else {
+                    return .error(.invalidHttpResponse)
+                }
             }
 
             if let request = request as? HDebugRequestProtocol {
@@ -84,7 +90,13 @@ extension HRequestManager {
                 }
                 return .error(.authNeeded)
             default:
-                return .error(.apiError(statusCode: httpResponse.statusCode, data: data))
+                if let retries = request.retries, retries > 0 {
+                    var mutableRequest = request
+                    mutableRequest.retries = retries - 1
+                    return await self.request(model: model, request: mutableRequest)
+                } else {
+                    return .error(.apiError(statusCode: httpResponse.statusCode, data: data))
+                }
             }
         } catch let error as URLError {
             switch error.code {
@@ -155,7 +167,13 @@ extension HRequestManager {
             let duration = Date().timeIntervalSince(startTime) * 1000
 
             guard let httpResponse = httpResponse as? HTTPURLResponse else {
-                return .error(.invalidHttpResponse)
+                if let retries = request.retries, retries > 0 {
+                    var mutableRequest = request
+                    mutableRequest.retries = retries - 1
+                    return await self.request(request: mutableRequest)
+                } else {
+                    return .error(.invalidHttpResponse)
+                }
             }
 
             if let request = request as? HDebugRequestProtocol {
@@ -171,7 +189,13 @@ extension HRequestManager {
                 }
                 return .error(.authNeeded)
             default:
-                return .error(.apiError(statusCode: httpResponse.statusCode, data: data))
+                if let retries = request.retries, retries > 0 {
+                    var mutableRequest = request
+                    mutableRequest.retries = retries - 1
+                    return await self.request(request: mutableRequest)
+                } else {
+                    return .error(.apiError(statusCode: httpResponse.statusCode, data: data))
+                }
             }
         } catch let error as URLError {
             switch error.code {

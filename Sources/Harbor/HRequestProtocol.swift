@@ -18,6 +18,7 @@ public protocol HRequestBaseRequestProtocol {
     var url: String { get }
     var httpMethod: HHttpMethod { get }
     var needsAuth: Bool { get }
+    var retries: Int? { get set }
     var pathParameters: [String: String]? { get }
     var headerParameters: [String: String]? { get set }
 }

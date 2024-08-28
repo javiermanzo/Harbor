@@ -15,5 +15,6 @@ struct RESTRequest: HGetRequestProtocol {
     let queryParameters: [String: String]? = nil
     let pathParameters: [String: String]? = nil
     let needsAuth: Bool = false
+    var retries: Int? = nil
     let timeout: TimeInterval = 5
 }

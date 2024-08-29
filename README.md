@@ -5,7 +5,10 @@
 
 ![Swift](https://img.shields.io/badge/Swift-5-orange?style=flat-square) ![Platforms](https://img.shields.io/badge/Platforms-iOS-yellowgreen?style=flat-square) ![CocoaPods Compatible](https://img.shields.io/cocoapods/v/Harbor.svg?style=flat-square) ![Swift Package Manager](https://img.shields.io/badge/Swift_Package_Manager-compatible-orange?style=flat-square)
 
+Harbor is a library for making API requests in Swift in a simple way using async/await.
+
 ## Table of Contents
+- [Features](#features)
 - [Requirements](#requirements)
 - [Installation](#installation)
   - [CocoaPods](#cocoapods)
@@ -41,9 +44,18 @@
 - [Author](#author)
 - [License](#license)
 
+## Features
 
-# Harbor
-Harbor is a library for making API requests in Swift in a simple way using async/await.
+- [x] Rest Requests
+- [x] JSON RPC Requests
+- [x] Auth provider handler
+- [x] Multipart Post Requests
+- [x] Retry Requests
+- [x] Cancel Request
+- [x] Debug Requests
+- [x] cURL Command Output
+- [x] mTLS Certificate
+- [x] SSL Pinning
 
 ## Requirements
 
@@ -266,6 +278,7 @@ Use the `HJRPCRequestProtocol` protocol if you want to send a JRPC request.
 - `Model`: The model that conforms to the `Codable` protocol, representing the expected response structure.
 - `method`: A string that represents the JRPC method to be called.
 - `needsAuth`: A boolean indicating whether the request requires authentication.
+- `retries`: The number of retries in case the request fails.
 - `headers`: An optional dictionary containing any additional headers to be included in the request.
 - `parameters`: An optional dictionary of parameters to be included in the request.
 

@@ -1,0 +1,27 @@
+# This workflow will build a Swift project
+# For more information see: https://docs.github.com/en/actions/automating-builds-and-tests/building-and-testing-swift
+
+name: UnitTests
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main", "release/1.0.0" ]
+
+jobs:
+  build:
+
+    runs-on: macos-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: List Xcode installations
+      run: sudo ls -1 /Applications | grep "Xcode"
+
+    - name: Select Xcode 15.4
+      run: sudo xcode-select -s /Applications/Xcode_15.4.app/Contents/Developer
+
+    - name: Run tests
+      run: swift test -v --enable-code-coverage

@@ -7,15 +7,14 @@
 
 import Foundation
 
-public enum HResponse {
+public enum HResponse: Sendable {
     case success
     case cancelled
-    case error(HServiceError)
+    case error(HRequestError)
 }
 
-public enum HResponseWithResult<T> {
-    case success(T)
+public enum HResponseWithResult<Model: Sendable>: Sendable {
+    case success(Model)
     case cancelled
-    case error(HServiceError)
+    case error(HRequestError)
 }
-

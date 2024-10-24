@@ -9,7 +9,7 @@ import Foundation
 
 public protocol HAuthProviderProtocol {
     func getAuthorizationHeader() async -> HAuthorizationHeader
-    func authFailed()
+    func authFailed() async
 }
 
 public struct HAuthorizationHeader {

@@ -86,7 +86,7 @@ extension HRequestManager {
                 }
             case 401:
                 if await !hasNewAuthorizationHeader(request: request) {
-                    Self.config.authProvider?.authFailed()
+                    await Self.config.authProvider?.authFailed()
                 }
                 return .error(.authNeeded)
             default:
@@ -185,7 +185,7 @@ extension HRequestManager {
                 return .success
             case 401:
                 if await !hasNewAuthorizationHeader(request: request) {
-                    Self.config.authProvider?.authFailed()
+                    await Self.config.authProvider?.authFailed()
                 }
                 return .error(.authNeeded)
             default:

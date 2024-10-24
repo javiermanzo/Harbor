@@ -104,8 +104,12 @@ You need to create a class that implements `HAuthProviderProtocol`:
 
 ```swift
 class MyAuthProvider: HAuthProviderProtocol {
-    func getCredentialHeader() -> HAuthorizationHeader {
+    func getAuthorizationHeader() async -> HAuthorizationHeader {
         // Return a HAuthorizationHeader instance
+    }
+    
+    func authFailed() async {
+        // This method is called when the request receives a 401 status code
     }
 }
 ```

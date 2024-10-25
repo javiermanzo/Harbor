@@ -87,8 +87,10 @@ extension HRequestManager {
             case 401:
                 if await !hasNewAuthorizationHeader(request: request) {
                     await Self.config.authProvider?.authFailed()
+                    return .error(.authNeeded)
+                } else {
+                    return await self.request(model: model, request: request)
                 }
-                return .error(.authNeeded)
             default:
                 if let retries = request.retries, retries > 0 {
                     var mutableRequest = request
@@ -186,8 +188,10 @@ extension HRequestManager {
             case 401:
                 if await !hasNewAuthorizationHeader(request: request) {
                     await Self.config.authProvider?.authFailed()
+                    return .error(.authNeeded)
+                } else {
+                    return await self.request(request: request)
                 }
-                return .error(.authNeeded)
             default:
                 if let retries = request.retries, retries > 0 {
                     var mutableRequest = request

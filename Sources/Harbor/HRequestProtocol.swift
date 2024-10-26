@@ -8,7 +8,7 @@
 import Foundation
 
 // MARK: - Request Data Type
-public enum HRequestDataType {
+public enum HRequestDataType: Sendable {
     case json
     case multipart
 }

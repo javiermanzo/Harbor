@@ -7,7 +7,7 @@
 
 import Foundation
 
-struct HJRPCConfig {
+struct HJRPCConfig: Sendable {
     var url: String = ""
     var jrpcVersion: String = "2.0"
 }

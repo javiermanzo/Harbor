@@ -86,9 +86,11 @@ extension HRequestManager {
                 }
             case 401:
                 if await !hasNewAuthorizationHeader(request: request) {
-                    Self.config.authProvider?.authFailed()
+                    await Self.config.authProvider?.authFailed()
+                    return .error(.authNeeded)
+                } else {
+                    return await self.request(model: model, request: request)
                 }
-                return .error(.authNeeded)
             default:
                 if let retries = request.retries, retries > 0 {
                     var mutableRequest = request
@@ -185,9 +187,11 @@ extension HRequestManager {
                 return .success
             case 401:
                 if await !hasNewAuthorizationHeader(request: request) {
-                    Self.config.authProvider?.authFailed()
+                    await Self.config.authProvider?.authFailed()
+                    return .error(.authNeeded)
+                } else {
+                    return await self.request(request: request)
                 }
-                return .error(.authNeeded)
             default:
                 if let retries = request.retries, retries > 0 {
                     var mutableRequest = request
@@ -233,7 +237,7 @@ internal extension HRequestManager {
 
         var urlRequest = URLRequest(url: url)
 
-        urlRequest.allHTTPHeaderFields = getHeaderParameters(requestHeaderParameters: request.headerParameters)
+
         urlRequest.httpMethod = request.httpMethod.rawValue
         // TODO: Move to a config class
         urlRequest.httpShouldHandleCookies = false
@@ -248,6 +252,14 @@ internal extension HRequestManager {
                 urlRequest.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
                 urlRequest.httpBody = dataBody(params: parameters, type: .multipart, boundary: boundary)
             }
+        }
+
+        if let defaultHeaders = Self.config.defaultHeaderParameters {
+            urlRequest.allHTTPHeaderFields = mergeHeaderParameters(currentHeaders: urlRequest.allHTTPHeaderFields, newHeaders: defaultHeaders)
+        }
+
+        if let requestHeaderParameters = request.headerParameters {
+            urlRequest.allHTTPHeaderFields = mergeHeaderParameters(currentHeaders: urlRequest.allHTTPHeaderFields, newHeaders: requestHeaderParameters)
         }
 
         return urlRequest
@@ -314,14 +326,17 @@ internal extension HRequestManager {
         return fieldString
     }
 
-    static func getHeaderParameters(requestHeaderParameters: [String: String]? = nil) -> [String: String] {
-        var headers: [String: String] = Self.config.defaultHeaderParameters ?? [String: String]()
+    static func mergeHeaderParameters(currentHeaders: [String: String]?, newHeaders: [String: String]) -> [String: String] {
+        if let currentHeaders {
+            var headers: [String: String] = currentHeaders
 
-        if let requestHeaderParameters, !requestHeaderParameters.isEmpty {
-            headers.merge(requestHeaderParameters, uniquingKeysWith: { (_, new) in new })
+            if !newHeaders.isEmpty {
+                headers.merge(newHeaders, uniquingKeysWith: { (_, new) in new })
+            }
+            return headers
+        } else {
+            return newHeaders
         }
-
-        return headers
     }
 }
 
@@ -356,7 +371,7 @@ private extension HRequestManager {
                 SCNetworkReachabilityCreateWithAddress(nil, zeroSockAddress)
             }
         }
-
+        
         var flags: SCNetworkReachabilityFlags = SCNetworkReachabilityFlags(rawValue: 0)
         if SCNetworkReachabilityGetFlags(defaultRouteReachability!, &flags) == false {
             return false

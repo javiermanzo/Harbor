@@ -14,7 +14,7 @@ public enum HRequestDataType {
 }
 
 // MARK: - Base Protocol
-public protocol HRequestBaseRequestProtocol {
+public protocol HRequestBaseRequestProtocol: Sendable {
     var url: String { get }
     var httpMethod: HHttpMethod { get }
     var needsAuth: Bool { get }
@@ -35,7 +35,7 @@ public extension HRequestWithEmptyResponseProtocol {
 }
 
 // MARK: - Request with Result Protocol
-public protocol HRequestWithResultProtocol: HRequestBaseRequestProtocol {
+public protocol HRequestWithResultProtocol: HRequestBaseRequestProtocol where Model: Sendable {
     associatedtype Model: Codable
     func parseData<Model: Codable> (data: Data, model: Model.Type) throws -> Model
     func request() async -> HResponseWithResult<Model>

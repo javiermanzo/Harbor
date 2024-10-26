@@ -7,7 +7,7 @@
 
 import Foundation
 
-struct HConfig {
+struct HConfig: Sendable {
     var authProvider: HAuthProviderProtocol?
     var defaultHeaderParameters: [String: String]?
     var mTLS: HmTLS?

@@ -7,7 +7,8 @@
 
 import Foundation
 
-public final class Harbor {
+@HRequestManagerActor
+public final class Harbor: Sendable {
 
     private init() {}
 

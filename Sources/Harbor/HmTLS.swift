@@ -7,7 +7,7 @@
 
 import Foundation
 
-public struct HmTLS {
+public struct HmTLS: Sendable {
     let p12FileUrl: URL
     let password: String
 

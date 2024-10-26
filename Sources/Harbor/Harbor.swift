@@ -27,4 +27,8 @@ public final class Harbor: Sendable {
     public static func setSSlPinningSHA256(_ sslPinningSHA256: String?) {
         HRequestManager.config.sslPinningSHA256 = sslPinningSHA256
     }
+
+    public static func setCustomSession(_ customSession: URLSession) {
+        HRequestManager.configureSession(customSession)
+    }
 }

@@ -8,6 +8,7 @@
 import XCTest
 @testable import Harbor
 
+@HRequestManagerActor
 final class HarborBodyTests: XCTestCase {
 
     func testBuildRequestWithMultipartBodyType() throws {

@@ -92,7 +92,7 @@ You can include default headers in every request.
 To configure the default headers:
 
 ```swift
-Harbor.setDefaultHeaderParameters([
+await Harbor.setDefaultHeaderParameters([
     "MY_CUSTOM_HEADER": "VALUE"
 ])
 ```
@@ -117,7 +117,7 @@ class MyAuthProvider: HAuthProviderProtocol {
 After that, set your Auth provider:
 
 ```swift
-Harbor.setAuthProvider(MyAuthProvider())
+await Harbor.setAuthProvider(MyAuthProvider())
 ```
 
 If the request class has the `needsAuth` property set to `true`, Harbor will call the `getAuthorizationHeader` method of the authentication provider to get the `HAuthorizationHeader` instance to set it in the header before executing the request.
@@ -129,7 +129,7 @@ To set up mTLS, use the `setMTLS` method:
 
 ```swift
 let mTLS = HmTLS(p12FileUrl: yourP12FileUrl, password: "yourPassword")
-Harbor.setMTLS(mTLS)
+await Harbor.setMTLS(mTLS)
 ```
 
 #### SSL Pinning
@@ -139,7 +139,7 @@ To configure SSL Pinning, use the `setSSlPinningSHA256` method:
 
 ```swift
 let sslPinningSHA256 = "yourSHA256CertificateHash"
-Harbor.setSSlPinningSHA256(sslPinningSHA256)
+await Harbor.setSSlPinningSHA256(sslPinningSHA256)
 ```
 
 ### Request Protocols

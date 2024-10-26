@@ -26,7 +26,7 @@ internal final class HRequestManager: Sendable {
 
     /// Session getter that handles mTLS and SSL pinning if needed
     private static func getSession() -> URLSession {
-        if let currentSession = currentSession {
+        if let currentSession {
             return currentSession
         }
 

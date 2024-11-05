@@ -56,10 +56,11 @@ Harbor is a library for making API requests in Swift in a simple way using async
 - [x] cURL Command Output
 - [x] mTLS Certificate
 - [x] SSL Pinning
+- [x] Swift 6 Compatible
 
 ## Requirements
 
-- Swift 5 (Swift 6 compatible)
+- Swift 5.9+
 - iOS 15.0
 
 ## Installation

@@ -3,36 +3,36 @@ import XCTest
 
 final class HarborTests: XCTestCase {
 
-    func testShouldAddSinglePathParameterCorrectlyToURL() throws {
+    func testShouldAddSinglePathParameterCorrectlyToURL() async throws {
         // Given
         let baseUrl = "https://api.github.com/users/{USER}/"
         let expectedURL = "https://api.github.com/users/OmarJalil/"
 
         // When
-        let url = HRequestManager.compositeURL(url: baseUrl, pathParameters: ["USER": "OmarJalil"], queryParameters: nil)
+        let url = await HRequestManager.compositeURL(url: baseUrl, pathParameters: ["USER": "OmarJalil"], queryParameters: nil)
 
         // Then
         XCTAssertEqual(expectedURL, url?.absoluteString)
     }
 
-    func testShouldAddMultiplePathParametersCorrectlyToURL() throws {
+    func testShouldAddMultiplePathParametersCorrectlyToURL() async throws {
         // Given
         let baseUrl = "https://api.github.com/users/{USER}/following/{FOLLOWS}/"
         let expectedURL = "https://api.github.com/users/OmarJalil/following/javiermanzo/"
 
         // When
-        let url = HRequestManager.compositeURL(url: baseUrl, pathParameters: ["FOLLOWS": "javiermanzo", "USER": "OmarJalil"], queryParameters: nil)
+        let url = await HRequestManager.compositeURL(url: baseUrl, pathParameters: ["FOLLOWS": "javiermanzo", "USER": "OmarJalil"], queryParameters: nil)
 
         // Then
         XCTAssertEqual(expectedURL, url?.absoluteString)
     }
 
-    func testBuildGetRequest() {
+    func testBuildGetRequest() async throws {
         // Given
         let service = MockGetRequestService(url: "https://example.com", queryParameters: ["id": "123", "sort": "desc"])
 
         // When
-        let request = HRequestManager.buildUrlRequest(request: service)
+        let request = await HRequestManager.buildUrlRequest(request: service)
         
         // Then
         XCTAssertNotNil(request)
@@ -40,27 +40,28 @@ final class HarborTests: XCTestCase {
         XCTAssertEqual(request?.httpMethod, "GET")
     }
 
-    func testBuildPostRequest() {
+    func testBuildPostRequest() async throws {
         // Given
         let service = MockPostRequestService(url: "https://example.com", bodyParameters: ["name": "John"])
 
         // When
-        let request = HRequestManager.buildUrlRequest(request: service)
+        let request = await HRequestManager.buildUrlRequest(request: service)
 
         // Then
         XCTAssertNotNil(request)
         XCTAssertEqual(request?.url?.absoluteString, "https://example.com")
         XCTAssertEqual(request?.httpMethod, "POST")
         XCTAssertEqual(request?.allHTTPHeaderFields?["Content-Type"], "application/json")
-        XCTAssertEqual(request?.httpBody, HRequestManager.dataBody(params: ["name": "John"], type: .json))
+        let httpBody = await HRequestManager.dataBody(params: ["name": "John"], type: .json)
+        XCTAssertEqual(request?.httpBody, httpBody)
     }
 
-    func testBuildInvalidRequest() {
+    func testBuildInvalidRequest() async throws {
         // Given
         let service = MockInvalidRequestService()
 
         // When
-        let request = HRequestManager.buildUrlRequest(request: service)
+        let request = await HRequestManager.buildUrlRequest(request: service)
 
         // Then
         XCTAssertNil(request)

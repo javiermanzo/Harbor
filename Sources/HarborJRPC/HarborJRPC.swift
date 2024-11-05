@@ -6,7 +6,9 @@
 //
 
 import Foundation
+import Harbor
 
+@HRequestManagerActor
 public final class HarborJRPC {
     private init() {}
 

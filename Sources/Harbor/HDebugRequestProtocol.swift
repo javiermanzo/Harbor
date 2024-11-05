@@ -11,7 +11,7 @@ public protocol HDebugRequestProtocol {
     var debugType: HDebugRequestType { get set }
 }
 
-public enum HDebugRequestType {
+public enum HDebugRequestType: Sendable {
     case none
     case request
     case response

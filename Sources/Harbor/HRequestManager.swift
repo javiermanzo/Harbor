@@ -8,35 +8,44 @@
 import Foundation
 import SystemConfiguration
 
-internal final class HRequestManager {
+/// Actor to manage shared mutable state in a thread-safe way
+@globalActor public actor HRequestManagerActor {
+    public static let shared = HRequestManagerActor()
+}
+
+@HRequestManagerActor
+internal final class HRequestManager: Sendable {
     internal static var config: HConfig = HConfig()
 }
 
 // MARK: - Request With Result
 extension HRequestManager {
 
+    static func addAuthCredentialsIfNeeded(_ request: any HRequestBaseRequestProtocol) async -> (any HRequestBaseRequestProtocol)? {
+        if request.needsAuth {
+            var modifiedRequest = request
+            if let authCredential = await Self.config.authProvider?.getAuthorizationHeader() {
+                if modifiedRequest.headerParameters == nil {
+                    modifiedRequest.headerParameters = [:]
+                }
+                modifiedRequest.headerParameters?[authCredential.key] = authCredential.value
+                return modifiedRequest
+            } else {
+                return nil
+            }
+        }
+        return request
+    }
+
     static func request<Model: Codable>(model: Model.Type, request: any HRequestWithResultProtocol) async -> HResponseWithResult<Model> {
         if !self.isConnectedToNetwork() {
             return .error(.noConnectionError)
         }
 
-        if request.needsAuth {
-            if let authCredential = await Self.config.authProvider?.getAuthorizationHeader() {
-                var mutableRequest = request
-                var headerParameters = request.headerParameters ?? [:]
-                headerParameters[authCredential.key] = authCredential.value
-                mutableRequest.headerParameters = headerParameters
+        guard let modifiedRequest = await addAuthCredentialsIfNeeded(request) as? (any HRequestWithResultProtocol) else { return .error(.authProviderNeeded) }
 
-                let requestCopy = mutableRequest
-                async let result = self.requestHandler(model: model, request: requestCopy)
-                return await result
-            } else {
-                return .error(.authProviderNeeded)
-            }
-        } else {
-            async let result = self.requestHandler(model: model, request: request)
-            return await result
-        }
+        let result = await requestHandler(model: model, request: modifiedRequest)
+        return result
     }
 
     private static func requestHandler<Model: Codable>(model: Model.Type, request: any HRequestWithResultProtocol) async -> HResponseWithResult<Model> {
@@ -49,12 +58,8 @@ extension HRequestManager {
         }
 
         do {
-            var sessionDelegate: HURLSessionDelegate?
-            if config.mTLS != nil || config.sslPinningSHA256 != nil {
-                sessionDelegate = HURLSessionDelegate(mTLS: config.mTLS, sslPinningSHA256: config.sslPinningSHA256)
-            }
 
-            let session = URLSession(configuration: .default, delegate: sessionDelegate, delegateQueue: nil)
+            let session = getSession()
 
             let startTime = Date()
 
@@ -126,23 +131,10 @@ extension HRequestManager {
             return .error(.noConnectionError)
         }
 
-        if request.needsAuth {
-            if let authCredential = await Self.config.authProvider?.getAuthorizationHeader() {
-                var mutableRequest = request
-                var headerParameters = request.headerParameters ?? [:]
-                headerParameters[authCredential.key] = authCredential.value
-                mutableRequest.headerParameters = headerParameters
+        guard let modifiedRequest = await addAuthCredentialsIfNeeded(request) as? (any HRequestWithEmptyResponseProtocol) else { return .error(.authProviderNeeded) }
 
-                let requestCopy = mutableRequest
-                async let result = self.requestHandler(request: requestCopy)
-                return await result
-            } else {
-                return .error(.authProviderNeeded)
-            }
-        } else {
-            async let result = self.requestHandler(request: request)
-            return await result
-        }
+        let result = await requestHandler(request: modifiedRequest)
+        return result
     }
 
     private static func requestHandler<P: HRequestWithEmptyResponseProtocol>(request: P) async -> HResponse {
@@ -155,12 +147,8 @@ extension HRequestManager {
         }
 
         do {
-            var sessionDelegate: HURLSessionDelegate?
-            if config.mTLS != nil || config.sslPinningSHA256 != nil {
-                sessionDelegate = HURLSessionDelegate(mTLS: config.mTLS, sslPinningSHA256: config.sslPinningSHA256)
-            }
 
-            let session = URLSession(configuration: .default, delegate: sessionDelegate, delegateQueue: nil)
+            let session = getSession()
 
             let startTime = Date()
 
@@ -337,6 +325,24 @@ internal extension HRequestManager {
         } else {
             return newHeaders
         }
+    }
+
+    /// Session getter that handles mTLS and SSL pinning if needed
+    private static func getSession() -> URLSession {
+        if let currentSession = config.currentSession {
+            return currentSession
+        }
+
+        // If mTLS or SSL pinning is configured, create a new session with delegate
+        if config.mTLS != nil || config.sslPinningSHA256 != nil {
+            let sessionDelegate = HURLSessionDelegate(mTLS: config.mTLS, sslPinningSHA256: config.sslPinningSHA256)
+            let newSession = URLSession(configuration: .default, delegate: sessionDelegate, delegateQueue: nil)
+            config.currentSession = newSession
+            return newSession
+        }
+
+        // Otherwise use the default shared session
+        return config.defaultSession
     }
 }
 

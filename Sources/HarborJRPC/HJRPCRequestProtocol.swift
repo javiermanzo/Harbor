@@ -8,8 +8,8 @@
 import Foundation
 import Harbor
 
-public protocol HJRPCRequestProtocol {
-    associatedtype Model: Codable
+public protocol HJRPCRequestProtocol: Sendable {
+    associatedtype Model: Codable & Sendable
     var method: String { get }
     var needsAuth: Bool { get }
     var retries: Int? { get set}
@@ -26,8 +26,7 @@ public extension HJRPCRequestProtocol {
 }
 
 extension HJRPCRequestProtocol {
-    var url: String { HJRPCRequestManager.config.url }
-
+    @HRequestManagerActor
     func wrapRequest<T: Codable>(type: T.Type) -> HJRPCRequestWrapper<T> {
         var jsonRPCBody: [String: Any] = [:]
 
@@ -38,12 +37,12 @@ extension HJRPCRequestProtocol {
 
         let debugType: HDebugRequestType = (self as? HDebugRequestProtocol)?.debugType ?? .none
 
-        let request = HJRPCRequestWrapper<T>(debugType: debugType, bodyParameters: jsonRPCBody, url: url, needsAuth: needsAuth, retries: retries, headerParameters: headers)
+        let request = HJRPCRequestWrapper<T>(debugType: debugType, bodyParameters: jsonRPCBody, url: HJRPCRequestManager.config.url, needsAuth: needsAuth, retries: retries, headerParameters: headers)
         return request
     }
 }
 
-struct HJRPCRequestWrapper<Model: Codable>: HPostRequestProtocol, HRequestWithResultProtocol, HDebugRequestProtocol {
+struct HJRPCRequestWrapper<Model: Codable & Sendable>: @unchecked Sendable, HPostRequestProtocol, HRequestWithResultProtocol {
     var debugType: HDebugRequestType
     typealias Model = HJRPCResult<Model>
     var bodyType: HRequestDataType = .json

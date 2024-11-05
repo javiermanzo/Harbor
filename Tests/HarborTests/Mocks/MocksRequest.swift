@@ -7,7 +7,7 @@
 
 import Harbor
 
-final class MockGetRequestService: HGetRequestProtocol {
+final class MockGetRequestService: HGetRequestProtocol, @unchecked Sendable {
 
     typealias Model = String
     var headerParameters: [String: String]?
@@ -27,7 +27,7 @@ final class MockGetRequestService: HGetRequestProtocol {
     }
 }
 
-final class MockPostRequestService: HPostRequestProtocol {
+final class MockPostRequestService: HPostRequestProtocol, @unchecked Sendable {
     var headerParameters: [String: String]?
     var needsAuth: Bool
     var retries: Int?
@@ -48,7 +48,7 @@ final class MockPostRequestService: HPostRequestProtocol {
     }
 }
 
-final class MockPostBodyRequestService: HPostRequestProtocol {
+final class MockPostBodyRequestService: HPostRequestProtocol, @unchecked Sendable {
     var headerParameters: [String: String]?
     var needsAuth: Bool
     var retries: Int?
@@ -68,7 +68,7 @@ final class MockPostBodyRequestService: HPostRequestProtocol {
     }
 }
 
-final class MockInvalidRequestService: HRequestBaseRequestProtocol {
+final class MockInvalidRequestService: HRequestBaseRequestProtocol, @unchecked Sendable {
     var headerParameters: [String: String]?
     var url: String
     var needsAuth: Bool = false

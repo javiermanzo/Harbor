@@ -7,12 +7,12 @@
 
 import Foundation
 
-public protocol HAuthProviderProtocol {
+public protocol HAuthProviderProtocol: Sendable {
     func getAuthorizationHeader() async -> HAuthorizationHeader
     func authFailed() async
 }
 
-public struct HAuthorizationHeader {
+public struct HAuthorizationHeader: Sendable, Equatable {
     public let key: String
     public let value: String
 

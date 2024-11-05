@@ -12,7 +12,7 @@ public protocol HAuthProviderProtocol: Sendable {
     func authFailed() async
 }
 
-public struct HAuthorizationHeader: Sendable {
+public struct HAuthorizationHeader: Sendable, Equatable {
     public let key: String
     public let value: String
 

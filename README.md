@@ -59,7 +59,7 @@ Harbor is a library for making API requests in Swift in a simple way using async
 
 ## Requirements
 
-- Swift 5
+- Swift 5 (Swift 6 compatible)
 - iOS 15.0
 
 ## Installation

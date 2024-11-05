@@ -28,19 +28,28 @@ internal final class HRequestManager: Sendable {
 // MARK: - Request With Result
 extension HRequestManager {
 
+    static func addAuthCredentialsIfNeeded(_ request: any HRequestBaseRequestProtocol) async -> (any HRequestBaseRequestProtocol)? {
+        if request.needsAuth {
+            var modifiedRequest = request
+            if let authCredential = await Self.config.authProvider?.getAuthorizationHeader() {
+                if modifiedRequest.headerParameters == nil {
+                    modifiedRequest.headerParameters = [:]
+                }
+                modifiedRequest.headerParameters?[authCredential.key] = authCredential.value
+                return modifiedRequest
+            } else {
+                return nil
+            }
+        }
+        return request
+    }
+
     static func request<Model: Codable>(model: Model.Type, request: any HRequestWithResultProtocol) async -> HResponseWithResult<Model> {
         if !self.isConnectedToNetwork() {
             return .error(.noConnectionError)
         }
 
-        var modifiedRequest = request
-        if request.needsAuth {
-            if let authCredential = await Self.config.authProvider?.getAuthorizationHeader() {
-                modifiedRequest.headerParameters?[authCredential.key] = authCredential.value
-            } else {
-                return .error(.authProviderNeeded)
-            }
-        }
+        guard let modifiedRequest = await addAuthCredentialsIfNeeded(request) as? (any HRequestWithResultProtocol) else { return .error(.authProviderNeeded) }
 
         let result = await requestHandler(model: model, request: modifiedRequest)
         return result
@@ -129,14 +138,7 @@ extension HRequestManager {
             return .error(.noConnectionError)
         }
 
-        var modifiedRequest = request
-        if request.needsAuth {
-            if let authCredential = await Self.config.authProvider?.getAuthorizationHeader() {
-                modifiedRequest.headerParameters?[authCredential.key] = authCredential.value
-            } else {
-                return .error(.authProviderNeeded)
-            }
-        }
+        guard let modifiedRequest = await addAuthCredentialsIfNeeded(request) as? (any HRequestWithEmptyResponseProtocol) else { return .error(.authProviderNeeded) }
 
         let result = await requestHandler(request: modifiedRequest)
         return result

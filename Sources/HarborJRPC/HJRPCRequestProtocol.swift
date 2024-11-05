@@ -9,7 +9,7 @@ import Foundation
 import Harbor
 
 public protocol HJRPCRequestProtocol: Sendable {
-    associatedtype Model: Codable
+    associatedtype Model: Codable & Sendable
     var method: String { get }
     var needsAuth: Bool { get }
     var retries: Int? { get set}
@@ -20,7 +20,7 @@ public protocol HJRPCRequestProtocol: Sendable {
 }
 
 public extension HJRPCRequestProtocol {
-    func request() async -> HJRPCResponse<Model> where Model: Sendable {
+    func request() async -> HJRPCResponse<Model> {
         return await HJRPCRequestManager.request(model: Model.self, request: self)
     }
 }

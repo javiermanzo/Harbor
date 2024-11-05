@@ -42,7 +42,7 @@ extension HJRPCRequestProtocol {
     }
 }
 
-struct HJRPCRequestWrapper<Model: Codable>: @unchecked Sendable, HPostRequestProtocol, HRequestWithResultProtocol where Model: Sendable {
+struct HJRPCRequestWrapper<Model: Codable & Sendable>: @unchecked Sendable, HPostRequestProtocol, HRequestWithResultProtocol {
     var debugType: HDebugRequestType
     typealias Model = HJRPCResult<Model>
     var bodyType: HRequestDataType = .json

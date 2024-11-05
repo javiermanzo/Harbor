@@ -7,7 +7,7 @@
 
 import Foundation
 
-struct HJRPCResult<Model: Codable>: Codable, Sendable where Model: Sendable {
+struct HJRPCResult<Model: Codable & Sendable>: Codable, Sendable {
     let id: String?
     let result: Model?
     let error: HJRPCError?

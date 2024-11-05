@@ -35,8 +35,8 @@ public extension HRequestWithEmptyResponseProtocol {
 }
 
 // MARK: - Request with Result Protocol
-public protocol HRequestWithResultProtocol: HRequestBaseRequestProtocol where Model: Sendable {
-    associatedtype Model: Codable
+public protocol HRequestWithResultProtocol: HRequestBaseRequestProtocol {
+    associatedtype Model: Codable & Sendable
     func parseData<Model: Codable> (data: Data, model: Model.Type) throws -> Model
     func request() async -> HResponseWithResult<Model>
 }

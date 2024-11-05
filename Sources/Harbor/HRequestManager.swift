@@ -23,24 +23,6 @@ internal final class HRequestManager: Sendable {
     internal static func configureSession(_ session: URLSession?) {
         currentSession = session
     }
-
-    /// Session getter that handles mTLS and SSL pinning if needed
-    private static func getSession() -> URLSession {
-        if let currentSession {
-            return currentSession
-        }
-
-        // If mTLS or SSL pinning is configured, create a new session with delegate
-        if config.mTLS != nil || config.sslPinningSHA256 != nil {
-            let sessionDelegate = HURLSessionDelegate(mTLS: config.mTLS, sslPinningSHA256: config.sslPinningSHA256)
-            let newSession = URLSession(configuration: .default, delegate: sessionDelegate, delegateQueue: nil)
-            currentSession = newSession
-            return newSession
-        }
-
-        // Otherwise use the default shared session
-        return defaultSession
-    }
 }
 
 // MARK: - Request With Result
@@ -52,8 +34,12 @@ extension HRequestManager {
         }
 
         var modifiedRequest = request
-        if request.needsAuth, let authCredential = await Self.config.authProvider?.getAuthorizationHeader() {
-            modifiedRequest.headerParameters?[authCredential.key] = authCredential.value
+        if request.needsAuth {
+            if let authCredential = await Self.config.authProvider?.getAuthorizationHeader() {
+                modifiedRequest.headerParameters?[authCredential.key] = authCredential.value
+            } else {
+                return .error(.authProviderNeeded)
+            }
         }
 
         let result = await requestHandler(model: model, request: modifiedRequest)
@@ -144,8 +130,12 @@ extension HRequestManager {
         }
 
         var modifiedRequest = request
-        if request.needsAuth, let authCredential = await Self.config.authProvider?.getAuthorizationHeader() {
-            modifiedRequest.headerParameters?[authCredential.key] = authCredential.value
+        if request.needsAuth {
+            if let authCredential = await Self.config.authProvider?.getAuthorizationHeader() {
+                modifiedRequest.headerParameters?[authCredential.key] = authCredential.value
+            } else {
+                return .error(.authProviderNeeded)
+            }
         }
 
         let result = await requestHandler(request: modifiedRequest)
@@ -340,6 +330,24 @@ internal extension HRequestManager {
         } else {
             return newHeaders
         }
+    }
+
+    /// Session getter that handles mTLS and SSL pinning if needed
+    private static func getSession() -> URLSession {
+        if let currentSession {
+            return currentSession
+        }
+
+        // If mTLS or SSL pinning is configured, create a new session with delegate
+        if config.mTLS != nil || config.sslPinningSHA256 != nil {
+            let sessionDelegate = HURLSessionDelegate(mTLS: config.mTLS, sslPinningSHA256: config.sslPinningSHA256)
+            let newSession = URLSession(configuration: .default, delegate: sessionDelegate, delegateQueue: nil)
+            currentSession = newSession
+            return newSession
+        }
+
+        // Otherwise use the default shared session
+        return defaultSession
     }
 }
 

@@ -29,6 +29,6 @@ public final class Harbor: Sendable {
     }
 
     public static func setCustomSession(_ customSession: URLSession) {
-        HRequestManager.configureSession(customSession)
+        HRequestManager.config.currentSession = customSession
     }
 }

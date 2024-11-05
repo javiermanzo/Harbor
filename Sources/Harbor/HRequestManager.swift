@@ -16,13 +16,6 @@ import SystemConfiguration
 @HRequestManagerActor
 internal final class HRequestManager: Sendable {
     internal static var config: HConfig = HConfig()
-
-    private static let defaultSession: URLSession = URLSession.shared
-    private static var currentSession: URLSession?
-
-    internal static func configureSession(_ session: URLSession?) {
-        currentSession = session
-    }
 }
 
 // MARK: - Request With Result
@@ -336,7 +329,7 @@ internal extension HRequestManager {
 
     /// Session getter that handles mTLS and SSL pinning if needed
     private static func getSession() -> URLSession {
-        if let currentSession {
+        if let currentSession = config.currentSession {
             return currentSession
         }
 
@@ -344,12 +337,12 @@ internal extension HRequestManager {
         if config.mTLS != nil || config.sslPinningSHA256 != nil {
             let sessionDelegate = HURLSessionDelegate(mTLS: config.mTLS, sslPinningSHA256: config.sslPinningSHA256)
             let newSession = URLSession(configuration: .default, delegate: sessionDelegate, delegateQueue: nil)
-            currentSession = newSession
+            config.currentSession = newSession
             return newSession
         }
 
         // Otherwise use the default shared session
-        return defaultSession
+        return config.defaultSession
     }
 }
 

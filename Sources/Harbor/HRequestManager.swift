@@ -22,6 +22,11 @@ internal final class HRequestManager: Sendable {
 extension HRequestManager {
     static func request<Model: HModel>(model: Model.Type, request: any HRequestWithResultProtocol) async -> HResponseWithResult<Model> {
         if let mock = HMocker.mock(request: request) {
+            if let delay = mock.delay {
+                let delayInNanoseconds = UInt64(delay * 1_000_000_000)
+                try? await Task.sleep(nanoseconds: delayInNanoseconds)
+            }
+
             if let error = mock.error {
                 return .error(error)
             }
@@ -123,6 +128,11 @@ extension HRequestManager {
 extension HRequestManager {
     static func request(request: any HRequestWithEmptyResponseProtocol) async -> HResponse {
         if let mock = HMocker.mock(request: request) {
+            if let delay = mock.delay {
+                let delayInNanoseconds = UInt64(delay * 1_000_000_000)
+                try? await Task.sleep(nanoseconds: delayInNanoseconds)
+            }
+            
             if let error = mock.error {
                 return .error(error)
             }

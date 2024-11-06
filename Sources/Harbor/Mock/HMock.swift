@@ -9,18 +9,20 @@ import Foundation
 
 @HRequestManagerActor
 public struct HMock: Sendable {
-    var request: HRequestBaseRequestProtocol.Type
-    var statusCode: Int
-    var jsonResponse: String?
-    var error: HRequestError?
+    let request: HRequestBaseRequestProtocol.Type
+    let statusCode: Int
+    let delay: Double?
+    let jsonResponse: String?
+    let error: HRequestError?
 
     var requestName: String {
         "\(request.self)"
     }
 
-    public init(request: HRequestBaseRequestProtocol.Type, statusCode: Int, jsonResponse: String? = nil, error: HRequestError? = nil) {
+    public init(request: HRequestBaseRequestProtocol.Type, statusCode: Int, delay: Double? = nil, jsonResponse: String? = nil, error: HRequestError? = nil) {
         self.request = request
         self.statusCode = statusCode
+        self.delay = delay
         self.jsonResponse = jsonResponse
         self.error = error
     }

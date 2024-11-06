@@ -39,4 +39,8 @@ public final class Harbor: Sendable {
     public static func remove(mock: HMock) {
         HMocker.remove(mock: mock)
     }
+
+    public static func setMocksOnlyInDebug(_ value: Bool) {
+        HRequestManager.config.mocksOnlyInDebug = value
+    }
 }

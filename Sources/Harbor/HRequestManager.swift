@@ -20,24 +20,16 @@ internal final class HRequestManager: Sendable {
 
 // MARK: - Request With Result
 extension HRequestManager {
-
-    static func addAuthCredentialsIfNeeded(_ request: any HRequestBaseRequestProtocol) async -> (any HRequestBaseRequestProtocol)? {
-        if request.needsAuth {
-            var modifiedRequest = request
-            if let authCredential = await Self.config.authProvider?.getAuthorizationHeader() {
-                if modifiedRequest.headerParameters == nil {
-                    modifiedRequest.headerParameters = [:]
-                }
-                modifiedRequest.headerParameters?[authCredential.key] = authCredential.value
-                return modifiedRequest
-            } else {
-                return nil
+    static func request<Model: HModel>(model: Model.Type, request: any HRequestWithResultProtocol) async -> HResponseWithResult<Model> {
+        if let mock = HMocker.mock(request: request) {
+            if let error = mock.error {
+                return .error(error)
             }
-        }
-        return request
-    }
 
-    static func request<Model: Codable>(model: Model.Type, request: any HRequestWithResultProtocol) async -> HResponseWithResult<Model> {
+            let data = mock.jsonResponse?.data(using: .utf8) ?? Data()
+            return await HRequestManager.processResponse(model: model, request: request, statusCode: mock.statusCode, data: data)
+        }
+
         if !self.isConnectedToNetwork() {
             return .error(.noConnectionError)
         }
@@ -48,7 +40,7 @@ extension HRequestManager {
         return result
     }
 
-    private static func requestHandler<Model: Codable>(model: Model.Type, request: any HRequestWithResultProtocol) async -> HResponseWithResult<Model> {
+    private static func requestHandler<Model: HModel>(model: Model.Type, request: any HRequestWithResultProtocol) async -> HResponseWithResult<Model> {
         guard let urlRequest = self.buildUrlRequest(request: request) else {
             return .error(.malformedRequestError)
         }
@@ -58,7 +50,6 @@ extension HRequestManager {
         }
 
         do {
-
             let session = getSession()
 
             let startTime = Date()
@@ -81,30 +72,7 @@ extension HRequestManager {
                 request.printResponse(httpResponse: httpResponse, data: data, duration: duration)
             }
 
-            switch httpResponse.statusCode {
-            case 200 ... 299:
-                do {
-                    let parsedResponse = try request.parseData(data: data, model: model)
-                    return .success(parsedResponse)
-                } catch let parseError {
-                    return .error(.codableError(modelName: "\(model.self)", error: parseError))
-                }
-            case 401:
-                if await !hasNewAuthorizationHeader(request: request) {
-                    await Self.config.authProvider?.authFailed()
-                    return .error(.authNeeded)
-                } else {
-                    return await self.request(model: model, request: request)
-                }
-            default:
-                if let retries = request.retries, retries > 0 {
-                    var mutableRequest = request
-                    mutableRequest.retries = retries - 1
-                    return await self.request(model: model, request: mutableRequest)
-                } else {
-                    return .error(.apiError(statusCode: httpResponse.statusCode, data: data))
-                }
-            }
+            return await processResponse(model: model, request: request, statusCode: httpResponse.statusCode, data: data)
         } catch let error as URLError {
             switch error.code {
             case .cancelled:
@@ -122,11 +90,47 @@ extension HRequestManager {
             return .error(.invalidHttpResponse)
         }
     }
+
+    static func processResponse<Model: HModel>(model: Model.Type, request: any HRequestWithResultProtocol, statusCode: Int, data: Data) async -> HResponseWithResult<Model> {
+        switch statusCode {
+        case 200 ... 299:
+            do {
+                let parsedResponse = try request.parseData(data: data, model: model)
+                return .success(parsedResponse)
+            } catch let parseError {
+                return .error(.codableError(modelName: "\(model.self)", error: parseError))
+            }
+        case 401:
+            if await !hasNewAuthorizationHeader(request: request) {
+                await Self.config.authProvider?.authFailed()
+                return .error(.authNeeded)
+            } else {
+                return await self.request(model: model, request: request)
+            }
+        default:
+            if let retries = request.retries, retries > 0 {
+                var mutableRequest = request
+                mutableRequest.retries = retries - 1
+                return await self.request(model: model, request: mutableRequest)
+            } else {
+                return .error(.apiError(statusCode: statusCode, data: data))
+            }
+        }
+    }
 }
 
 // MARK: - Request Without Result
 extension HRequestManager {
     static func request(request: any HRequestWithEmptyResponseProtocol) async -> HResponse {
+        if let mock = HMocker.mock(request: request) {
+            if let error = mock.error {
+                return .error(error)
+            }
+
+            let data = mock.jsonResponse?.data(using: .utf8) ?? Data()
+            return await HRequestManager.processResponse(request: request, statusCode: mock.statusCode, data: data)
+        }
+
         if !self.isConnectedToNetwork() {
             return .error(.noConnectionError)
         }
@@ -147,7 +151,6 @@ extension HRequestManager {
         }
 
         do {
-
             let session = getSession()
 
             let startTime = Date()
@@ -170,25 +173,7 @@ extension HRequestManager {
                 request.printResponse(httpResponse: httpResponse, data: data, duration: duration)
             }
 
-            switch httpResponse.statusCode {
-            case 200 ... 299:
-                return .success
-            case 401:
-                if await !hasNewAuthorizationHeader(request: request) {
-                    await Self.config.authProvider?.authFailed()
-                    return .error(.authNeeded)
-                } else {
-                    return await self.request(request: request)
-                }
-            default:
-                if let retries = request.retries, retries > 0 {
-                    var mutableRequest = request
-                    mutableRequest.retries = retries - 1
-                    return await self.request(request: mutableRequest)
-                } else {
-                    return .error(.apiError(statusCode: httpResponse.statusCode, data: data))
-                }
-            }
+            return await processResponse(request: request, statusCode: httpResponse.statusCode, data: data)
         } catch let error as URLError {
             switch error.code {
             case .cancelled:
@@ -204,6 +189,28 @@ extension HRequestManager {
             }
         } catch {
             return .error(.invalidHttpResponse)
+        }
+    }
+
+    static func processResponse(request: HRequestWithEmptyResponseProtocol, statusCode: Int, data: Data) async -> HResponse {
+        switch statusCode {
+        case 200 ... 299:
+            return .success
+        case 401:
+            if await !hasNewAuthorizationHeader(request: request) {
+                await Self.config.authProvider?.authFailed()
+                return .error(.authNeeded)
+            } else {
+                return await self.request(request: request)
+            }
+        default:
+            if let retries = request.retries, retries > 0 {
+                var mutableRequest = request
+                mutableRequest.retries = retries - 1
+                return await self.request(request: mutableRequest)
+            } else {
+                return .error(.apiError(statusCode: statusCode, data: data))
+            }
         }
     }
 }
@@ -325,6 +332,22 @@ internal extension HRequestManager {
         } else {
             return newHeaders
         }
+    }
+
+    static func addAuthCredentialsIfNeeded(_ request: any HRequestBaseRequestProtocol) async -> (any HRequestBaseRequestProtocol)? {
+        if request.needsAuth {
+            var modifiedRequest = request
+            if let authCredential = await Self.config.authProvider?.getAuthorizationHeader() {
+                if modifiedRequest.headerParameters == nil {
+                    modifiedRequest.headerParameters = [:]
+                }
+                modifiedRequest.headerParameters?[authCredential.key] = authCredential.value
+                return modifiedRequest
+            } else {
+                return nil
+            }
+        }
+        return request
     }
 
     /// Session getter that handles mTLS and SSL pinning if needed

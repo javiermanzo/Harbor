@@ -9,7 +9,7 @@ import Foundation
 import Harbor
 
 public protocol HJRPCRequestProtocol: Sendable {
-    associatedtype Model: Codable & Sendable
+    associatedtype Model: HModel
     var method: String { get }
     var needsAuth: Bool { get }
     var retries: Int? { get set}
@@ -27,7 +27,7 @@ public extension HJRPCRequestProtocol {
 
 extension HJRPCRequestProtocol {
     @HRequestManagerActor
-    func wrapRequest<T: Codable>(type: T.Type) -> HJRPCRequestWrapper<T> {
+    func wrapRequest<T: HModel>(type: T.Type) -> HJRPCRequestWrapper<T> {
         var jsonRPCBody: [String: Any] = [:]
 
         jsonRPCBody["jsonrpc"] = HJRPCRequestManager.config.jrpcVersion
@@ -42,7 +42,7 @@ extension HJRPCRequestProtocol {
     }
 }
 
-struct HJRPCRequestWrapper<Model: Codable & Sendable>: @unchecked Sendable, HPostRequestProtocol, HRequestWithResultProtocol {
+struct HJRPCRequestWrapper<Model: HModel>: @unchecked Sendable, HPostRequestProtocol, HRequestWithResultProtocol {
     var debugType: HDebugRequestType
     typealias Model = HJRPCResult<Model>
     var bodyType: HRequestDataType = .json

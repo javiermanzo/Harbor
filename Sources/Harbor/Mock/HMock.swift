@@ -11,19 +11,19 @@ import Foundation
 public struct HMock: Sendable {
     let request: HRequestBaseRequestProtocol.Type
     let statusCode: Int
-    let delay: Double?
     let jsonResponse: String?
     let error: HRequestError?
+    let delay: Double?
 
     var requestName: String {
         "\(request.self)"
     }
 
-    public init(request: HRequestBaseRequestProtocol.Type, statusCode: Int, delay: Double? = nil, jsonResponse: String? = nil, error: HRequestError? = nil) {
+    public init(request: HRequestBaseRequestProtocol.Type, statusCode: Int, jsonResponse: String? = nil, error: HRequestError? = nil, delay: Double? = nil) {
         self.request = request
         self.statusCode = statusCode
-        self.delay = delay
         self.jsonResponse = jsonResponse
         self.error = error
+        self.delay = delay
     }
 }

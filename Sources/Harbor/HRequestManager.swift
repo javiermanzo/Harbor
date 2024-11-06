@@ -14,8 +14,8 @@ import SystemConfiguration
 }
 
 @HRequestManagerActor
-internal final class HRequestManager: Sendable {
-    internal static var config: HConfig = HConfig()
+final class HRequestManager: Sendable {
+    static var config: HConfig = HConfig()
 }
 
 // MARK: - Request With Result
@@ -226,7 +226,7 @@ extension HRequestManager {
 }
 
 // MARK: - Request Builder Functions
-internal extension HRequestManager {
+extension HRequestManager {
     static func buildUrlRequest<P: HRequestBaseRequestProtocol>(request: P) -> URLRequest? {
         let url: URL?
 

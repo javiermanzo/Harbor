@@ -8,8 +8,8 @@
 import Foundation
 
 @HRequestManagerActor
-internal final class HMocker: Sendable {
-    internal static var mocks: [String: HMock] = [:]
+final class HMocker: Sendable {
+    static var mocks: [String: HMock] = [:]
 
     static func register(mock: HMock) {
         mocks[mock.requestName] = mock

@@ -329,10 +329,13 @@ await Harbor.register(mock: mock)
 ### Registering a Success Mock
 
 ```swift
+let jsonResponse = """
+    { "name": "John Doe" }
+"""
 let mock = HMock(
     request: MyGetUsersRequest.self,
     statusCode: 200,
-    jsonResponse: "{ "name": "John Doe" }"
+    jsonResponse: jsonResponse
 )
 await Harbor.register(mock: mock)
 ```
@@ -375,10 +378,13 @@ Below is a complete example demonstrating how to set up and use mocks with Harbo
 ```swift
 
 Task {
+    let jsonResponse = """
+        { "users": [{ "id": 1, "name": "Alice" }] }
+    """
     let userMock = HMock(
         request: MyGetUsersRequest.self,
         statusCode: 200,
-        jsonResponse: "{ "users": [{ "id": 1, "name": "Alice" }] }"
+        jsonResponse: jsonResponse
     )
 
     // Register the mock

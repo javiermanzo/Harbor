@@ -40,6 +40,7 @@ Harbor is a library for making API requests in Swift in a simple way using async
     - [Request Protocol](#request-protocol)
       - [HJRPCRequestProtocol](#hjrpcrequestprotocol)
     - [Response](#response-1)
+- [Mocks](#mocks)
 - [Contributing](#contributing)
 - [Author](#author)
 - [License](#license)
@@ -57,6 +58,7 @@ Harbor is a library for making API requests in Swift in a simple way using async
 - [x] mTLS Certificate
 - [x] SSL Pinning
 - [x] Swift 6 Compatible
+- [x] Mock Requests
 
 ## Requirements
 
@@ -301,6 +303,101 @@ case .error(let error):
 }
 ```
 
+## Mocks
+Harbor allows you to register and manage mocks to facilitate testing your API requests.
+
+### HMock
+Use `HMock` to declare mock responses for your requests.
+
+#### Properties:
+- `request`: The request type that conforms to `HRequestBaseRequestProtocol` for which the mock is being set.
+- `statusCode`: The HTTP status code to return.
+- `jsonResponse`: A `String` representing the JSON response. This will be decoded as the expected model for your request.
+- `error`: An optional `HRequestError` if you want to simulate an error response.
+- `delay`: An optional delay (in seconds) before returning the mock response, to simulate network latency.
+
+### Register a Mock
+To register a mock, use the `register(mock:)` method. This will allow you to simulate responses instead of making actual API calls.
+
+```swift
+let mock = HMock(
+    ///
+)
+await Harbor.register(mock: mock)
+```
+
+### Registering a Success Mock
+
+```swift
+let mock = HMock(
+    request: MyGetUsersRequest.self,
+    statusCode: 200,
+    jsonResponse: "{ "name": "John Doe" }"
+)
+await Harbor.register(mock: mock)
+```
+
+### Registering a Error Mock
+
+```swift
+let mock = HMock(
+    request: MyGetUsersRequest.self,
+    statusCode: 401,
+    error: .authNeeded
+)
+await Harbor.register(mock: mock)
+```
+
+### Using Mocks Only in Debug Mode
+You can configure mocks to only be used in #DEBUG, preventing them from affecting production environments. The default value is *true*.
+
+```swift
+await Harbor.setMocksOnlyInDebug(false)
+```
+
+### Removing a Specific Mock
+If you need to remove a specific mock, use the `remove(mock:)` method.
+
+```swift
+await Harbor.remove(mock: mock)
+```
+
+### Removing All Mocks
+To clear all registered mocks, use the `removeAllMocks()` method.
+
+```swift
+await Harbor.removeAllMocks()
+```
+
+### Complete Example
+Below is a complete example demonstrating how to set up and use mocks with Harbor:
+
+```swift
+
+Task {
+    let userMock = HMock(
+        request: MyGetUsersRequest.self,
+        statusCode: 200,
+        jsonResponse: "{ "users": [{ "id": 1, "name": "Alice" }] }"
+    )
+
+    // Register the mock
+    await Harbor.register(mock: userMock)
+
+    // Perform a request that will use the registered mock
+    let response = await MyGetUsersRequest().request()
+    switch response {
+    case .success(let users):
+        // You will receive the mocked response here
+        print("Users:", users)
+    case .error(let error):
+        break
+    case .cancelled:
+        break
+    }
+}
+```
+
 ## Contributing
 If you run into any problems, please submit an [issue](https://github.com/javiermanzo/Harbor/issues). [Pull requests](https://github.com/javiermanzo/Harbor/pulls) are also welcome! 
 
@@ -309,3 +406,4 @@ Harbor was created by [Javier Manzo](https://www.linkedin.com/in/javiermanzo/).
 
 ## License
 Harbor is available under the MIT license. See the [LICENSE](https://github.com/javiermanzo/Harbor/blob/main/LICENSE.md) file for more info.
+

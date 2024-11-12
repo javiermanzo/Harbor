@@ -49,7 +49,7 @@ final class HarborRequestManagerAuthTests: XCTestCase {
         let mockAuthProvider = MockAuthProvider()
         HRequestManager.config = HConfig(authProvider: mockAuthProvider)
 
-        let mockRequest = MockGetRequestService(needsAuth: true, url: "https://example.com/mock_endpoint")
+        let mockRequest = MockGetRequest<String>(needsAuth: true, url: "https://example.com/mock_endpoint")
 
         // When
         let modifiedRequest = await HRequestManager.addAuthCredentialsIfNeeded(mockRequest)
@@ -64,7 +64,7 @@ final class HarborRequestManagerAuthTests: XCTestCase {
         let mockAuthProvider = MockAuthProvider()
         HRequestManager.config = HConfig(authProvider: mockAuthProvider)
 
-        let mockRequest = MockGetRequestService(needsAuth: false, url: "https://example.com/mock_endpoint")
+        let mockRequest = MockGetRequest<String>(needsAuth: false, url: "https://example.com/mock_endpoint")
 
         // When
         let modifiedRequest = await HRequestManager.addAuthCredentialsIfNeeded(mockRequest)

@@ -22,4 +22,8 @@ final class HMocker: Sendable {
     static func mock(request: HRequestBaseRequestProtocol) -> HMock? {
         return mocks["\(String(describing: type(of: request)))"]
     }
+
+    static func removeAll() {
+        mocks.removeAll()
+    }
 }

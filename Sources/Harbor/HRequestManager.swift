@@ -55,7 +55,7 @@ extension HRequestManager {
         }
 
         do {
-            let session = getSession()
+            let session = getURLSession()
 
             let startTime = Date()
 
@@ -161,7 +161,7 @@ extension HRequestManager {
         }
 
         do {
-            let session = getSession()
+            let session = getURLSession()
 
             let startTime = Date()
 
@@ -360,22 +360,22 @@ extension HRequestManager {
         return request
     }
 
-    /// Session getter that handles mTLS and SSL pinning if needed
-    private static func getSession() -> URLSession {
-        if let currentSession = config.currentSession {
-            return currentSession
+    /// URLSession getter that handles mTLS and SSL pinning if needed
+    private static func getURLSession() -> URLSession {
+        if let currentURLSession = config.currentURLSession {
+            return currentURLSession
         }
 
-        // If mTLS or SSL pinning is configured, create a new session with delegate
+        // If mTLS or SSL pinning is configured, create a new URLSession with delegate
         if config.mTLS != nil || config.sslPinningSHA256 != nil {
             let sessionDelegate = HURLSessionDelegate(mTLS: config.mTLS, sslPinningSHA256: config.sslPinningSHA256)
             let newSession = URLSession(configuration: .default, delegate: sessionDelegate, delegateQueue: nil)
-            config.currentSession = newSession
+            config.currentURLSession = newSession
             return newSession
         }
 
-        // Otherwise use the default shared session
-        return config.defaultSession
+        // Otherwise use the default shared URLSession
+        return URLSession.shared
     }
 }
 

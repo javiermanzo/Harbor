@@ -13,8 +13,7 @@ struct HConfig: Sendable {
     var defaultHeaderParameters: [String: String]?
     var mTLS: HmTLS?
     var sslPinningSHA256: String?
-    let defaultSession: URLSession = URLSession.shared
-    var currentSession: URLSession?
+    var currentURLSession: URLSession?
     var mocksOnlyInDebug: Bool = true
 
     var mocksEnabled: Bool {

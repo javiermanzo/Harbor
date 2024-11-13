@@ -22,6 +22,7 @@ Harbor is a library for making API requests in Swift in a simple way using async
   - [Configuration](#configuration)
     - [Default Headers](#default-headers)
     - [Auth Provider](#auth-provider)
+    - [Custom URLSession](#custom-urlsession)
     - [mTLS Support](#mtls-support)
     - [SSL Pinning](#ssl-pinning)
   - [Request Protocols](#request-protocols)
@@ -60,6 +61,8 @@ Harbor is a library for making API requests in Swift in a simple way using async
 - [x] Cancel Request
 - [x] Debug Requests
 - [x] cURL Command Output
+- [x] Default Headers
+- [x] Custom URLSession
 - [x] mTLS Certificate
 - [x] SSL Pinning
 - [x] Swift 6 Compatible
@@ -129,6 +132,16 @@ await Harbor.setAuthProvider(MyAuthProvider())
 ```
 
 If the request class has the `needsAuth` property set to `true`, Harbor will call the `getAuthorizationHeader` method of the authentication provider to get the `HAuthorizationHeader` instance to set it in the header before executing the request.
+
+#### Custom URLSession
+Harbor allows you to set a custom `URLSession` for your requests, providing flexibility for advanced configurations such as custom caching, timeout settings, or additional protocols.
+
+To set a custom `URLSession`, use the `setCustomURLSession` method:
+
+```swift
+let customSession = URLSession(configuration: .default)
+await Harbor.setCustomURLSession(customSession)
+```
 
 #### mTLS Support
 Harbor supports mutual TLS (mTLS) for enhanced security in API requests. This feature allows clients to present certificates to the server, ensuring both the client and server authenticate each other.

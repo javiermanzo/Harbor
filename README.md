@@ -3,7 +3,12 @@
     <img width="40%" src="https://raw.githubusercontent.com/javiermanzo/Harbor/main/Resources/Harbor.png"> 
 </p>
 
-![Swift](https://img.shields.io/badge/Swift-5-orange?style=flat-square) ![Platforms](https://img.shields.io/badge/Platforms-iOS-yellowgreen?style=flat-square) ![CocoaPods Compatible](https://img.shields.io/cocoapods/v/Harbor.svg?style=flat-square) ![Swift Package Manager](https://img.shields.io/badge/Swift_Package_Manager-compatible-orange?style=flat-square)
+![Release](https://img.shields.io/github/v/release/javiermanzo/Harbor?style=flat-square)
+![CI](https://img.shields.io/github/actions/workflow/status/javiermanzo/Harbor/swift.yml?style=flat-square)
+[![Swift](https://img.shields.io/badge/Swift-5.9_6.0-orange?style=flat-square)](https://img.shields.io/badge/Swift-5.9_5.10_6.0-Orange?style=flat-square)
+[![Platforms](https://img.shields.io/badge/Platforms-macOS_iOS-yellowgreen?style=flat-square)](https://img.shields.io/badge/Platforms-macOS_iOS_tvOS_watchOS_vision_OS_Linux_Windows_Android-Green?style=flat-square) 
+![Swift Package Manager(https://swiftpackageindex.com/javiermanzo/Harbor)](https://img.shields.io/badge/Swift_Package_Manager-compatible-orange?style=flat-square)
+![CocoaPods Compatible](https://img.shields.io/cocoapods/v/Harbor.svg?style=flat-square)
 
 Harbor is a library for making API requests in Swift in a simple way using async/await.
 
@@ -17,6 +22,7 @@ Harbor is a library for making API requests in Swift in a simple way using async
   - [Configuration](#configuration)
     - [Default Headers](#default-headers)
     - [Auth Provider](#auth-provider)
+    - [Custom URLSession](#custom-urlsession)
     - [mTLS Support](#mtls-support)
     - [SSL Pinning](#ssl-pinning)
   - [Request Protocols](#request-protocols)
@@ -40,6 +46,7 @@ Harbor is a library for making API requests in Swift in a simple way using async
     - [Request Protocol](#request-protocol)
       - [HJRPCRequestProtocol](#hjrpcrequestprotocol)
     - [Response](#response-1)
+- [Mocks](#mocks)
 - [Contributing](#contributing)
 - [Author](#author)
 - [License](#license)
@@ -54,12 +61,16 @@ Harbor is a library for making API requests in Swift in a simple way using async
 - [x] Cancel Request
 - [x] Debug Requests
 - [x] cURL Command Output
+- [x] Default Headers
+- [x] Custom URLSession
 - [x] mTLS Certificate
 - [x] SSL Pinning
+- [x] Swift 6 Compatible
+- [x] Mock Requests
 
 ## Requirements
 
-- Swift 5
+- Swift 5.9+
 - iOS 15.0
 
 ## Installation
@@ -92,7 +103,7 @@ You can include default headers in every request.
 To configure the default headers:
 
 ```swift
-Harbor.setDefaultHeaderParameters([
+await Harbor.setDefaultHeaderParameters([
     "MY_CUSTOM_HEADER": "VALUE"
 ])
 ```
@@ -117,10 +128,20 @@ class MyAuthProvider: HAuthProviderProtocol {
 After that, set your Auth provider:
 
 ```swift
-Harbor.setAuthProvider(MyAuthProvider())
+await Harbor.setAuthProvider(MyAuthProvider())
 ```
 
 If the request class has the `needsAuth` property set to `true`, Harbor will call the `getAuthorizationHeader` method of the authentication provider to get the `HAuthorizationHeader` instance to set it in the header before executing the request.
+
+#### Custom URLSession
+Harbor allows you to set a custom `URLSession` for your requests, providing flexibility for advanced configurations such as custom caching, timeout settings, or additional protocols.
+
+To set a custom `URLSession`, use the `setCustomURLSession` method:
+
+```swift
+let customSession = URLSession(configuration: .default)
+await Harbor.setCustomURLSession(customSession)
+```
 
 #### mTLS Support
 Harbor supports mutual TLS (mTLS) for enhanced security in API requests. This feature allows clients to present certificates to the server, ensuring both the client and server authenticate each other.
@@ -129,7 +150,7 @@ To set up mTLS, use the `setMTLS` method:
 
 ```swift
 let mTLS = HmTLS(p12FileUrl: yourP12FileUrl, password: "yourPassword")
-Harbor.setMTLS(mTLS)
+await Harbor.setMTLS(mTLS)
 ```
 
 #### SSL Pinning
@@ -139,7 +160,7 @@ To configure SSL Pinning, use the `setSSlPinningSHA256` method:
 
 ```swift
 let sslPinningSHA256 = "yourSHA256CertificateHash"
-Harbor.setSSlPinningSHA256(sslPinningSHA256)
+await Harbor.setSSlPinningSHA256(sslPinningSHA256)
 ```
 
 ### Request Protocols
@@ -300,6 +321,107 @@ case .error(let error):
 }
 ```
 
+## Mocks
+Harbor allows you to register and manage mocks to facilitate testing your API requests.
+
+### HMock
+Use `HMock` to declare mock responses for your requests.
+
+#### Properties:
+- `request`: The request type that conforms to `HRequestBaseRequestProtocol` for which the mock is being set.
+- `statusCode`: The HTTP status code to return.
+- `jsonResponse`: A `String` representing the JSON response. This will be decoded as the expected model for your request.
+- `error`: An optional `HRequestError` if you want to simulate an error response.
+- `delay`: An optional delay (in seconds) before returning the mock response, to simulate network latency.
+
+### Register a Mock
+To register a mock, use the `register(mock:)` method. This will allow you to simulate responses instead of making actual API calls.
+
+```swift
+let mock = HMock(
+    ///
+)
+await Harbor.register(mock: mock)
+```
+
+### Registering a Success Mock
+
+```swift
+let jsonResponse = """
+    { "name": "John Doe" }
+"""
+let mock = HMock(
+    request: MyGetUsersRequest.self,
+    statusCode: 200,
+    jsonResponse: jsonResponse
+)
+await Harbor.register(mock: mock)
+```
+
+### Registering a Error Mock
+
+```swift
+let mock = HMock(
+    request: MyGetUsersRequest.self,
+    statusCode: 401,
+    error: .authNeeded
+)
+await Harbor.register(mock: mock)
+```
+
+### Using Mocks Only in Debug Mode
+You can configure mocks to only be used in #DEBUG, preventing them from affecting production environments. The default value is *true*.
+
+```swift
+await Harbor.setMocksOnlyInDebug(false)
+```
+
+### Removing a Specific Mock
+If you need to remove a specific mock, use the `remove(mock:)` method.
+
+```swift
+await Harbor.remove(mock: mock)
+```
+
+### Removing All Mocks
+To clear all registered mocks, use the `removeAllMocks()` method.
+
+```swift
+await Harbor.removeAllMocks()
+```
+
+### Complete Example
+Below is a complete example demonstrating how to set up and use mocks with Harbor:
+
+```swift
+
+Task {
+    let jsonResponse = """
+        { "users": [{ "id": 1, "name": "Alice" }] }
+    """
+    let userMock = HMock(
+        request: MyGetUsersRequest.self,
+        statusCode: 200,
+        jsonResponse: jsonResponse
+    )
+
+    // Register the mock
+    await Harbor.register(mock: userMock)
+
+    // Perform a request that will use the registered mock
+    let response = await MyGetUsersRequest().request()
+    switch response {
+    case .success(let users):
+        // You will receive the mocked response here
+        print("Users:", users)
+    case .error(let error):
+        break
+    case .cancelled:
+        break
+    }
+}
+```
+
 ## Contributing
 If you run into any problems, please submit an [issue](https://github.com/javiermanzo/Harbor/issues). [Pull requests](https://github.com/javiermanzo/Harbor/pulls) are also welcome! 
 
@@ -308,3 +430,4 @@ Harbor was created by [Javier Manzo](https://www.linkedin.com/in/javiermanzo/).
 
 ## License
 Harbor is available under the MIT license. See the [LICENSE](https://github.com/javiermanzo/Harbor/blob/main/LICENSE.md) file for more info.
+

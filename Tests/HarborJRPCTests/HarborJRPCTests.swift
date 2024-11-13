@@ -3,8 +3,8 @@ import XCTest
 
 final class HarborJRPCTests: XCTestCase {
 
-    override class func setUp() {
-        HarborJRPC.setURL("https://rpc.ankr.com/eth")
+    override func setUp() async throws {
+        await HarborJRPC.setURL("https://rpc.ankr.com/eth")
     }
 
     func testRequestSuccess() async throws {
@@ -43,13 +43,13 @@ final class HarborJRPCTests: XCTestCase {
     }
 }
 
-struct TestRequest: HJRPCRequestProtocol {
+struct TestRequest: HJRPCRequestProtocol, @unchecked Sendable {
     typealias Model = String
     var method: String = "eth_blockNumber"
     var needsAuth: Bool = false
     var retries: Int? = nil
     var headers: [String : String]? = nil
-    var parameters: [String : Any]? = nil
+    var parameters: [String: Any]? = nil
 
     init(method: String, parameters: [String : Any]? = nil) {
         self.method = method

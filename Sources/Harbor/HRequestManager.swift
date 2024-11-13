@@ -8,38 +8,44 @@
 import Foundation
 import SystemConfiguration
 
-internal final class HRequestManager {
-    internal static var config: HConfig = HConfig()
+/// Actor to manage shared mutable state in a thread-safe way
+@globalActor public actor HRequestManagerActor {
+    public static let shared = HRequestManagerActor()
+}
+
+@HRequestManagerActor
+final class HRequestManager: Sendable {
+    static var config: HConfig = HConfig()
 }
 
 // MARK: - Request With Result
 extension HRequestManager {
+    static func request<Model: HModel>(model: Model.Type, request: any HRequestWithResultProtocol) async -> HResponseWithResult<Model> {
+        if let mock = HMocker.mock(request: request), config.mocksEnabled {
+            if let delay = mock.delay {
+                let delayInNanoseconds = UInt64(delay * 1_000_000_000)
+                try? await Task.sleep(nanoseconds: delayInNanoseconds)
+            }
 
-    static func request<Model: Codable>(model: Model.Type, request: any HRequestWithResultProtocol) async -> HResponseWithResult<Model> {
+            if let error = mock.error {
+                return .error(error)
+            }
+
+            let data = mock.jsonResponse?.data(using: .utf8) ?? Data()
+            return await HRequestManager.processResponse(model: model, request: request, statusCode: mock.statusCode, data: data)
+        }
+
         if !self.isConnectedToNetwork() {
             return .error(.noConnectionError)
         }
 
-        if request.needsAuth {
-            if let authCredential = await Self.config.authProvider?.getAuthorizationHeader() {
-                var mutableRequest = request
-                var headerParameters = request.headerParameters ?? [:]
-                headerParameters[authCredential.key] = authCredential.value
-                mutableRequest.headerParameters = headerParameters
+        guard let modifiedRequest = await addAuthCredentialsIfNeeded(request) as? (any HRequestWithResultProtocol) else { return .error(.authProviderNeeded) }
 
-                let requestCopy = mutableRequest
-                async let result = self.requestHandler(model: model, request: requestCopy)
-                return await result
-            } else {
-                return .error(.authProviderNeeded)
-            }
-        } else {
-            async let result = self.requestHandler(model: model, request: request)
-            return await result
-        }
+        let result = await requestHandler(model: model, request: modifiedRequest)
+        return result
     }
 
-    private static func requestHandler<Model: Codable>(model: Model.Type, request: any HRequestWithResultProtocol) async -> HResponseWithResult<Model> {
+    private static func requestHandler<Model: HModel>(model: Model.Type, request: any HRequestWithResultProtocol) async -> HResponseWithResult<Model> {
         guard let urlRequest = self.buildUrlRequest(request: request) else {
             return .error(.malformedRequestError)
         }
@@ -49,12 +55,7 @@ extension HRequestManager {
         }
 
         do {
-            var sessionDelegate: HURLSessionDelegate?
-            if config.mTLS != nil || config.sslPinningSHA256 != nil {
-                sessionDelegate = HURLSessionDelegate(mTLS: config.mTLS, sslPinningSHA256: config.sslPinningSHA256)
-            }
-
-            let session = URLSession(configuration: .default, delegate: sessionDelegate, delegateQueue: nil)
+            let session = getURLSession()
 
             let startTime = Date()
 
@@ -76,30 +77,7 @@ extension HRequestManager {
                 request.printResponse(httpResponse: httpResponse, data: data, duration: duration)
             }
 
-            switch httpResponse.statusCode {
-            case 200 ... 299:
-                do {
-                    let parsedResponse = try request.parseData(data: data, model: model)
-                    return .success(parsedResponse)
-                } catch let parseError {
-                    return .error(.codableError(modelName: "\(model.self)", error: parseError))
-                }
-            case 401:
-                if await !hasNewAuthorizationHeader(request: request) {
-                    await Self.config.authProvider?.authFailed()
-                    return .error(.authNeeded)
-                } else {
-                    return await self.request(model: model, request: request)
-                }
-            default:
-                if let retries = request.retries, retries > 0 {
-                    var mutableRequest = request
-                    mutableRequest.retries = retries - 1
-                    return await self.request(model: model, request: mutableRequest)
-                } else {
-                    return .error(.apiError(statusCode: httpResponse.statusCode, data: data))
-                }
-            }
+            return await processResponse(model: model, request: request, statusCode: httpResponse.statusCode, data: data)
         } catch let error as URLError {
             switch error.code {
             case .cancelled:
@@ -117,32 +95,60 @@ extension HRequestManager {
             return .error(.invalidHttpResponse)
         }
     }
+
+    static func processResponse<Model: HModel>(model: Model.Type, request: any HRequestWithResultProtocol, statusCode: Int, data: Data) async -> HResponseWithResult<Model> {
+        switch statusCode {
+        case 200 ... 299:
+            do {
+                let parsedResponse = try request.parseData(data: data, model: model)
+                return .success(parsedResponse)
+            } catch let parseError {
+                return .error(.codableError(modelName: "\(model.self)", error: parseError))
+            }
+        case 401:
+            if await !hasNewAuthorizationHeader(request: request) {
+                await Self.config.authProvider?.authFailed()
+                return .error(.authNeeded)
+            } else {
+                return await self.request(model: model, request: request)
+            }
+        default:
+            if let retries = request.retries, retries > 0 {
+                var mutableRequest = request
+                mutableRequest.retries = retries - 1
+                return await self.request(model: model, request: mutableRequest)
+            } else {
+                return .error(.apiError(statusCode: statusCode, data: data))
+            }
+        }
+    }
 }
 
 // MARK: - Request Without Result
 extension HRequestManager {
     static func request(request: any HRequestWithEmptyResponseProtocol) async -> HResponse {
+        if let mock = HMocker.mock(request: request), config.mocksEnabled {
+            if let delay = mock.delay {
+                let delayInNanoseconds = UInt64(delay * 1_000_000_000)
+                try? await Task.sleep(nanoseconds: delayInNanoseconds)
+            }
+            
+            if let error = mock.error {
+                return .error(error)
+            }
+
+            let data = mock.jsonResponse?.data(using: .utf8) ?? Data()
+            return await HRequestManager.processResponse(request: request, statusCode: mock.statusCode, data: data)
+        }
+
         if !self.isConnectedToNetwork() {
             return .error(.noConnectionError)
         }
 
-        if request.needsAuth {
-            if let authCredential = await Self.config.authProvider?.getAuthorizationHeader() {
-                var mutableRequest = request
-                var headerParameters = request.headerParameters ?? [:]
-                headerParameters[authCredential.key] = authCredential.value
-                mutableRequest.headerParameters = headerParameters
+        guard let modifiedRequest = await addAuthCredentialsIfNeeded(request) as? (any HRequestWithEmptyResponseProtocol) else { return .error(.authProviderNeeded) }
 
-                let requestCopy = mutableRequest
-                async let result = self.requestHandler(request: requestCopy)
-                return await result
-            } else {
-                return .error(.authProviderNeeded)
-            }
-        } else {
-            async let result = self.requestHandler(request: request)
-            return await result
-        }
+        let result = await requestHandler(request: modifiedRequest)
+        return result
     }
 
     private static func requestHandler<P: HRequestWithEmptyResponseProtocol>(request: P) async -> HResponse {
@@ -155,12 +161,7 @@ extension HRequestManager {
         }
 
         do {
-            var sessionDelegate: HURLSessionDelegate?
-            if config.mTLS != nil || config.sslPinningSHA256 != nil {
-                sessionDelegate = HURLSessionDelegate(mTLS: config.mTLS, sslPinningSHA256: config.sslPinningSHA256)
-            }
-
-            let session = URLSession(configuration: .default, delegate: sessionDelegate, delegateQueue: nil)
+            let session = getURLSession()
 
             let startTime = Date()
 
@@ -182,25 +183,7 @@ extension HRequestManager {
                 request.printResponse(httpResponse: httpResponse, data: data, duration: duration)
             }
 
-            switch httpResponse.statusCode {
-            case 200 ... 299:
-                return .success
-            case 401:
-                if await !hasNewAuthorizationHeader(request: request) {
-                    await Self.config.authProvider?.authFailed()
-                    return .error(.authNeeded)
-                } else {
-                    return await self.request(request: request)
-                }
-            default:
-                if let retries = request.retries, retries > 0 {
-                    var mutableRequest = request
-                    mutableRequest.retries = retries - 1
-                    return await self.request(request: mutableRequest)
-                } else {
-                    return .error(.apiError(statusCode: httpResponse.statusCode, data: data))
-                }
-            }
+            return await processResponse(request: request, statusCode: httpResponse.statusCode, data: data)
         } catch let error as URLError {
             switch error.code {
             case .cancelled:
@@ -218,10 +201,32 @@ extension HRequestManager {
             return .error(.invalidHttpResponse)
         }
     }
+
+    static func processResponse(request: HRequestWithEmptyResponseProtocol, statusCode: Int, data: Data) async -> HResponse {
+        switch statusCode {
+        case 200 ... 299:
+            return .success
+        case 401:
+            if await !hasNewAuthorizationHeader(request: request) {
+                await Self.config.authProvider?.authFailed()
+                return .error(.authNeeded)
+            } else {
+                return await self.request(request: request)
+            }
+        default:
+            if let retries = request.retries, retries > 0 {
+                var mutableRequest = request
+                mutableRequest.retries = retries - 1
+                return await self.request(request: mutableRequest)
+            } else {
+                return .error(.apiError(statusCode: statusCode, data: data))
+            }
+        }
+    }
 }
 
 // MARK: - Request Builder Functions
-internal extension HRequestManager {
+extension HRequestManager {
     static func buildUrlRequest<P: HRequestBaseRequestProtocol>(request: P) -> URLRequest? {
         let url: URL?
 
@@ -337,6 +342,40 @@ internal extension HRequestManager {
         } else {
             return newHeaders
         }
+    }
+
+    static func addAuthCredentialsIfNeeded(_ request: any HRequestBaseRequestProtocol) async -> (any HRequestBaseRequestProtocol)? {
+        if request.needsAuth {
+            var modifiedRequest = request
+            if let authCredential = await Self.config.authProvider?.getAuthorizationHeader() {
+                if modifiedRequest.headerParameters == nil {
+                    modifiedRequest.headerParameters = [:]
+                }
+                modifiedRequest.headerParameters?[authCredential.key] = authCredential.value
+                return modifiedRequest
+            } else {
+                return nil
+            }
+        }
+        return request
+    }
+
+    /// URLSession getter that handles mTLS and SSL pinning if needed
+    private static func getURLSession() -> URLSession {
+        if let currentURLSession = config.currentURLSession {
+            return currentURLSession
+        }
+
+        // If mTLS or SSL pinning is configured, create a new URLSession with delegate
+        if config.mTLS != nil || config.sslPinningSHA256 != nil {
+            let sessionDelegate = HURLSessionDelegate(mTLS: config.mTLS, sslPinningSHA256: config.sslPinningSHA256)
+            let newSession = URLSession(configuration: .default, delegate: sessionDelegate, delegateQueue: nil)
+            config.currentURLSession = newSession
+            return newSession
+        }
+
+        // Otherwise use the default shared URLSession
+        return URLSession.shared
     }
 }
 

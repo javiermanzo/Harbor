@@ -8,41 +8,39 @@
 import XCTest
 @testable import Harbor
 
+@HRequestManagerActor
 final class HarborBodyTests: XCTestCase {
 
-    func testBuildRequestWithMultipartBodyType() throws {
-        let service = MockPostBodyRequestService(url: "https://example.com", bodyParameters: ["foo": "bar"], bodyType: .multipart)
+    func testBuildRequestWithMultipartBodyType() async throws {
+        let service = MockPostBodyRequest(url: "https://example.com", bodyParameters: ["foo": "bar"], bodyType: .multipart)
 
-        let url = try XCTUnwrap(URL(string: service.url))
-        let request = try XCTUnwrap(HRequestManager.buildUrlRequest(request: service))
+        let url = URL(string: service.url)
+        let request = HRequestManager.buildUrlRequest(request: service)
 
-        XCTAssertEqual(request.url, url)
-        XCTAssertEqual(request.httpMethod, request.httpMethod)
-        let contentType = try XCTUnwrap(request.allHTTPHeaderFields!["Content-Type"])
+        XCTAssertEqual(request?.url, url)
+        let contentType = try XCTUnwrap(request?.allHTTPHeaderFields!["Content-Type"])
         XCTAssert(contentType.contains("Boundary-"))
     }
 
-    func testBuildRequestWithEmptyMultipartBodyParameters() throws {
-        let service = MockPostBodyRequestService(url: "https://example.com", bodyParameters: nil, bodyType: .multipart)
+    func testBuildRequestWithEmptyMultipartBodyParameters() async throws {
+        let service = MockPostBodyRequest(url: "https://example.com", bodyParameters: nil, bodyType: .multipart)
 
-        let url = try XCTUnwrap(URL(string: service.url))
-        let request = try XCTUnwrap(HRequestManager.buildUrlRequest(request: service))
+        let url = URL(string: service.url)
+        let request = HRequestManager.buildUrlRequest(request: service)
 
-        XCTAssertEqual(request.url, url)
-        XCTAssertEqual(request.httpMethod, request.httpMethod)
-        XCTAssertNil(request.allHTTPHeaderFields?["Content-Type"])
+        XCTAssertEqual(request?.url, url)
+        XCTAssertNil(request?.allHTTPHeaderFields?["Content-Type"])
     }
 
-    func testBuildRequestWithJsonBodyType() throws {
-        let service = MockPostBodyRequestService(url: "https://example.com", bodyParameters: ["foo": "bar"], bodyType: .json)
+    func testBuildRequestWithJsonBodyType() async throws {
+        let service = MockPostBodyRequest(url: "https://example.com", bodyParameters: ["foo": "bar"], bodyType: .json)
         let expectedContentType = "application/json"
 
-        let url = try XCTUnwrap(URL(string: service.url))
-        let request = try XCTUnwrap(HRequestManager.buildUrlRequest(request: service))
+        let url = URL(string: service.url)
+        let request = HRequestManager.buildUrlRequest(request: service)
 
-        XCTAssertEqual(request.url, url)
-        XCTAssertEqual(request.httpMethod, request.httpMethod)
-        XCTAssertEqual(request.allHTTPHeaderFields?["Content-Type"], expectedContentType)
+        XCTAssertEqual(request?.url, url)
+        XCTAssertEqual(request?.allHTTPHeaderFields?["Content-Type"], expectedContentType)
     }
 
 }

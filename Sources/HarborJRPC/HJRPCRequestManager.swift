@@ -8,17 +8,18 @@
 import Foundation
 import Harbor
 
+@HRequestManagerActor
 final class HJRPCRequestManager {
     static var config: HJRPCConfig = HJRPCConfig()
 }
 
 extension HJRPCRequestManager {
-    static func request<Model: Codable>(model: Model.Type, request: any HJRPCRequestProtocol) async -> HJRPCResponse<Model> {
-        guard !request.url.isEmpty else {
+    static func request<Model: HModel>(model: Model.Type, request: any HJRPCRequestProtocol) async -> HJRPCResponse<Model> {
+        guard !config.url.isEmpty else {
             return .error(.urlNeeded)
         }
 
-        let harborRequest = request.wrapRequest(type: model)
+        let harborRequest: HJRPCRequestWrapper = request.wrapRequest(type: model)
         let response: HResponseWithResult = await harborRequest.request()
 
         switch response {

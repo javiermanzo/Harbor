@@ -7,6 +7,9 @@
 
 import Foundation
 
+// MARK: - HModel
+public typealias HModel = Codable & Sendable
+
 // MARK: - Request Data Type
 public enum HRequestDataType: Sendable {
     case json
@@ -36,7 +39,7 @@ public extension HRequestWithEmptyResponseProtocol {
 
 // MARK: - Request with Result Protocol
 public protocol HRequestWithResultProtocol: HRequestBaseRequestProtocol {
-    associatedtype Model: Codable & Sendable
+    associatedtype Model: HModel
     func parseData<Model: Codable> (data: Data, model: Model.Type) throws -> Model
     func request() async -> HResponseWithResult<Model>
 }

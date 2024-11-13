@@ -6,14 +6,15 @@
 //
 
 import Foundation
+import Harbor
 
-struct HJRPCResult<Model: Codable & Sendable>: Codable, Sendable {
+struct HJRPCResult<Model: HModel>: HModel {
     let id: String?
     let result: Model?
     let error: HJRPCError?
 }
 
-public struct HJRPCError: Codable, Sendable {
+public struct HJRPCError: HModel {
     let code: Int
     let message: String
 }

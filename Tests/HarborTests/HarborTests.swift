@@ -29,7 +29,7 @@ final class HarborTests: XCTestCase {
 
     func testBuildGetRequest() async throws {
         // Given
-        let service = MockGetRequestService(url: "https://example.com", queryParameters: ["id": "123", "sort": "desc"])
+        let service = MockGetRequest<String>(url: "https://example.com", queryParameters: ["id": "123", "sort": "desc"])
 
         // When
         let request = await HRequestManager.buildUrlRequest(request: service)
@@ -42,7 +42,7 @@ final class HarborTests: XCTestCase {
 
     func testBuildPostRequest() async throws {
         // Given
-        let service = MockPostRequestService(url: "https://example.com", bodyParameters: ["name": "John"])
+        let service = MockPostRequest(url: "https://example.com", bodyParameters: ["name": "John"])
 
         // When
         let request = await HRequestManager.buildUrlRequest(request: service)
@@ -58,7 +58,7 @@ final class HarborTests: XCTestCase {
 
     func testBuildInvalidRequest() async throws {
         // Given
-        let service = MockInvalidRequestService()
+        let service = MockInvalidRequest()
 
         // When
         let request = await HRequestManager.buildUrlRequest(request: service)

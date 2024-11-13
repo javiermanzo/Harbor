@@ -14,7 +14,7 @@ final class HJRPCRequestManager {
 }
 
 extension HJRPCRequestManager {
-    static func request<Model: Codable>(model: Model.Type, request: any HJRPCRequestProtocol) async -> HJRPCResponse<Model> {
+    static func request<Model: HModel>(model: Model.Type, request: any HJRPCRequestProtocol) async -> HJRPCResponse<Model> {
         guard !config.url.isEmpty else {
             return .error(.urlNeeded)
         }

@@ -15,4 +15,13 @@ struct HConfig: Sendable {
     var sslPinningSHA256: String?
     let defaultSession: URLSession = URLSession.shared
     var currentSession: URLSession?
+    var mocksOnlyInDebug: Bool = true
+
+    var mocksEnabled: Bool {
+        #if DEBUG
+        return true
+        #else
+        return !mocksOnlyInDebug
+        #endif
+    }
 }

@@ -31,4 +31,20 @@ public final class Harbor: Sendable {
     public static func setCustomSession(_ customSession: URLSession) {
         HRequestManager.config.currentSession = customSession
     }
+
+    public static func register(mock: HMock) {
+        HMocker.register(mock: mock)
+    }
+
+    public static func remove(mock: HMock) {
+        HMocker.remove(mock: mock)
+    }
+
+    public static func setMocksOnlyInDebug(_ value: Bool) {
+        HRequestManager.config.mocksOnlyInDebug = value
+    }
+
+    public static func removeAllMocks() {
+        HMocker.removeAll()
+    }
 }

@@ -8,7 +8,7 @@
 import Foundation
 
 @HRequestManagerActor
-public struct HMock: Sendable {
+public struct HMock {
     let request: HRequestBaseRequestProtocol.Type
     let statusCode: Int
     let jsonResponse: String?

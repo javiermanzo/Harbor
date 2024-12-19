@@ -221,8 +221,6 @@ If you use a protocol different from `HGetRequestProtocol` or `HRequestWithResul
 switch response {
 case .success:
     break
-case .cancelled:
-    break
 case .error(let error):
     break
 }
@@ -235,15 +233,13 @@ If you use `HGetRequestProtocol` or `HRequestWithResultProtocol`, the result of 
 switch response {
 case .success(let result):
     break
-case .cancelled:
-    break
 case .error(let error):
     break
 }
 ```
 
 ### Cancel Request
-You can cancel the task of the request if it is running. `request()` will return `cancelled`.
+You can cancel the task of the request if it is running. `request()` will return `cancelled` as an error case.
 
 ```swift
 let task = Task {
@@ -313,8 +309,6 @@ To configure a request using HarborJRPC, create a struct or class that implement
 ```swift
 switch response {
 case .success(let result):
-    break
-case .cancelled:
     break
 case .error(let error):
     break
@@ -415,8 +409,6 @@ Task {
         // You will receive the mocked response here
         print("Users:", users)
     case .error(let error):
-        break
-    case .cancelled:
         break
     }
 }

@@ -10,6 +10,5 @@ import Harbor
 
 public enum HJRPCResponse<Model: Sendable>: Sendable {
     case success(Model)
-    case cancelled
     case error(HJRPCRequestError)
 }

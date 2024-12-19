@@ -31,8 +31,6 @@ extension HJRPCRequestManager {
             } else {
                 return .error(.invalidRequest)
             }
-        case .cancelled:
-            return .cancelled
         case .error(let harborError):
             return .error(HJRPCRequestError.getError(hRequestError: harborError))
         }

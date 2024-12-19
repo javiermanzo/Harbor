@@ -39,10 +39,8 @@ struct RequestsView: View {
             switch response {
             case .success(let result):
                 alertText = result.quote
-            case .cancelled:
-                alertText = "Request Cancelled"
-            case .error:
-                alertText = "Request Error"
+            case .error(let error):
+                alertText = "Request Error: \(error)"
             }
 
             await MainActor.run {
@@ -57,10 +55,8 @@ struct RequestsView: View {
             switch response {
             case .success(let result):
                 alertText = result
-            case .cancelled:
-                alertText = "Request Cancelled"
             case .error(let error):
-                alertText = "Request Error \(error.localizedDescription)"
+                alertText = "Request Error \(error)"
             }
 
             await MainActor.run {

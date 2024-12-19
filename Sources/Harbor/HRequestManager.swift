@@ -79,18 +79,22 @@ extension HRequestManager {
 
             return await processResponse(model: model, request: request, statusCode: httpResponse.statusCode, data: data)
         } catch let error as URLError {
+            let hError: HRequestError
             switch error.code {
             case .cancelled:
-                return .cancelled
+                hError = .cancelled
             case .badURL, .cannotConnectToHost, .serverCertificateUntrusted:
-                return .error(.malformedRequestError)
+                hError = .malformedRequestError
             case .timedOut:
-                return .error(.timeoutError)
+                hError = .timeoutError
             case .notConnectedToInternet, .networkConnectionLost:
-                return .error(.noConnectionError)
+                hError = .noConnectionError
+            case .cannotFindHost:
+                hError = .cannotFindHost
             default:
-                return .error(.invalidHttpResponse)
+                hError = .invalidHttpResponse
             }
+            return .error(hError)
         } catch {
             return .error(.invalidHttpResponse)
         }
@@ -185,18 +189,22 @@ extension HRequestManager {
 
             return await processResponse(request: request, statusCode: httpResponse.statusCode, data: data)
         } catch let error as URLError {
+            let hError: HRequestError
             switch error.code {
             case .cancelled:
-                return .cancelled
+                hError = .cancelled
             case .badURL, .cannotConnectToHost, .serverCertificateUntrusted:
-                return .error(.malformedRequestError)
+                hError = .malformedRequestError
             case .timedOut:
-                return .error(.timeoutError)
+                hError = .timeoutError
             case .notConnectedToInternet, .networkConnectionLost:
-                return .error(.noConnectionError)
+                hError = .noConnectionError
+            case .cannotFindHost:
+                hError = .cannotFindHost
             default:
-                return .error(.invalidHttpResponse)
+                hError = .invalidHttpResponse
             }
+            return .error(hError)
         } catch {
             return .error(.invalidHttpResponse)
         }

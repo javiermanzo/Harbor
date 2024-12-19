@@ -7,6 +7,7 @@
 
 import Foundation
 import SystemConfiguration
+import LogBird
 
 /// Actor to manage shared mutable state in a thread-safe way
 @globalActor public actor HRequestManagerActor {
@@ -16,6 +17,8 @@ import SystemConfiguration
 @HRequestManagerActor
 final class HRequestManager: Sendable {
     static var config: HConfig = HConfig()
+
+    static let logger = LogBird(subsystem: "com.harbor", category: "debugging")
 }
 
 // MARK: - Request With Result
@@ -27,8 +30,9 @@ extension HRequestManager {
                 try? await Task.sleep(nanoseconds: delayInNanoseconds)
             }
 
-            if let error = mock.error {
-                return .error(error)
+            if let hError = mock.error {
+                logError(hError, request: request)
+                return .error(hError)
             }
 
             let data = mock.jsonResponse?.data(using: .utf8) ?? Data()
@@ -36,10 +40,16 @@ extension HRequestManager {
         }
 
         if !self.isConnectedToNetwork() {
-            return .error(.noConnectionError)
+            let hError: HRequestError = .noConnectionError
+            logError(hError, request: request)
+            return .error(hError)
         }
 
-        guard let modifiedRequest = await addAuthCredentialsIfNeeded(request) as? (any HRequestWithResultProtocol) else { return .error(.authProviderNeeded) }
+        guard let modifiedRequest = await addAuthCredentialsIfNeeded(request) as? (any HRequestWithResultProtocol) else {
+            let hError: HRequestError = .authProviderNeeded
+            logError(hError, request: request)
+            return .error(hError)
+        }
 
         let result = await requestHandler(model: model, request: modifiedRequest)
         return result
@@ -47,7 +57,9 @@ extension HRequestManager {
 
     private static func requestHandler<Model: HModel>(model: Model.Type, request: any HRequestWithResultProtocol) async -> HResponseWithResult<Model> {
         guard let urlRequest = self.buildUrlRequest(request: request) else {
-            return .error(.malformedRequestError)
+            let hError: HRequestError = .malformedRequestError
+            logError(hError, request: request)
+            return .error(hError)
         }
 
         if let request = request as? HDebugRequestProtocol {
@@ -69,7 +81,9 @@ extension HRequestManager {
                     mutableRequest.retries = retries - 1
                     return await self.request(model: model, request: mutableRequest)
                 } else {
-                    return .error(.invalidHttpResponse)
+                    let hError: HRequestError = .invalidHttpResponse
+                    logError(hError, request: request)
+                    return .error(hError)
                 }
             }
 
@@ -94,9 +108,12 @@ extension HRequestManager {
             default:
                 hError = .invalidHttpResponse
             }
+            logError(hError, request: request)
             return .error(hError)
         } catch {
-            return .error(.invalidHttpResponse)
+            let hError: HRequestError = .invalidRequest
+            logError(hError, request: request)
+            return .error(hError)
         }
     }
 
@@ -107,12 +124,16 @@ extension HRequestManager {
                 let parsedResponse = try request.parseData(data: data, model: model)
                 return .success(parsedResponse)
             } catch let parseError {
-                return .error(.codableError(modelName: "\(model.self)", error: parseError))
+                let hError: HRequestError = .codableError(modelName: "\(model.self)", error: parseError)
+                logError(hError, request: request)
+                return .error(hError)
             }
         case 401:
             if await !hasNewAuthorizationHeader(request: request) {
                 await Self.config.authProvider?.authFailed()
-                return .error(.authNeeded)
+                let hError: HRequestError = .authNeeded
+                logError(hError, request: request)
+                return .error(hError)
             } else {
                 return await self.request(model: model, request: request)
             }
@@ -122,7 +143,9 @@ extension HRequestManager {
                 mutableRequest.retries = retries - 1
                 return await self.request(model: model, request: mutableRequest)
             } else {
-                return .error(.apiError(statusCode: statusCode, data: data))
+                let hError: HRequestError = .apiError(statusCode: statusCode, data: data)
+                logError(hError, request: request)
+                return .error(hError)
             }
         }
     }
@@ -136,9 +159,10 @@ extension HRequestManager {
                 let delayInNanoseconds = UInt64(delay * 1_000_000_000)
                 try? await Task.sleep(nanoseconds: delayInNanoseconds)
             }
-            
-            if let error = mock.error {
-                return .error(error)
+
+            if let hError = mock.error {
+                logError(hError, request: request)
+                return .error(hError)
             }
 
             let data = mock.jsonResponse?.data(using: .utf8) ?? Data()
@@ -146,10 +170,16 @@ extension HRequestManager {
         }
 
         if !self.isConnectedToNetwork() {
-            return .error(.noConnectionError)
+            let hError: HRequestError = .noConnectionError
+            logError(hError, request: request)
+            return .error(hError)
         }
 
-        guard let modifiedRequest = await addAuthCredentialsIfNeeded(request) as? (any HRequestWithEmptyResponseProtocol) else { return .error(.authProviderNeeded) }
+        guard let modifiedRequest = await addAuthCredentialsIfNeeded(request) as? (any HRequestWithEmptyResponseProtocol) else {
+            let hError: HRequestError = .authProviderNeeded
+            logError(hError, request: request)
+            return .error(hError)
+        }
 
         let result = await requestHandler(request: modifiedRequest)
         return result
@@ -157,7 +187,9 @@ extension HRequestManager {
 
     private static func requestHandler<P: HRequestWithEmptyResponseProtocol>(request: P) async -> HResponse {
         guard let urlRequest = self.buildUrlRequest(request: request) else {
-            return .error(.malformedRequestError)
+            let hError: HRequestError = .malformedRequestError
+            logError(hError, request: request)
+            return .error(hError)
         }
 
         if let request = request as? HDebugRequestProtocol {
@@ -179,7 +211,9 @@ extension HRequestManager {
                     mutableRequest.retries = retries - 1
                     return await self.request(request: mutableRequest)
                 } else {
-                    return .error(.invalidHttpResponse)
+                    let hError: HRequestError = .invalidHttpResponse
+                    logError(hError, request: request)
+                    return .error(hError)
                 }
             }
 
@@ -204,9 +238,12 @@ extension HRequestManager {
             default:
                 hError = .invalidHttpResponse
             }
+            logError(hError, request: request)
             return .error(hError)
         } catch {
-            return .error(.invalidHttpResponse)
+            let hError: HRequestError = .invalidRequest
+            logError(hError, request: request)
+            return .error(hError)
         }
     }
 
@@ -217,7 +254,9 @@ extension HRequestManager {
         case 401:
             if await !hasNewAuthorizationHeader(request: request) {
                 await Self.config.authProvider?.authFailed()
-                return .error(.authNeeded)
+                let hError: HRequestError = .authNeeded
+                logError(hError, request: request)
+                return .error(hError)
             } else {
                 return await self.request(request: request)
             }
@@ -227,7 +266,9 @@ extension HRequestManager {
                 mutableRequest.retries = retries - 1
                 return await self.request(request: mutableRequest)
             } else {
-                return .error(.apiError(statusCode: statusCode, data: data))
+                let hError: HRequestError = .apiError(statusCode: statusCode, data: data)
+                logError(hError, request: request)
+                return .error(hError)
             }
         }
     }
@@ -369,7 +410,7 @@ extension HRequestManager {
     }
 
     /// URLSession getter that handles mTLS and SSL pinning if needed
-    private static func getURLSession() -> URLSession {
+    static func getURLSession() -> URLSession {
         if let currentURLSession = config.currentURLSession {
             return currentURLSession
         }
@@ -384,6 +425,12 @@ extension HRequestManager {
 
         // Otherwise use the default shared URLSession
         return URLSession.shared
+    }
+
+    static func logError(_ error: HRequestError, request: HRequestBaseRequestProtocol) {
+        if let request = request as? HDebugRequestProtocol {
+            request.printErrorResponse(error: error)
+        }
     }
 }
 
@@ -418,7 +465,7 @@ private extension HRequestManager {
                 SCNetworkReachabilityCreateWithAddress(nil, zeroSockAddress)
             }
         }
-        
+
         var flags: SCNetworkReachabilityFlags = SCNetworkReachabilityFlags(rawValue: 0)
         if SCNetworkReachabilityGetFlags(defaultRouteReachability!, &flags) == false {
             return false

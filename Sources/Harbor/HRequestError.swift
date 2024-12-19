@@ -17,4 +17,6 @@ public enum HRequestError: Error, Sendable {
     case noConnectionError
     case malformedRequestError
     case timeoutError
+    case cannotFindHost
+    case cancelled
 }

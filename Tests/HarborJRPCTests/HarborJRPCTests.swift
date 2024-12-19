@@ -17,8 +17,6 @@ final class HarborJRPCTests: XCTestCase {
             XCTAssertNotNil(result)
         case .error(let error):
             XCTFail("Request failed with error: \(error)")
-        case .cancelled:
-            XCTFail("Request was cancelled")
         }
     }
 
@@ -37,8 +35,6 @@ final class HarborJRPCTests: XCTestCase {
             default:
                 XCTFail("Request failed with jrpcError: \(error)")
             }
-        case .cancelled:
-            XCTFail("Request was cancelled")
         }
     }
 }

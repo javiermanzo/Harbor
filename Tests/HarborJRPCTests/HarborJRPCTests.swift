@@ -25,7 +25,7 @@ final class HarborJRPCTests: XCTestCase {
 
         let response = await request.request()
         switch response {
-        case .success(let result):
+        case .success:
             XCTFail("Request should fail")
         case .error(let error):
             switch error {

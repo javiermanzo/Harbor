@@ -20,6 +20,8 @@ public enum HJRPCRequestError: Error, Sendable {
     case noConnectionError
     case malformedRequestError
     case timeoutError
+    case cannotFindHost
+    case cancelled
 }
 
 extension HJRPCRequestError {
@@ -43,6 +45,10 @@ extension HJRPCRequestError {
             return .malformedRequestError
         case .timeoutError:
             return .timeoutError
+        case .cannotFindHost:
+            return .cannotFindHost
+        case .cancelled:
+            return .cancelled
         }
     }
 }

@@ -66,4 +66,60 @@ final class HarborManagerTests: XCTestCase {
         // Then
         XCTAssertNil(request)
     }
+    
+    func testRetryLogicExecution() async throws {
+        // Given
+        await Harbor.removeAllMocks()
+        
+        // Mock that will return 500 error to trigger retries
+        let mock = await HMock(request: MockGetRequestWithRetries<MockModel>.self, statusCode: 500)
+        await Harbor.register(mock: mock)
+        
+        // When
+        let service = MockGetRequestWithRetries<MockModel>(retries: 2, url: "https://api.example.com/test")
+        let response = await service.request()
+        
+        // Then
+        switch response {
+        case .success:
+            XCTFail("Expected error but got success")
+        case .error(let error):
+            // Should be API error after retries exhausted
+            switch error {
+            case .apiError(statusCode: let code, data: _):
+                XCTAssertEqual(code, 500)
+            default:
+                XCTFail("Expected API error but got: \(error)")
+            }
+        }
+        
+        await Harbor.removeAllMocks()
+    }
+    
+    func testRetryLogicEventualSuccess() async throws {
+        // Given
+        await Harbor.removeAllMocks()
+        
+        let mockResponse = MockModel(quote: "Success after retry")
+        let jsonData = try JSONEncoder().encode(mockResponse)
+        let jsonString = String(data: jsonData, encoding: .utf8)!
+        
+        // Mock that will succeed
+        let mock = await HMock(request: MockGetRequestWithRetries<MockModel>.self, statusCode: 200, jsonResponse: jsonString)
+        await Harbor.register(mock: mock)
+        
+        // When
+        let service = MockGetRequestWithRetries<MockModel>(retries: 2, url: "https://api.example.com/test")
+        let response = await service.request()
+        
+        // Then
+        switch response {
+        case .success(let result):
+            XCTAssertEqual(result.quote, "Success after retry")
+        case .error(let error):
+            XCTFail("Expected success but got error: \(error)")
+        }
+        
+        await Harbor.removeAllMocks()
+    }
 }

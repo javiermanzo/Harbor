@@ -85,3 +85,64 @@ final class MockInvalidRequest: HRequestBaseRequestProtocol, @unchecked Sendable
         self.httpMethod = httpMethod
     }
 }
+
+final class MockGetRequestWithRetries<T: HModel>: HGetRequestProtocol, @unchecked Sendable {
+    typealias Model = T
+    var headerParameters: [String: String]?
+    var needsAuth: Bool
+    var retries: Int?
+    var url: String
+    var pathParameters: [String: String]?
+    var queryParameters: [String: String]?
+
+    init(headerParameters: [String: String]? = nil, needsAuth: Bool = false, retries: Int? = nil, url: String, pathParameters: [String: String]? = nil, queryParameters: [String: String]? = nil) {
+        self.headerParameters = headerParameters
+        self.needsAuth = needsAuth
+        self.retries = retries
+        self.url = url
+        self.pathParameters = pathParameters
+        self.queryParameters = queryParameters
+    }
+}
+
+final class MockPutRequest<T: HModel>: HPutRequestProtocol, @unchecked Sendable {
+    typealias Model = T
+    var headerParameters: [String: String]?
+    var needsAuth: Bool
+    var retries: Int?
+    var url: String
+    var pathParameters: [String: String]?
+    var bodyParameters: [String: Any]?
+    var bodyType: HRequestDataType
+
+    init(headerParameters: [String: String]? = nil, needsAuth: Bool = false, retries: Int? = nil, url: String, pathParameters: [String: String]? = nil, bodyParameters: [String: Any]? = nil, bodyType: HRequestDataType = .json) {
+        self.headerParameters = headerParameters
+        self.needsAuth = needsAuth
+        self.retries = retries
+        self.url = url
+        self.pathParameters = pathParameters
+        self.bodyParameters = bodyParameters
+        self.bodyType = bodyType
+    }
+}
+
+final class MockPatchRequest<T: HModel>: HPatchRequestProtocol, @unchecked Sendable {
+    typealias Model = T
+    var headerParameters: [String: String]?
+    var needsAuth: Bool
+    var retries: Int?
+    var url: String
+    var pathParameters: [String: String]?
+    var bodyParameters: [String: Any]?
+    var bodyType: HRequestDataType
+
+    init(headerParameters: [String: String]? = nil, needsAuth: Bool = false, retries: Int? = nil, url: String, pathParameters: [String: String]? = nil, bodyParameters: [String: Any]? = nil, bodyType: HRequestDataType = .json) {
+        self.headerParameters = headerParameters
+        self.needsAuth = needsAuth
+        self.retries = retries
+        self.url = url
+        self.pathParameters = pathParameters
+        self.bodyParameters = bodyParameters
+        self.bodyType = bodyType
+    }
+}

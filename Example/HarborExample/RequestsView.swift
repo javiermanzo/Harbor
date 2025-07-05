@@ -13,7 +13,7 @@ struct RequestsView: View {
     @State private var showAlert = false
 
     init() {
-        Task { await HarborJRPC.setURL("https://rpc.ankr.com/eth") }
+        Task { await HarborJRPC.setURL("https://ethereum.publicnode.com") }
     }
 
     var body: some View {

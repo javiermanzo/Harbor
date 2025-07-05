@@ -4,7 +4,7 @@ import XCTest
 final class HarborJRPCTests: XCTestCase {
 
     override func setUp() async throws {
-        await HarborJRPC.setURL("https://rpc.ankr.com/eth")
+        await HarborJRPC.setURL("https://ethereum.publicnode.com")
     }
 
     func testRequestSuccess() async throws {

@@ -8,19 +8,29 @@
 import Foundation
 import LogBird
 
+/// Protocol for adding debug capabilities to network requests.
+/// Implement this protocol to enable detailed logging of requests and responses.
 public protocol HDebugRequestProtocol {
+    /// The type of debug information to log.
     var debugType: HDebugRequestType { get set }
 }
 
+/// Specifies the type of debug information to log for network requests.
 public enum HDebugRequestType: Sendable {
+    /// No debug information is logged.
     case none
+    /// Only request information is logged.
     case request
+    /// Only response information is logged.
     case response
+    /// Both request and response information is logged.
     case requestAndResponse
 }
 
 @HRequestManagerActor
 public extension HDebugRequestProtocol {
+    /// Prints detailed request information to the console.
+    /// - Parameter urlRequest: The URL request to debug.
     func printRequest(urlRequest: URLRequest) {
         if let request = self as? HRequestBaseRequestProtocol,
            self.debugType == .request || self.debugType == .requestAndResponse {
@@ -56,6 +66,11 @@ public extension HDebugRequestProtocol {
         }
     }
 
+    /// Prints detailed response information to the console.
+    /// - Parameters:
+    ///   - httpResponse: The HTTP response received.
+    ///   - data: The response data.
+    ///   - duration: The request duration in milliseconds.
     func printResponse(httpResponse: HTTPURLResponse, data: Data, duration: Double) {
         if self.debugType == .response || self.debugType == .requestAndResponse {
             var extraMessages: [LBExtraMessage] = []
@@ -74,6 +89,8 @@ public extension HDebugRequestProtocol {
         }
     }
 
+    /// Prints error response information to the console.
+    /// - Parameter error: The error that occurred during the request.
     func printErrorResponse(error: HRequestError) {
         if self.debugType == .response || self.debugType == .requestAndResponse {
             var extraMessages: [LBExtraMessage] = []

@@ -9,8 +9,10 @@ import Foundation
 import SystemConfiguration
 import LogBird
 
-/// Actor to manage shared mutable state in a thread-safe way
+/// Global actor to manage shared mutable state in a thread-safe way.
+/// This actor ensures that Harbor's internal state is accessed safely across concurrent contexts.
 @globalActor public actor HRequestManagerActor {
+    /// The shared instance of the actor.
     public static let shared = HRequestManagerActor()
 }
 

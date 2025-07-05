@@ -71,7 +71,7 @@ Harbor is a library for making API requests in Swift in a simple way using async
 ## Requirements
 
 - Swift 5.9+
-- iOS 15.0
+- iOS 15.0+
 
 ## Installation
 You can add Harbor to your project using [CocoaPods](https://cocoapods.org/) or [Swift Package Manager](https://swift.org/package-manager/).

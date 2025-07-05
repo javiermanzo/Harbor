@@ -8,6 +8,8 @@ DerivedData/
 .swiftpm/config/registries.json
 .swiftpm/
 .netrc
+.cursor
+.claude
 
 Example/HarborExample.xcworkspace
 Example/HarborExample.xcodeproj/xcuserdata/

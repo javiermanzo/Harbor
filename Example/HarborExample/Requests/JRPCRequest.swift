@@ -13,8 +13,4 @@ struct JRPCRequest: HJRPCRequestProtocol, HDebugRequestProtocol, @unchecked Send
     var debugType: HDebugRequestType = .requestAndResponse
     typealias Model = String
     var method: String = "eth_blockNumber"
-    var needsAuth: Bool = false
-    var retries: Int? = nil
-    var headers: [String : String]? = nil
-    var parameters: [String: Any]? = nil
 }

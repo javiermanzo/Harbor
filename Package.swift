@@ -38,5 +38,5 @@ let package = Package(
             name: "HarborJRPCTests",
             dependencies: ["HarborJRPC"]),
     ],
-    swiftLanguageVersions: [.version("6"), .v5]
+    swiftLanguageModes: [.version("6"), .v5]
 )

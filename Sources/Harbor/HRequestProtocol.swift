@@ -8,8 +8,7 @@
 import Foundation
 
 // MARK: - HModel
-/// Type alias for models that can be used in network requests.
-/// Must be both Codable for JSON serialization and Sendable for concurrency.
+/// Type alias for models used in network requests. Must be `Codable & Sendable`.
 public typealias HModel = Codable & Sendable
 
 // MARK: - Request Data Type
@@ -22,31 +21,38 @@ public enum HRequestDataType: Sendable {
 }
 
 // MARK: - Base Protocol
-/// Base protocol for all network requests.
-/// Defines the fundamental properties that every request must have.
+/// Base protocol for all network requests. Defines fundamental properties.
 public protocol HRequestBaseRequestProtocol: Sendable {
     /// The URL endpoint for the request.
     var url: String { get }
     /// The HTTP method to use for the request.
     var httpMethod: HHttpMethod { get }
-    /// Whether this request requires authentication.
+    /// Whether this request requires authentication. Default: `false`.
     var needsAuth: Bool { get }
-    /// Optional number of retry attempts for failed requests.
+    /// Optional number of retry attempts for failed requests. Default: `nil`.
     var retries: Int? { get set }
-    /// Path parameters to be substituted in the URL.
+    /// Path parameters to be substituted in the URL. Default: `nil`.
     var pathParameters: [String: String]? { get }
-    /// Additional HTTP headers to include in the request.
+    /// Additional HTTP headers to include in the request. Default: `nil`.
     var headerParameters: [String: String]? { get set }
 }
 
+/// Default implementations for `HRequestBaseRequestProtocol`.
+public extension HRequestBaseRequestProtocol {
+    var needsAuth: Bool { false }
+    var retries: Int? { get { nil } set { } }
+    var pathParameters: [String: String]? { nil }
+    var headerParameters: [String: String]? { get { nil } set { } }
+}
+
 // MARK: - Request with Empty Result Protocol
-/// Protocol for requests that don't return data, only success/failure status.
+/// Protocol for requests that return only success/failure status.
 public protocol HRequestWithEmptyResponseProtocol: HRequestBaseRequestProtocol {
     /// Executes the request and returns a simple success/error response.
-    /// - Returns: An `HResponse` indicating success or failure.
     func request() async -> HResponse
 }
 
+/// Default implementation for `HRequestWithEmptyResponseProtocol`.
 public extension HRequestWithEmptyResponseProtocol {
     func request() async -> HResponse {
         return await HRequestManager.request(request: self)
@@ -59,17 +65,12 @@ public protocol HRequestWithResultProtocol: HRequestBaseRequestProtocol {
     /// The model type that this request returns.
     associatedtype Model: HModel
     /// Parses response data into the specified model type.
-    /// - Parameters:
-    ///   - data: The raw response data
-    ///   - model: The model type to parse the data into
-    /// - Returns: The parsed model instance
-    /// - Throws: Decoding errors if parsing fails
     func parseData<Model: Codable> (data: Data, model: Model.Type) throws -> Model
     /// Executes the request and returns a typed response.
-    /// - Returns: An `HResponseWithResult` containing either the parsed model or an error.
     func request() async -> HResponseWithResult<Model>
 }
 
+/// Default implementation for `HRequestWithResultProtocol`.
 public extension HRequestWithResultProtocol {
     func request() async -> HResponseWithResult<Model> {
         return await HRequestManager.request(model: Model.self, request: self)
@@ -84,16 +85,16 @@ public extension HRequestWithResultProtocol {
 // MARK: - Request with Body Protocol
 /// Protocol for requests that include a body (POST, PUT, PATCH).
 public protocol HRequestWithBodyProtocol: HRequestWithEmptyResponseProtocol {
-    /// The format of the request body data.
-    var bodyType: HRequestDataType { get set }
+    /// The format of the request body data. Default: `.json`.
+    var bodyType: HRequestDataType { get }
     /// Parameters to include in the request body.
     var bodyParameters: [String: Any]? { get set }
 }
 
-// MARK: - Request types
+// MARK: - HTTP Method Protocols
 /// Protocol for GET requests that retrieve data.
 public protocol HGetRequestProtocol: HRequestWithResultProtocol {
-    /// Query parameters to append to the URL.
+    /// Query parameters to append to the URL. Default: `nil`.
     var queryParameters: [String: String]? { get }
 }
 /// Protocol for POST requests that create new resources.
@@ -105,22 +106,35 @@ public protocol HPutRequestProtocol: HRequestWithBodyProtocol {}
 /// Protocol for DELETE requests that remove resources.
 public protocol HDeleteRequestProtocol: HRequestWithEmptyResponseProtocol {}
 
+// MARK: - Default Implementations
+
+/// Default implementations for `HGetRequestProtocol`.
 public extension HGetRequestProtocol {
     var httpMethod: HHttpMethod { .get }
+    var queryParameters: [String: String]? { nil }
 }
 
+/// Default implementations for `HRequestWithBodyProtocol`.
+public extension HRequestWithBodyProtocol {
+    var bodyType: HRequestDataType { .json }
+}
+
+/// Default implementations for `HPostRequestProtocol`.
 public extension HPostRequestProtocol {
     var httpMethod: HHttpMethod { .post }
 }
 
+/// Default implementations for `HPatchRequestProtocol`.
 public extension HPatchRequestProtocol {
     var httpMethod: HHttpMethod { .patch }
 }
 
+/// Default implementations for `HPutRequestProtocol`.
 public extension HPutRequestProtocol {
     var httpMethod: HHttpMethod { .put }
 }
 
+/// Default implementations for `HDeleteRequestProtocol`.
 public extension HDeleteRequestProtocol {
     var httpMethod: HHttpMethod { .delete }
 }

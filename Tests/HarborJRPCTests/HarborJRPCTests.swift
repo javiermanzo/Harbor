@@ -42,10 +42,7 @@ final class HarborJRPCTests: XCTestCase {
 struct TestRequest: HJRPCRequestProtocol, @unchecked Sendable {
     typealias Model = String
     var method: String = "eth_blockNumber"
-    var needsAuth: Bool = false
-    var retries: Int? = nil
-    var headers: [String : String]? = nil
-    var parameters: [String: Any]? = nil
+    var parameters: [String: Any]?
 
     init(method: String, parameters: [String : Any]? = nil) {
         self.method = method

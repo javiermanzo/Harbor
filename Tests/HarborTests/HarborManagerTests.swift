@@ -1,7 +1,7 @@
 import XCTest
 @testable import Harbor
 
-final class HarborTests: XCTestCase {
+final class HarborManagerTests: XCTestCase {
 
     func testShouldAddSinglePathParameterCorrectlyToURL() async throws {
         // Given

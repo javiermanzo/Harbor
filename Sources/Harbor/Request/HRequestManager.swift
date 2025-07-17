@@ -465,7 +465,12 @@ private extension HRequestManager {
             
             let isReachable = flags.contains(.reachable)
             let needsConnection = flags.contains(.connectionRequired)
+            
+            #if os(iOS) || os(watchOS) || os(tvOS)
             let isWWAN = flags.contains(.isWWAN)
+            #else
+            let isWWAN = false // macOS doesn't have cellular connectivity
+            #endif
             
             // Connected if reachable and doesn't need connection, or if on cellular
             if isReachable && (!needsConnection || isWWAN) {

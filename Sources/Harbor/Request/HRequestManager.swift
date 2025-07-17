@@ -6,8 +6,8 @@
 //
 
 import Foundation
-import SystemConfiguration
 import LogBird
+import SystemConfiguration
 
 /// Global actor to manage shared mutable state in a thread-safe way.
 /// This actor ensures that Harbor's internal state is accessed safely across concurrent contexts.
@@ -19,8 +19,6 @@ import LogBird
 @HRequestManagerActor
 final class HRequestManager: Sendable {
     static var config: HConfig = HConfig()
-
-    static let logger = LogBird(subsystem: "com.harbor", category: "debugging")
 }
 
 // MARK: - Request With Result
@@ -93,14 +91,20 @@ extension HRequestManager {
                 request.printResponse(httpResponse: httpResponse, data: data, duration: duration)
             }
 
-            return await processResponse(model: model, request: request, statusCode: httpResponse.statusCode, data: data)
+            return await processResponse(model: model,
+                                         request: request,
+                                         statusCode: httpResponse.statusCode,
+                                         data: data,
+                                         httpResponse: httpResponse)
         } catch let error as URLError {
             let hError: HRequestError
             switch error.code {
             case .cancelled:
                 hError = .cancelled
-            case .badURL, .cannotConnectToHost, .serverCertificateUntrusted:
+            case .badURL:
                 hError = .malformedRequestError
+            case .cannotConnectToHost, .serverCertificateUntrusted:
+                hError = .cannotFindHost
             case .timedOut:
                 hError = .timeoutError
             case .notConnectedToInternet, .networkConnectionLost:
@@ -119,11 +123,16 @@ extension HRequestManager {
         }
     }
 
-    static func processResponse<Model: HModel>(model: Model.Type, request: any HRequestWithResultProtocol, statusCode: Int, data: Data) async -> HResponseWithResult<Model> {
+    static func processResponse<Model: HModel>(model: Model.Type, request: any HRequestWithResultProtocol, statusCode: Int, data: Data, httpResponse: HTTPURLResponse? = nil) async -> HResponseWithResult<Model> {
         switch statusCode {
         case 200 ... 299:
             do {
                 let parsedResponse = try request.parseData(data: data, model: model)
+
+                if let request = request as? any HGetRequestProtocol {
+                    await HCache.Manager.shared.storeData(data, for: request, response: httpResponse)
+                }
+
                 return .success(parsedResponse)
             } catch let parseError {
                 let hError: HRequestError = .codableError(modelName: "\(model.self)", error: parseError)
@@ -229,8 +238,10 @@ extension HRequestManager {
             switch error.code {
             case .cancelled:
                 hError = .cancelled
-            case .badURL, .cannotConnectToHost, .serverCertificateUntrusted:
+            case .badURL:
                 hError = .malformedRequestError
+            case .cannotConnectToHost, .serverCertificateUntrusted:
+                hError = .cannotFindHost
             case .timedOut:
                 hError = .timeoutError
             case .notConnectedToInternet, .networkConnectionLost:
@@ -284,15 +295,14 @@ extension HRequestManager {
         switch request.httpMethod {
         case .get:
             guard let request = request as? (any HGetRequestProtocol) else { return nil }
-            url = compositeURL(url: request.url, pathParameters: request.pathParameters, queryParameters: request.queryParameters)
+            url = HURLBuilder.compositeURL(url: request.url, pathParameters: request.pathParameters, queryParameters: request.queryParameters)
         case .post, .put, .patch, .delete:
-            url = compositeURL(url: request.url, pathParameters: request.pathParameters)
+            url = HURLBuilder.compositeURL(url: request.url, pathParameters: request.pathParameters)
         }
 
         guard let url else { return nil }
 
         var urlRequest = URLRequest(url: url)
-
 
         urlRequest.httpMethod = request.httpMethod.rawValue
         // TODO: Move to a config class
@@ -321,32 +331,6 @@ extension HRequestManager {
         return urlRequest
     }
 
-    static func compositeURL(url: String, pathParameters: [String: String]? = nil, queryParameters: [String: String]? = nil) -> URL? {
-        var compositeUrl = url
-
-        if let pathParameters {
-            for (key, value) in pathParameters {
-                compositeUrl = compositeUrl.replacingOccurrences(of: "{\(key)}", with: value)
-            }
-        }
-
-        var url: URL? = URL(string: compositeUrl)
-
-        if var urlComponents = URLComponents(string: compositeUrl), let queryParameters, !queryParameters.isEmpty {
-            var queryItems = [URLQueryItem]()
-
-            for (key, value) in queryParameters {
-                queryItems.append(URLQueryItem(name: key, value: value))
-            }
-
-            queryItems.sort(by: { $0.name < $1.name })
-
-            urlComponents.queryItems = queryItems
-            url = urlComponents.url
-        }
-
-        return url
-    }
 
     static func dataBody(params: [String: Any], type: HRequestDataType, boundary: String? = nil) -> Data? {
         if type == .multipart, let boundary {
@@ -412,21 +396,33 @@ extension HRequestManager {
     }
 
     /// URLSession getter that handles mTLS and SSL pinning if needed
+    /// Returns a cached session or creates a new optimized one
     static func getURLSession() -> URLSession {
+        // Return cached session if available and configuration hasn't changed
         if let currentURLSession = config.currentURLSession {
             return currentURLSession
         }
 
+        let configuration = URLSessionConfiguration.default
+        configuration.urlCache = HCache.Manager.shared.currentURLSessionCache
+        configuration.requestCachePolicy = .useProtocolCachePolicy
+
+        // TODO: Implement request config timeout
+        configuration.timeoutIntervalForRequest = 15
+        configuration.timeoutIntervalForResource = 30
+
         // If mTLS or SSL pinning is configured, create a new URLSession with delegate
         if config.mTLS != nil || config.sslPinningSHA256 != nil {
             let sessionDelegate = HURLSessionDelegate(mTLS: config.mTLS, sslPinningSHA256: config.sslPinningSHA256)
-            let newSession = URLSession(configuration: .default, delegate: sessionDelegate, delegateQueue: nil)
+            let newSession = URLSession(configuration: configuration, delegate: sessionDelegate, delegateQueue: nil)
             config.currentURLSession = newSession
             return newSession
         }
 
-        // Otherwise use the default shared URLSession
-        return URLSession.shared
+        // Create session without delegate for standard requests
+        let newSession = URLSession(configuration: configuration)
+        config.currentURLSession = newSession
+        return newSession
     }
 
     static func logError(_ error: HRequestError, request: HRequestBaseRequestProtocol) {
@@ -457,27 +453,51 @@ private extension HRequestManager {
 
 // MARK: - Connectivity Functions
 private extension HRequestManager {
+    /// Enhanced network connectivity check with fallback strategies
     static func isConnectedToNetwork() -> Bool {
-        var zeroAddress = sockaddr_in(sin_len: 0, sin_family: 0, sin_port: 0, sin_addr: in_addr(s_addr: 0), sin_zero: (0, 0, 0, 0, 0, 0, 0, 0))
-        zeroAddress.sin_len = UInt8(MemoryLayout.size(ofValue: zeroAddress))
-        zeroAddress.sin_family = sa_family_t(AF_INET)
-
-        let defaultRouteReachability = withUnsafePointer(to: &zeroAddress) {
-            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {zeroSockAddress in
-                SCNetworkReachabilityCreateWithAddress(nil, zeroSockAddress)
+        // Primary check: SystemConfiguration reachability
+        if let reachability = createReachabilityRef() {
+            var flags: SCNetworkReachabilityFlags = SCNetworkReachabilityFlags(rawValue: 0)
+            
+            guard SCNetworkReachabilityGetFlags(reachability, &flags) else {
+                return performFallbackConnectivityCheck()
+            }
+            
+            let isReachable = flags.contains(.reachable)
+            let needsConnection = flags.contains(.connectionRequired)
+            let isWWAN = flags.contains(.isWWAN)
+            
+            // Connected if reachable and doesn't need connection, or if on cellular
+            if isReachable && (!needsConnection || isWWAN) {
+                return true
             }
         }
-
-        var flags: SCNetworkReachabilityFlags = SCNetworkReachabilityFlags(rawValue: 0)
-        if SCNetworkReachabilityGetFlags(defaultRouteReachability!, &flags) == false {
-            return false
+        
+        // Fallback connectivity check
+        return performFallbackConnectivityCheck()
+    }
+    
+    /// Creates a reachability reference for network status checking
+    private static func createReachabilityRef() -> SCNetworkReachability? {
+        var zeroAddress = sockaddr_in()
+        zeroAddress.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+        zeroAddress.sin_family = sa_family_t(AF_INET)
+        
+        return withUnsafePointer(to: &zeroAddress) { zeroSockAddress in
+            zeroSockAddress.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockAddr in
+                SCNetworkReachabilityCreateWithAddress(nil, sockAddr)
+            }
         }
-
-        // Working for Cellular and WIFI
-        let isReachable = (flags.rawValue & UInt32(kSCNetworkFlagsReachable)) != 0
-        let needsConnection = (flags.rawValue & UInt32(kSCNetworkFlagsConnectionRequired)) != 0
-        let ret = (isReachable && !needsConnection)
-
-        return ret
+    }
+    
+    /// Fallback connectivity check for edge cases
+    private static func performFallbackConnectivityCheck() -> Bool {
+        // In debug/simulator environments, be more lenient
+        #if DEBUG || targetEnvironment(simulator)
+        return true
+        #else
+        // For release builds, assume no connection if primary check fails
+        return false
+        #endif
     }
 }

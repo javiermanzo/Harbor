@@ -7,61 +7,90 @@
 
 import Foundation
 
+/**
+ Harbor - Protocol-oriented networking framework for Swift.
+ 
+ Features: Caching, Authentication, SSL/TLS Security, Mocking, Async/Await, Retry Logic
+ */
 @HRequestManagerActor
-public final class Harbor: Sendable {
+public enum Harbor {}
 
-    private init() {}
+// MARK: - Configuration
 
-    /// Configures the authentication provider for network requests.
-    /// - Parameter authProvider: An optional object conforming to `HAuthProviderProtocol` to handle authentication.
-    public static func setAuthProvider(_ authProvider: HAuthProviderProtocol?) {
+public extension Harbor {
+    
+    /// Configures authentication provider for requests requiring auth.
+    static func setAuthProvider(_ authProvider: HAuthProviderProtocol?) {
         HRequestManager.config.authProvider = authProvider
     }
-
-    /// Sets default HTTP header parameters for all requests.
-    /// - Parameter defaultHeaderParameters: A dictionary of header field names and values.
-    public static func setDefaultHeaderParameters(_ defaultHeaderParameters: [String: String]?) {
+    
+    /// Sets default headers applied to all requests.
+    static func setDefaultHeaderParameters(_ defaultHeaderParameters: [String: String]?) {
         HRequestManager.config.defaultHeaderParameters = defaultHeaderParameters
     }
-
-    /// Configures mutual TLS (mTLS) settings.
-    /// - Parameter mTLS: An optional `HmTLS` object containing mTLS configuration.
-    public static func setMTLS(_ mTLS: HmTLS?) {
+    
+    /// Configures mutual TLS for client certificate authentication.
+    static func setMTLS(_ mTLS: HmTLS?) {
         HRequestManager.config.mTLS = mTLS
     }
-
-    /// Enables SSL pinning using SHA256 hash.
-    /// - Parameter sslPinningSHA256: An optional string representing the SHA256 hash for SSL pinning.
-    public static func setSSlPinningSHA256(_ sslPinningSHA256: String?) {
+    
+    /// Enables SSL pinning with SHA256 certificate hash.
+    static func setSSlPinningSHA256(_ sslPinningSHA256: String?) {
         HRequestManager.config.sslPinningSHA256 = sslPinningSHA256
     }
-
-    /// Sets a custom URL session for network requests.
-    /// - Parameter customURLSession: A `URLSession` instance to be used for requests.
-    public static func setCustomURLSession(_ customURLSession: URLSession) {
+    
+    /// Sets custom URLSession for all Harbor requests.
+    static func setCustomURLSession(_ customURLSession: URLSession) {
         HRequestManager.config.currentURLSession = customURLSession
     }
+    
+    /// Sets default cache configuration for requests without explicit cache settings.
+    static func setDefaultCacheConfiguration(_ cacheConfiguration: HCache.Configuration) {
+        HRequestManager.config.defaultCacheConfiguration = cacheConfiguration
+    }
+    
+    /// Sets the default memory cache capacity (number of entries).
+    static func setDefaultMemoryCacheCapacity(_ capacity: Int) {
+        HRequestManager.config.defaultMemoryCacheCapacity = capacity
+    }
+    
+    /// Sets the default disk cache capacity (number of entries).
+    static func setDefaultDiskCacheCapacity(_ capacity: Int) {
+        HRequestManager.config.defaultDiskCacheCapacity = capacity
+    }
+    
+    /// Configures whether mocks are only active in DEBUG builds.
+    static func setMocksOnlyInDebug(_ value: Bool) {
+        HRequestManager.config.mocksOnlyInDebug = value
+    }
+}
 
-    /// Registers a mock object for your requests.
-    /// - Parameter mock: An `HMock` object to be registered.
-    public static func register(mock: HMock) {
+// MARK: - Mocking
+
+public extension Harbor {
+    
+    /// Registers a mock response for testing.
+    static func register(mock: HMock) {
         HMocker.register(mock: mock)
     }
-
+    
     /// Removes a specific mock.
-    /// - Parameter mock: An `HMock` object to be removed.
-    public static func remove(mock: HMock) {
+    static func remove(mock: HMock) {
         HMocker.remove(mock: mock)
     }
-
+    
     /// Removes all registered mocks.
-    public static func removeAllMocks() {
+    static func removeAllMocks() {
         HMocker.removeAll()
     }
+}
 
-    /// Configures whether mocks should be used only in DEBUG mode.
-    /// - Parameter value: A boolean indicating if mocks are restricted to debug mode.
-    public static func setMocksOnlyInDebug(_ value: Bool) {
-        HRequestManager.config.mocksOnlyInDebug = value
+// MARK: - Cache Management
+
+public extension Harbor {
+
+    /// Clears all cached data (memory and disk).
+    static func clearAllCache() {
+        HCache.Manager.shared.clearAllCache()
     }
 }

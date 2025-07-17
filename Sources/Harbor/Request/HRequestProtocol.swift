@@ -96,6 +96,8 @@ public protocol HRequestWithBodyProtocol: HRequestWithEmptyResponseProtocol {
 public protocol HGetRequestProtocol: HRequestWithResultProtocol {
     /// Query parameters to append to the URL. Default: `nil`.
     var queryParameters: [String: String]? { get }
+    /// Cache configuration for this request.
+    var cacheConfiguration: HCache.Configuration? { get }
 }
 /// Protocol for POST requests that create new resources.
 public protocol HPostRequestProtocol: HRequestWithBodyProtocol {}
@@ -112,6 +114,7 @@ public protocol HDeleteRequestProtocol: HRequestWithEmptyResponseProtocol {}
 public extension HGetRequestProtocol {
     var httpMethod: HHttpMethod { .get }
     var queryParameters: [String: String]? { nil }
+    var cacheConfiguration: HCache.Configuration? { nil }
 }
 
 /// Default implementations for `HRequestWithBodyProtocol`.

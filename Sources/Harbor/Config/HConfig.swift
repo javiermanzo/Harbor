@@ -15,6 +15,9 @@ struct HConfig: Sendable {
     var sslPinningSHA256: String?
     var currentURLSession: URLSession?
     var mocksOnlyInDebug: Bool = true
+    var defaultCacheConfiguration: HCache.Configuration = .enabled(expirationTime: .oneWeek)
+    var defaultMemoryCacheCapacity: Int = 100
+    var defaultDiskCacheCapacity: Int = 300
 
     var mocksEnabled: Bool {
         #if DEBUG

@@ -16,3 +16,6 @@ Example/HarborExample.xcodeproj/xcuserdata/
 Example/Pods
 Example/Podfile.lock
 Example/output
+
+# Harbor Cache files
+harbor_cache/

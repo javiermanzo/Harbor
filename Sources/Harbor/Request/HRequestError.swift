@@ -1,21 +1,17 @@
 //
-//  HJRPCRequestError.swift
+//  HRequestError.swift
+//  Harbor
 //
-//
-//  Created by Javier Manzo on 30/07/2024.
+//  Created by Javier Manzo on 16/02/2023.
 //
 
 import Foundation
-import Harbor
+import Network
 
-/// Errors that can occur during JSON-RPC requests.
-public enum HJRPCRequestError: Error, Sendable {
+/// Errors that can occur during network requests.
+public enum HRequestError: Error, Sendable {
     /// API returned an error with status code and response data.
     case apiError(statusCode: Int, data: Data)
-    /// JSON-RPC specific error returned by the server.
-    case jrpcError(error: HJRPCError)
-    /// Base URL is required but not set.
-    case urlNeeded
     /// Invalid HTTP response received.
     case invalidHttpResponse
     /// The request is invalid or malformed.
@@ -32,37 +28,42 @@ public enum HJRPCRequestError: Error, Sendable {
     case malformedRequestError
     /// Request timed out.
     case timeoutError
-    /// Cannot find the specified host.
+    /// Cannot find the specified host or connection failed.
     case cannotFindHost
     /// Request was cancelled.
     case cancelled
+    /// SSL/TLS certificate validation failed.
+    case sslError
 }
 
-extension HJRPCRequestError {
-    static func getError(hRequestError: HRequestError) -> HJRPCRequestError {
-        switch hRequestError {
-        case .apiError(let statusCode, let data):
-            return .apiError(statusCode: statusCode, data: data)
+// MARK: - Error Description
+extension HRequestError: LocalizedError {
+    public var errorDescription: String? {
+        switch self {
+        case .apiError(let statusCode, _):
+            return "API error with status code: \(statusCode)"
         case .invalidHttpResponse:
-            return .invalidHttpResponse
+            return "Invalid HTTP response received"
         case .invalidRequest:
-            return .invalidRequest
+            return "Invalid request"
         case .authProviderNeeded:
-            return .authProviderNeeded
+            return "Authentication provider is required"
         case .authNeeded:
-            return .authNeeded
+            return "Authentication is required"
         case .codableError(let modelName, let error):
-            return .codableError(modelName: modelName, error: error)
+            return "Failed to encode/decode \(modelName): \(error.localizedDescription)"
         case .noConnectionError:
-            return .noConnectionError
+            return "No internet connection available"
         case .malformedRequestError:
-            return .malformedRequestError
+            return "Malformed request"
         case .timeoutError:
-            return .timeoutError
+            return "Request timed out"
         case .cannotFindHost:
-            return .cannotFindHost
+            return "Cannot find host or connection failed"
         case .cancelled:
-            return .cancelled
+            return "Request was cancelled"
+        case .sslError:
+            return "SSL/TLS certificate validation failed"
         }
     }
 }

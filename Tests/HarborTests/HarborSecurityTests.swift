@@ -2,7 +2,7 @@
 //  HarborSecurityTests.swift
 //  Harbor
 //
-//  Created by Claude on 05/07/2025.
+//  Created by Javier Manzo on 05/07/2025.
 //
 
 import XCTest

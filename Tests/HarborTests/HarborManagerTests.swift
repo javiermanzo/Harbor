@@ -9,7 +9,7 @@ final class HarborManagerTests: XCTestCase {
         let expectedURL = "https://api.github.com/users/OmarJalil/"
 
         // When
-        let url = await HRequestManager.compositeURL(url: baseUrl, pathParameters: ["USER": "OmarJalil"], queryParameters: nil)
+        let url = HURLBuilder.compositeURL(url: baseUrl, pathParameters: ["USER": "OmarJalil"], queryParameters: nil)
 
         // Then
         XCTAssertEqual(expectedURL, url?.absoluteString)
@@ -21,7 +21,7 @@ final class HarborManagerTests: XCTestCase {
         let expectedURL = "https://api.github.com/users/OmarJalil/following/javiermanzo/"
 
         // When
-        let url = await HRequestManager.compositeURL(url: baseUrl, pathParameters: ["FOLLOWS": "javiermanzo", "USER": "OmarJalil"], queryParameters: nil)
+        let url = HURLBuilder.compositeURL(url: baseUrl, pathParameters: ["FOLLOWS": "javiermanzo", "USER": "OmarJalil"], queryParameters: nil)
 
         // Then
         XCTAssertEqual(expectedURL, url?.absoluteString)

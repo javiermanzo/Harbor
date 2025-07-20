@@ -10,9 +10,23 @@ import LogBird
 
 /// Protocol for adding debug capabilities to network requests.
 /// Implement this protocol to enable detailed logging of requests and responses.
+/// 
+/// Example usage:
+/// ```swift
+/// struct MyRequest: HRequestProtocol, HDebugRequestProtocol {
+///     var debugType: HDebugRequestType = .requestAndResponse
+///     // ... other properties
+/// }
+/// ```
 public protocol HDebugRequestProtocol {
     /// The type of debug information to log.
     var debugType: HDebugRequestType { get set }
+}
+
+/// Default implementation providing `.requestAndResponse` as the default debug type.
+/// This ensures comprehensive logging by default while allowing customization.
+public extension HDebugRequestProtocol {
+    var debugType: HDebugRequestType { .requestAndResponse }
 }
 
 /// Specifies the type of debug information to log for network requests.
@@ -29,6 +43,11 @@ public enum HDebugRequestType: Sendable {
 
 @HRequestManagerActor
 public extension HDebugRequestProtocol {
+    
+    /// Shared logger instance for debug output using LogBird framework.
+    /// Uses "com.harbor" subsystem with "debugging" category for organized log filtering.
+    static var logger: LogBird { LogBird(subsystem: "com.harbor", category: "debugging") }
+    
     /// Prints detailed request information to the console.
     /// - Parameter urlRequest: The URL request to debug.
     func printRequest(urlRequest: URLRequest) {
@@ -38,34 +57,34 @@ public extension HDebugRequestProtocol {
             additionalInfo["request"] = String(describing: type(of: self))
             additionalInfo["url"] = urlRequest.url?.absoluteString
             additionalInfo["httpMethod"] = request.httpMethod.rawValue
-
+            
             if let headers = dictionaryToJSONString(urlRequest.allHTTPHeaderFields) {
                 additionalInfo["headerParameters"] = String(describing: headers)
             }
-
+            
             if let pathParameters = dictionaryToJSONString(request.pathParameters) {
                 additionalInfo["pathParameters"] = String(describing: pathParameters)
             }
-
+            
             if let r = self as? (any HGetRequestProtocol),
                let queryParameters = dictionaryToJSONString(r.queryParameters) {
                 additionalInfo["queryParameters"] = queryParameters
             }
-
+            
             if let r = self as? (any HRequestWithBodyProtocol),
                let bodyParameters = dictionaryToJSONString(r.bodyParameters) {
                 additionalInfo["bodyParameters"] = bodyParameters
             }
-
+            
             additionalInfo["needsAuth"] = String(describing: request.needsAuth)
-
+            
             let curl = self.generateCurl(urlRequest: urlRequest)
             let extraMessages: [LBExtraMessage] = [LBExtraMessage(title: "cURL", message: curl)]
-
-            HRequestManager.logger.log("Request \(String(describing: type(of: request)))", extraMessages: extraMessages, additionalInfo: additionalInfo, level: .debug)
+            
+            Self.logger.log("Request \(String(describing: type(of: request)))", extraMessages: extraMessages, additionalInfo: additionalInfo, level: .debug)
         }
     }
-
+    
     /// Prints detailed response information to the console.
     /// - Parameters:
     ///   - httpResponse: The HTTP response received.
@@ -77,58 +96,65 @@ public extension HDebugRequestProtocol {
             if let value = String(data: data, encoding: String.Encoding.ascii) {
                 extraMessages.append(LBExtraMessage(title: "Response Value", message: value))
             }
-
+            
             extraMessages.append(LBExtraMessage(title: "Response Object", message: httpResponse.debugDescription))
-
+            
             var additionalInfo: [String: String] = [:]
             additionalInfo["request"] = String(describing: type(of: self))
             additionalInfo["size"] = data.debugDescription
             additionalInfo["duration"] = "\(String(format: "%.2f", duration))ms"
-
-            HRequestManager.logger.log("Response \(String(describing: type(of: self)))", extraMessages: extraMessages, additionalInfo: additionalInfo, level: .debug)
+            
+            Self.logger.log("Response \(String(describing: type(of: self)))", extraMessages: extraMessages, additionalInfo: additionalInfo, level: .debug)
         }
     }
-
+    
     /// Prints error response information to the console.
     /// - Parameter error: The error that occurred during the request.
     func printErrorResponse(error: HRequestError) {
         if self.debugType == .response || self.debugType == .requestAndResponse {
             var extraMessages: [LBExtraMessage] = []
-
+            
             extraMessages.append(LBExtraMessage(title: "Error Type", message: "\(error)"))
-
+            
             var additionalInfo: [String: String] = [:]
             additionalInfo["request"] = String(describing: type(of: self))
-
-            HRequestManager.logger.log("Response Error \(String(describing: type(of: self)))", extraMessages: extraMessages, additionalInfo: additionalInfo, level: .error)
+            
+            Self.logger.log("Response Error \(String(describing: type(of: self)))", extraMessages: extraMessages, additionalInfo: additionalInfo, level: .error)
         }
     }
-
-    private func dictionaryToJSONString(_ dictionary: [String: Any]?) -> String? {
+    
+    /// Converts a dictionary to a JSON string representation.
+    /// - Parameter dictionary: The dictionary to convert to JSON.
+    /// - Returns: A JSON string representation of the dictionary, or nil if conversion fails.
+    internal func dictionaryToJSONString(_ dictionary: [String: Any]?) -> String? {
         guard let dictionary, !dictionary.isEmpty else { return nil }
         do {
             let jsonData = try JSONSerialization.data(withJSONObject: dictionary, options: [])
             let jsonString = String(data: jsonData, encoding: .utf8)
             return jsonString
         } catch {
-            print("Error converting dictionary to JSON: \(error)")
+            Self.logger.log("Error converting dictionary to JSON", error: error)
             return nil
         }
     }
-
-    private func generateCurl(urlRequest: URLRequest) -> String {
+    
+    /// Generates a cURL command string equivalent to the given URL request.
+    /// This is useful for debugging and reproducing requests outside of the application.
+    /// - Parameter urlRequest: The URL request to convert to cURL format.
+    /// - Returns: A formatted cURL command string that can be executed in terminal.
+    internal func generateCurl(urlRequest: URLRequest) -> String {
         var components = ["$ curl -v"]
-
+        
         guard let url = urlRequest.url,
-              let /*host*/_ = url.host
+              let _ = url.host
         else {
             return "$ curl command could not be created"
         }
-
+        
         if let httpMethod = urlRequest.httpMethod, httpMethod != "GET" {
             components.append("-X \(httpMethod)")
         }
-
+        
         if URLSession.shared.configuration.httpShouldSetCookies {
             if let cookieStorage = URLSession.shared.configuration.httpCookieStorage,
                let cookies = cookieStorage.cookies(for: url), !cookies.isEmpty {
@@ -136,30 +162,30 @@ public extension HDebugRequestProtocol {
                 components.append("-b \"\(string[..<string.index(before: string.endIndex)])\"")
             }
         }
-
+        
         var headers: [AnyHashable: Any] = [:]
-
+        
         URLSession.shared.configuration.httpAdditionalHeaders?.filter {  $0.0 != AnyHashable("Cookie") }
             .forEach { headers[$0.0] = $0.1 }
-
+        
         urlRequest.allHTTPHeaderFields?.filter { $0.0 != "Cookie" }
             .forEach { headers[$0.0] = $0.1 }
-
+        
         components += headers.map {
             let escapedValue = String(describing: $0.value).replacingOccurrences(of: "\"", with: "\\\"")
-
+            
             return "-H \"\($0.key): \(escapedValue)\""
         }
-
+        
         if let httpBodyData = urlRequest.httpBody, let httpBody = String(data: httpBodyData, encoding: .utf8) {
             var escapedBody = httpBody.replacingOccurrences(of: "\\\"", with: "\\\\\"")
             escapedBody = escapedBody.replacingOccurrences(of: "\"", with: "\\\"")
-
+            
             components.append("-d \"\(escapedBody)\"")
         }
-
+        
         components.append("\"\(url.absoluteString)\"")
-
+        
         return components.joined(separator: " \\\n\t")
     }
 }

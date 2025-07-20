@@ -13,7 +13,7 @@ public extension HCache {
         /// Caching is disabled for this request.
         case disabled
         /// Caching is enabled with optional custom expiration time.
-        case enabled(expirationTime: TimeInterval? = .none)
+        case enabled(expirationTime: TimeInterval? = .oneWeek)
 
         /// Whether caching is enabled for this configuration.
         var isEnabled: Bool {

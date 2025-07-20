@@ -49,14 +49,14 @@ public extension Harbor {
         HRequestManager.config.defaultCacheConfiguration = cacheConfiguration
     }
     
-    /// Sets the default memory cache capacity (number of entries).
+    /// Sets the default memory cache capacity.
     static func setDefaultMemoryCacheCapacity(_ capacity: Int) {
         HRequestManager.config.defaultMemoryCacheCapacity = capacity
     }
     
-    /// Sets the default disk cache capacity (number of entries).
-    static func setDefaultDiskCacheCapacity(_ capacity: Int) {
-        HRequestManager.config.defaultDiskCacheCapacity = capacity
+    /// Sets the default start up memory cache capacity.
+    static func setDefaultStartUpMemoryCacheCapacity(_ capacity: Int) {
+        HRequestManager.config.defaultStartUpMemoryCacheCapacity = capacity
     }
     
     /// Configures whether mocks are only active in DEBUG builds.

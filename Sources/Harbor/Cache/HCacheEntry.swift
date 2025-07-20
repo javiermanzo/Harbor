@@ -10,22 +10,25 @@ import Foundation
 // MARK: - Cache Entry Implementation
 
 extension HCache.Manager {
-    /// Cache entry wrapper containing data and timestamp for expiration checking.
+    /// Cache entry wrapper containing data, timestamp, and expiration time.
     final class Entry: NSObject, Sendable {
         let data: Data
         let timestamp: Date
+        let expirationTime: TimeInterval?
 
-        init(data: Data, timestamp: Date) {
+        init(data: Data, timestamp: Date, expirationTime: TimeInterval? = nil) {
             self.data = data
             self.timestamp = timestamp
+            self.expirationTime = expirationTime
             super.init()
         }
 
-        /// Checks if the cache entry is expired based on max age
-        /// - Parameter maxAge: Maximum age in seconds. If nil, entry never expires
+        /// Checks if the cache entry is expired based on max age or stored expiration time
+        /// - Parameter maxAge: Maximum age in seconds. If nil, uses stored expiration time
         /// - Returns: true if expired, false otherwise
         func isExpired(maxAge: TimeInterval?) -> Bool {
-            guard let maxAge else { return false }
+            let effectiveMaxAge = expirationTime ?? maxAge
+            guard let maxAge = effectiveMaxAge else { return false }
             return Date().timeIntervalSince(timestamp) > maxAge
         }
     }

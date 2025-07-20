@@ -7,7 +7,6 @@
 - `HURLBuilder` utility for centralized URL construction
 - Cache configuration APIs and TimeInterval extensions
 - Comprehensive test suites for cache and debug functionality
-- File structure reorganization into logical folders
 
 ### Fixed
 - Updated `SecTrustEvaluate` to `SecTrustEvaluateWithError` (iOS 13+ compatibility)

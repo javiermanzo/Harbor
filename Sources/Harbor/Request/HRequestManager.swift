@@ -404,9 +404,6 @@ extension HRequestManager {
         }
 
         let configuration = URLSessionConfiguration.default
-        configuration.urlCache = HCache.Manager.shared.currentURLSessionCache
-        configuration.requestCachePolicy = .useProtocolCachePolicy
-
         // TODO: Implement request config timeout
         configuration.timeoutIntervalForRequest = 15
         configuration.timeoutIntervalForResource = 30

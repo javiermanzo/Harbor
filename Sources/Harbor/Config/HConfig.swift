@@ -17,7 +17,7 @@ struct HConfig: Sendable {
     var mocksOnlyInDebug: Bool = true
     var defaultCacheConfiguration: HCache.Configuration = .enabled(expirationTime: .oneWeek)
     var defaultMemoryCacheCapacity: Int = 100
-    var defaultDiskCacheCapacity: Int = 300
+    var defaultStartUpMemoryCacheCapacity: Int = 50
 
     var mocksEnabled: Bool {
         #if DEBUG

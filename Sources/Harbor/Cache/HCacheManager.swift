@@ -118,8 +118,7 @@ extension HCache {
 }
 
 // MARK: - Internal Implementation
-
-private extension HCache.Manager {
+extension HCache.Manager {
 
     /// Loads cached entries from disk into memory asynchronously for immediate availability.
     /// Prioritizes most recently used entries and limits memory usage.
@@ -304,7 +303,7 @@ private extension HCache.Manager {
     ///   - response: HTTP response containing cache headers
     ///   - fallbackTime: Fallback expiration time from cache configuration
     /// - Returns: Effective expiration time in seconds, or nil if never expires
-    internal func calculateEffectiveExpirationTime(fromResponse response: HTTPURLResponse?, fallbackTime: TimeInterval?) -> TimeInterval? {
+    func calculateEffectiveExpirationTime(fromResponse response: HTTPURLResponse?, fallbackTime: TimeInterval?) -> TimeInterval? {
         guard let response = response else { return fallbackTime }
 
         let headers = response.allHeaderFields

@@ -67,6 +67,8 @@ extension HJRPCRequestError {
             return .cancelled
         case .sslError:
             return .sslError
+        case .noCachedDataFound:
+            return .invalidRequest
         }
     }
 }

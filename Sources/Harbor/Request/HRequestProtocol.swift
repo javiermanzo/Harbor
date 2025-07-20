@@ -20,6 +20,26 @@ public enum HRequestDataType: Sendable {
     case multipart
 }
 
+// MARK: - Request Source
+/// Specifies the data source preference for requests.
+public enum HRequestSource: Sendable {
+    /// Only fetch from remote server, ignore cache.
+    case remoteOnly
+    /// Only fetch from cache, don't make network request.
+    case cacheOnly
+    /// First try cache, then remote if cache miss.
+    case cacheAndRemote
+}
+
+// MARK: - Origin Type
+/// Indicates the origin of the response data.
+public enum HOriginType: Sendable {
+    /// Data came from local cache.
+    case cache
+    /// Data came from remote server.
+    case remote
+}
+
 // MARK: - Base Protocol
 /// Base protocol for all network requests. Defines fundamental properties.
 public protocol HRequestBaseRequestProtocol: Sendable {
@@ -115,6 +135,65 @@ public extension HGetRequestProtocol {
     var httpMethod: HHttpMethod { .get }
     var queryParameters: [String: String]? { nil }
     var cacheConfiguration: HCache.Configuration? { nil }
+    
+    /// Creates an async throwing stream that emits responses from cache and/or remote sources.
+    /// - Parameter source: The data source preference (default: .cacheAndRemote)
+    /// - Returns: AsyncThrowingStream that yields (Model, HOriginType) tuples
+    func requestStream(source: HRequestSource = .cacheAndRemote) -> AsyncThrowingStream<(response: Model, origin: HOriginType), Error> {
+        return AsyncThrowingStream { continuation in
+            Task {
+                await handleStreamRequest(source: source, continuation: continuation)
+            }
+        }
+    }
+    
+    /// Internal handler for stream request logic
+    private func handleStreamRequest(
+        source: HRequestSource,
+        continuation: AsyncThrowingStream<(response: Model, origin: HOriginType), Error>.Continuation
+    ) async {
+        defer {
+            continuation.finish()
+        }
+        
+        switch source {
+        case .cacheOnly:
+            // Only check cache
+            if let cachedData = await cache() {
+                continuation.yield((response: cachedData, origin: .cache))
+            } else {
+                continuation.finish(throwing: HRequestError.noCachedDataFound)
+            }
+            
+        case .remoteOnly:
+            // Only make network request
+            let remoteResult = await request()
+            switch remoteResult {
+            case .success(let data):
+                continuation.yield((response: data, origin: .remote))
+            case .error(let error):
+                continuation.finish(throwing: error)
+            }
+            
+        case .cacheAndRemote:
+            // First try cache, then remote
+            if let cachedData = await cache() {
+                continuation.yield((response: cachedData, origin: .cache))
+            }
+            
+            // Always try remote after cache (if any)
+            let remoteResult = await request()
+            switch remoteResult {
+            case .success(let data):
+                continuation.yield((response: data, origin: .remote))
+            case .error(let error):
+                // Only throw error if we didn't get cache data
+                if await cache() == nil {
+                    continuation.finish(throwing: error)
+                }
+            }
+        }
+    }
 }
 
 /// Default implementations for `HRequestWithBodyProtocol`.

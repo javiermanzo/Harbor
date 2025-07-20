@@ -34,6 +34,8 @@ public enum HRequestError: Error, Sendable {
     case cancelled
     /// SSL/TLS certificate validation failed.
     case sslError
+    /// No cached data found for cache-only request.
+    case noCachedDataFound
 }
 
 // MARK: - Error Description
@@ -64,6 +66,8 @@ extension HRequestError: LocalizedError {
             return "Request was cancelled"
         case .sslError:
             return "SSL/TLS certificate validation failed"
+        case .noCachedDataFound:
+            return "No cached data found"
         }
     }
 }

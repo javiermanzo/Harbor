@@ -20,7 +20,7 @@ import LogBird
 /// ```
 public protocol HDebugRequestProtocol {
     /// The type of debug information to log.
-    var debugType: HDebugRequestType { get set }
+    var debugType: HDebugRequestType { get }
 }
 
 /// Default implementation providing `.requestAndResponse` as the default debug type.

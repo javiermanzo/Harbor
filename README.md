@@ -7,7 +7,7 @@
 ![CI](https://img.shields.io/github/actions/workflow/status/javiermanzo/Harbor/swift.yml?style=flat-square)
 [![Swift](https://img.shields.io/badge/Swift-5.9_6.0-orange?style=flat-square)](https://img.shields.io/badge/Swift-5.9_5.10_6.0-Orange?style=flat-square)
 [![Platforms](https://img.shields.io/badge/Platforms-macOS_iOS-yellowgreen?style=flat-square)](https://img.shields.io/badge/Platforms-macOS_iOS_tvOS_watchOS_vision_OS_Linux_Windows_Android-Green?style=flat-square) 
-![Swift Package Manager(https://swiftpackageindex.com/javiermanzo/Harbor)](https://img.shields.io/badge/Swift_Package_Manager-compatible-orange?style=flat-square)
+[![Swift Package Manager](https://img.shields.io/badge/Swift_Package_Manager-compatible-orange?style=flat-square)](https://swiftpackageindex.com/javiermanzo/Harbor)
 ![CocoaPods Compatible](https://img.shields.io/cocoapods/v/Harbor.svg?style=flat-square)
 
 Harbor is a library for making API requests in Swift in a simple way using async/await.
@@ -37,6 +37,12 @@ Harbor is a library for making API requests in Swift in a simple way using async
     - [HResponse](#hresponse)
     - [HResponseWithResult](#hresponsewithresult)
   - [Cancel Request](#cancel-request)
+  - [Caching](#caching)
+    - [Cache Configuration](#cache-configuration)
+    - [Cache Usage](#cache-usage)
+  - [Streaming Requests](#streaming-requests)
+    - [AsyncThrowingStream Support](#asyncthrowingstream-support)
+    - [Data Sources](#data-sources)
   - [Debug](#debug)
   - [JSON RPC](#json-rpc)
     - [Installation](#installation-1)
@@ -65,6 +71,8 @@ Harbor is a library for making API requests in Swift in a simple way using async
 - [x] Custom URLSession
 - [x] mTLS Certificate
 - [x] SSL Pinning
+- [x] Complete Caching System
+- [x] AsyncThrowingStream Support
 - [x] Swift 6 Compatible
 - [x] Mock Requests
 
@@ -169,28 +177,31 @@ To make a request using Harbor, you need to create a class that implements one o
 #### HGetRequestProtocol
 Use the `HGetRequestProtocol` protocol if you want to send a GET request.
 
-##### Extra Properties:
+##### Properties:
 - `queryParameters`: A dictionary of query parameters that will be added to the URL.
-- `Model`: The result of the request will be parsed to this entity.
+- `cacheConfiguration`: Optional cache configuration for this specific request.
+
+##### Associated Type:
+- `Model`: The type that the response will be decoded into.
 
 #### HPostRequestProtocol
 Use the `HPostRequestProtocol` protocol if you want to send a POST request.
 
-##### Extra Properties:
+##### Properties:
 - `bodyParameters`: A dictionary of parameters that will be included in the body of the request.
 - `bodyType`: Specifies the type of data being sent in the body of the request. It can be either json or multipart.
 
 #### HPatchRequestProtocol
 Use the `HPatchRequestProtocol` protocol if you want to send a PATCH request.
 
-##### Extra Properties:
+##### Properties:
 - `bodyParameters`: A dictionary of parameters that will be included in the body of the request.
 - `bodyType`: Specifies the type of data being sent in the body of the request. It can be either json or multipart.
 
 #### HPutRequestProtocol
 Use the `HPutRequestProtocol` protocol if you want to send a PUT request.
 
-##### Extra Properties:
+##### Properties:
 - `bodyParameters`: A dictionary of parameters that will be included in the body of the request.
 - `bodyType`: Specifies the type of data being sent in the body of the request. It can be either json or multipart.
 
@@ -200,8 +211,8 @@ Use the `HDeleteRequestProtocol` protocol if you want to send a DELETE request.
 #### HRequestWithResultProtocol
 Use the `HRequestWithResultProtocol` protocol if you want to parse the response into a specific model. This protocol requires you to define the type of model you expect in the response.
 
-##### Extra Properties:
-- `Model`: The result of the request will be parsed to this entity.
+##### Associated Type:
+- `Model`: The type that the response will be decoded into.
 
 ### Request Calling
 Once the request class is created, you can execute the request using the `request` method.
@@ -246,6 +257,154 @@ let task = Task {
     let response = await MyRequestWithResult().request()
 }
 task.cancel()
+```
+
+### Caching
+
+Harbor includes a complete caching system to optimize the performance of your GET requests (`HGetRequestProtocol`).
+
+#### Cache Configuration
+
+##### Global Default Cache
+You can set a global default cache configuration for all requests:
+
+```swift
+// Enable cache globally with 1 week expiration
+await Harbor.setDefaultCacheConfiguration(.enabled(expirationTime: .oneWeek))
+
+// Disable cache globally
+await Harbor.setDefaultCacheConfiguration(.disabled)
+```
+
+##### Per-Request Cache
+You can override the default cache configuration for specific GET requests by implementing `HGetRequestProtocol`:
+
+```swift
+class MyGetRequest: HGetRequestProtocol {
+    // ... other properties
+    
+    var cacheConfiguration: HCache.Configuration? {
+        return .enabled(expirationTime: .oneDay) // Cache for 1 day
+    }
+}
+```
+
+##### Available Expiration Times
+Harbor provides convenient time intervals:
+
+```swift
+.enabled(expirationTime: .fiveMinutes)  // 5 minutes
+.enabled(expirationTime: .fifteenMinutes) // 15 minutes
+.enabled(expirationTime: .thirtyMinutes) // 30 minutes
+.enabled(expirationTime: .oneHour)      // 1 hour
+.enabled(expirationTime: .oneDay)       // 1 day
+.enabled(expirationTime: .threeDays)    // 3 days
+.enabled(expirationTime: .oneWeek)      // 1 week (default)
+```
+
+#### HCache Performance
+
+Harbor's caching system uses **NSCache + FileSystem storage** instead of URLCache for superior performance and reliability. Performance testing shows this implementation is **2.5-2.9x faster** than alternative approaches.
+
+#### Cache Usage
+
+##### Get Cached Data
+Retrieve cached data for a specific GET request:
+
+```swift
+let cachedData = await MyGetRequest().cache()
+```
+
+##### Clear Specific Cache
+Clear cache for a specific GET request:
+
+```swift
+await MyGetRequest().clearCache()
+```
+
+##### Clear All Cache
+Clear all cached data:
+
+```swift
+await Harbor.clearAllCache()
+```
+
+### Streaming Requests
+
+Harbor supports reactive data streaming with `AsyncThrowingStream` for GET requests (`HGetRequestProtocol`) with both cache and remote data.
+
+#### AsyncThrowingStream Support
+
+The `requestStream()` method allows you to receive data from cache and/or remote sources reactively for GET requests:
+
+```swift
+for try await (response, origin) in MyGetRequest().requestStream() {
+    switch origin {
+    case .cache:
+        print("Data from cache: \(response)")
+        // Update UI immediately with cached data
+    case .remote:
+        print("Data from remote: \(response)")
+        // Update UI with fresh data from server
+    }
+}
+```
+
+#### Data Sources
+
+You can specify different data source strategies:
+
+##### Cache and Remote (Default)
+Get cached data first (if available), then fresh data from remote:
+
+```swift
+for try await (response, origin) in request.requestStream(source: .cacheAndRemote) {
+    // First emission: cached data (if available)
+    // Second emission: fresh remote data
+}
+```
+
+##### Cache Only
+Only retrieve data from cache:
+
+```swift
+for try await (response, origin) in request.requestStream(source: .cacheOnly) {
+    // Only cached data, throws error if no cache exists
+}
+```
+
+##### Remote Only
+Only retrieve data from remote server:
+
+```swift
+for try await (response, origin) in request.requestStream(source: .remoteOnly) {
+    // Only fresh data from server
+}
+```
+
+#### Stream Usage Examples
+
+```swift
+private func loadUsers() async {
+        isLoading = true
+        defer { isLoading = false }
+        
+        do {
+            // GetUsersRequest must implement HGetRequestProtocol
+            for try await (users, origin) in GetUsersRequest().requestStream() {
+                await MainActor.run {
+                    self.users = users.users
+                    if origin == .cache {
+                        print("Showing cached data...")
+                    } else {
+                        print("Updated with fresh data!")
+                    }
+                }
+            }
+        } catch {
+            print("Error loading users: \(error)")
+        }
+    }
 ```
 
 ### Debug
@@ -295,8 +454,10 @@ HarborJRPC.setJRPCVersion("2.0")
 #### HJRPCRequestProtocol
 Use the `HJRPCRequestProtocol` protocol if you want to send a JRPC request.
 
-##### Properties:
+##### Associated Type:
 - `Model`: The model that conforms to the `Codable` protocol, representing the expected response structure.
+
+##### Properties:
 - `method`: A string that represents the JRPC method to be called.
 - `needsAuth`: A boolean indicating whether the request requires authentication.
 - `retries`: The number of retries in case the request fails.
@@ -352,7 +513,7 @@ let mock = HMock(
 await Harbor.register(mock: mock)
 ```
 
-### Registering a Error Mock
+### Registering an Error Mock
 
 ```swift
 let mock = HMock(

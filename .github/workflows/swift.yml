@@ -17,11 +17,6 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
-    - name: Select Xcode 16.1
-      uses: maxim-lobanov/setup-xcode@v1
-      with:
-        xcode-version: '16.1'
-
     # 1. Run Package Tests (Library Logic)
     - name: Run Package Tests
       run: swift test -v --enable-code-coverage

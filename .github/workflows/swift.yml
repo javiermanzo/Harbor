@@ -26,14 +26,18 @@ jobs:
     - name: Run Package Tests
       run: swift test -v --enable-code-coverage
 
+    # Debug: List available simulators to debug CI issues
+    - name: List Available Simulators
+      run: xcrun simctl list devices available
+
     # 2. Run Example App Tests (Integration via xcodebuild)
-    # Note: Requires 'HarborExample' scheme to be marked as 'Shared' in Xcode
+    # Using iPhone 15 which is more likely to be available/stable on CI runners than 16
     - name: Run Example App Tests
       run: |
         xcodebuild test \
           -project Example/HarborExample.xcodeproj \
           -scheme HarborExample \
-          -destination 'platform=iOS Simulator,name=iPhone 16 Pro' \
+          -destination 'platform=iOS Simulator,name=iPhone 15' \
           -resultBundlePath TestResults \
           CODE_SIGN_IDENTITY="" \
           CODE_SIGNING_REQUIRED=NO \

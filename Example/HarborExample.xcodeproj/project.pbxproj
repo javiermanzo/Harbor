@@ -13,7 +13,6 @@
 		3B339D6F29A587AB00ACD0E3 /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 3B339D6D29A587AB00ACD0E3 /* LaunchScreen.storyboard */; };
 		3B339D7A29A587AB00ACD0E3 /* HarborExampleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B339D7929A587AB00ACD0E3 /* HarborExampleTests.swift */; };
 		3B339D8429A587AB00ACD0E3 /* HarborExampleUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B339D8329A587AB00ACD0E3 /* HarborExampleUITests.swift */; };
-		3B339D8629A587AB00ACD0E3 /* HarborExampleUITestsLaunchTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B339D8529A587AB00ACD0E3 /* HarborExampleUITestsLaunchTests.swift */; };
 		3B339D9829A58A8400ACD0E3 /* KanyeQuote.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B339D9729A58A8400ACD0E3 /* KanyeQuote.swift */; };
 		3B339DA129A58CA400ACD0E3 /* Harbor in Frameworks */ = {isa = PBXBuildFile; productRef = 3B339DA029A58CA400ACD0E3 /* Harbor */; };
 		3B7B82652C59A08C0029C7A7 /* HarborJRPC in Frameworks */ = {isa = PBXBuildFile; productRef = 3B7B82642C59A08C0029C7A7 /* HarborJRPC */; };
@@ -51,7 +50,6 @@
 		3B339D7929A587AB00ACD0E3 /* HarborExampleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HarborExampleTests.swift; sourceTree = "<group>"; };
 		3B339D7F29A587AB00ACD0E3 /* HarborExampleUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = HarborExampleUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		3B339D8329A587AB00ACD0E3 /* HarborExampleUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HarborExampleUITests.swift; sourceTree = "<group>"; };
-		3B339D8529A587AB00ACD0E3 /* HarborExampleUITestsLaunchTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HarborExampleUITestsLaunchTests.swift; sourceTree = "<group>"; };
 		3B339D9729A58A8400ACD0E3 /* KanyeQuote.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KanyeQuote.swift; sourceTree = "<group>"; };
 		3B339D9E29A58C9200ACD0E3 /* Harbor */ = {isa = PBXFileReference; lastKnownFileType = wrapper; name = Harbor; path = ..; sourceTree = "<group>"; };
 		3B7B82662C59A1DB0029C7A7 /* JRPCRequest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JRPCRequest.swift; sourceTree = "<group>"; };
@@ -136,7 +134,6 @@
 			isa = PBXGroup;
 			children = (
 				3B339D8329A587AB00ACD0E3 /* HarborExampleUITests.swift */,
-				3B339D8529A587AB00ACD0E3 /* HarborExampleUITestsLaunchTests.swift */,
 			);
 			path = HarborExampleUITests;
 			sourceTree = "<group>";
@@ -329,7 +326,6 @@
 			buildActionMask = 2147483647;
 			files = (
 				3B339D8429A587AB00ACD0E3 /* HarborExampleUITests.swift in Sources */,
-				3B339D8629A587AB00ACD0E3 /* HarborExampleUITestsLaunchTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

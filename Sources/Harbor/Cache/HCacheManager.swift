@@ -117,7 +117,8 @@ extension HCache {
             // 💾 L2: Disk Cache
             return await withCheckedContinuation { continuation in
                 let dir = self.cacheDirectory
-                diskQueue.async {
+                
+                diskQueue.async { [key] in
                     let fileURL = FileStorage.url(for: key, in: dir)
                     
                     guard let fileData = try? Data(contentsOf: fileURL),
@@ -139,8 +140,9 @@ extension HCache {
                         
                         // Promote to Memory Cache
                         let entry = Entry(data: diskEntry.data, timestamp: diskEntry.timestamp, expirationTime: diskEntry.expirationTime)
-                        Task { @HRequestManagerActor in
-                            self.memoryCache.setObject(entry, forKey: nsKey, cost: diskEntry.data.count)
+
+                        Task { @HRequestManagerActor [weak self] in
+                            self?.memoryCache.setObject(entry, forKey: NSString(string: key), cost: diskEntry.data.count)
                         }
                         
                         continuation.resume(returning: model)

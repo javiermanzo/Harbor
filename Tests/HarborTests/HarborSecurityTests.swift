@@ -83,7 +83,8 @@ final class HarborSecurityTests: XCTestCase {
         // Given
         let testP12URL = URL(fileURLWithPath: "/tmp/test.p12")
         let testPassword = "test-password"
-        let mTLS = HmTLS(p12FileUrl: testP12URL, password: testPassword)
+        let testPasswordData = testPassword.data(using: .utf8)!
+        let mTLS = HmTLS(p12FileUrl: testP12URL, passwordData: testPasswordData)
         
         // When
         await Harbor.setMTLS(mTLS)
@@ -97,7 +98,8 @@ final class HarborSecurityTests: XCTestCase {
         // Given
         let testP12URL = URL(fileURLWithPath: "/tmp/test.p12")
         let testPassword = "test-password"
-        let mTLS = HmTLS(p12FileUrl: testP12URL, password: testPassword)
+        let testPasswordData = testPassword.data(using: .utf8)!
+        let mTLS = HmTLS(p12FileUrl: testP12URL, passwordData: testPasswordData)
         await Harbor.setMTLS(mTLS)
         
         // When
@@ -112,7 +114,8 @@ final class HarborSecurityTests: XCTestCase {
         // Given
         let testP12URL = URL(fileURLWithPath: "/tmp/test.p12")
         let testPassword = "test-password"
-        let mTLS = HmTLS(p12FileUrl: testP12URL, password: testPassword)
+        let testPasswordData = testPassword.data(using: .utf8)!
+        let mTLS = HmTLS(p12FileUrl: testP12URL, passwordData: testPasswordData)
         await Harbor.setMTLS(mTLS)
         
         let mockResponse = TestSecureData(secret: "mtls-protected-data")
@@ -144,7 +147,8 @@ final class HarborSecurityTests: XCTestCase {
         
         let testP12URL = URL(fileURLWithPath: "/tmp/test.p12")
         let testPassword = "test-password"
-        let mTLS = HmTLS(p12FileUrl: testP12URL, password: testPassword)
+        let testPasswordData = testPassword.data(using: .utf8)!
+        let mTLS = HmTLS(p12FileUrl: testP12URL, passwordData: testPasswordData)
         await Harbor.setMTLS(mTLS)
         
         let mockResponse = TestSecureData(secret: "fully-secured-data")
@@ -200,7 +204,8 @@ final class HarborSecurityTests: XCTestCase {
         // Given
         let testP12URL = URL(fileURLWithPath: "/tmp/invalid.p12")
         let testPassword = "wrong-password"
-        let mTLS = HmTLS(p12FileUrl: testP12URL, password: testPassword)
+        let testPasswordData = testPassword.data(using: .utf8)!
+        let mTLS = HmTLS(p12FileUrl: testP12URL, passwordData: testPasswordData)
         await Harbor.setMTLS(mTLS)
         
         // Mock a certificate-related error (using existing error types)

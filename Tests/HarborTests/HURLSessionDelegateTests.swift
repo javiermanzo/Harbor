@@ -10,22 +10,12 @@ import XCTest
 
 final class HURLSessionDelegateTests: XCTestCase {
 
-    func testCertificateLoadingIsCached() {
+    func testDelegateHandlesMissingIdentity() {
         // Given
-        // Create a dummy file URL (file doesn't need to exist for the initial init, 
-        // but needs to exist for the Data(contentsOf:) call to succeed, or we test failure)
-        let tempDir = FileManager.default.temporaryDirectory
-        let p12Url = tempDir.appendingPathComponent("test_cached.p12")
-        let password = "password"
+        // Initialize delegate with nil identity
+        let delegate = HURLSessionDelegate(mTLSIdentity: nil, sslPinningKeys: nil)
         
-        // Ensure file does not exist initially
-        try? FileManager.default.removeItem(at: p12Url)
-        
-        // This will attempt to read the file immediately (Eager load) and cache the failure
-        let mTLS = HmTLS(p12FileUrl: p12Url, password: password)
-        let delegate = HURLSessionDelegate(mTLS: mTLS, sslPinningKeys: nil)
-        
-        // Create a mock challenge
+        // Create a mock challenge for Client Certificate
         let protectionSpace = URLProtectionSpace(host: "example.com",
                                                  port: 443,
                                                  protocol: "https",
@@ -39,33 +29,18 @@ final class HURLSessionDelegateTests: XCTestCase {
                                                    error: nil,
                                                    sender: MockURLSessionSender())
         
+        let expectation = XCTestExpectation(description: "Challenge with nil identity")
+        
         // When
-        // 1. First trigger - Should fail (using cached failure from init)
-        let expectation1 = XCTestExpectation(description: "First challenge")
         delegate.urlSession(URLSession.shared, didReceive: challenge) { disposition, credential in
+            // Then
+            // Should cancel because identity is missing
             XCTAssertEqual(disposition, .cancelAuthenticationChallenge)
             XCTAssertNil(credential)
-            expectation1.fulfill()
+            expectation.fulfill()
         }
-        wait(for: [expectation1], timeout: 1.0)
         
-        // 2. Create the file now.
-        // Since the result was cached during init, subsequent calls should STILL fail 
-        // without trying to read the file.
-        
-        let dummyData = "dummy data".data(using: .utf8)!
-        try? dummyData.write(to: p12Url)
-        
-        let expectation2 = XCTestExpectation(description: "Second challenge")
-        delegate.urlSession(URLSession.shared, didReceive: challenge) { disposition, credential in
-            // It should still fail because the failure was cached
-            XCTAssertEqual(disposition, .cancelAuthenticationChallenge)
-            expectation2.fulfill()
-        }
-        wait(for: [expectation2], timeout: 1.0)
-        
-        // Cleanup
-        try? FileManager.default.removeItem(at: p12Url)
+        wait(for: [expectation], timeout: 1.0)
     }
     
     // MARK: - SSL Pinning Tests
@@ -79,7 +54,7 @@ final class HURLSessionDelegateTests: XCTestCase {
         // Given
         let validKey1 = "VALID_KEY_1"
         let validKey2 = "VALID_KEY_2"
-        let delegate = HURLSessionDelegate(mTLS: nil, sslPinningKeys: [validKey1, validKey2])
+        let delegate = HURLSessionDelegate(mTLSIdentity: nil, sslPinningKeys: [validKey1, validKey2])
         
         let protectionSpace = URLProtectionSpace(host: "secure.example.com",
                                                  port: 443,

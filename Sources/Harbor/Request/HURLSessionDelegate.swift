@@ -16,28 +16,12 @@ final class HURLSessionDelegate: NSObject, URLSessionDelegate, @unchecked Sendab
     /// Logger instance for SSL/TLS related events
     private static let logger = LogBird(subsystem: "com.harbor", category: "ssl")
 
-    private let mTLS: HmTLS?
+    private let mTLSIdentity: HMTLSIdentity?
     private let sslPinningKeys: [String]?
 
-    private let clientIdentityResult: Result<SecIdentity, Error>?
-
-    init(mTLS: HmTLS?, sslPinningKeys: [String]?) {
-        self.mTLS = mTLS
+    init(mTLSIdentity: HMTLSIdentity?, sslPinningKeys: [String]?) {
+        self.mTLSIdentity = mTLSIdentity
         self.sslPinningKeys = sslPinningKeys
-        
-        if let mTLS {
-            self.clientIdentityResult = Result {
-                let p12Data = try Data(contentsOf: mTLS.p12FileUrl)
-                let p12Contents = PKCS12(p12Data: p12Data, password: mTLS.password)
-                
-                guard let identity = p12Contents.identity else {
-                    throw HRequestError.sslError
-                }
-                return identity
-            }
-        } else {
-            self.clientIdentityResult = nil
-        }
     }
 
     func urlSession(_ session: URLSession, didReceive challenge: URLAuthenticationChallenge, completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
@@ -70,21 +54,14 @@ final class HURLSessionDelegate: NSObject, URLSessionDelegate, @unchecked Sendab
             return nil
         }
         
-        guard let result = clientIdentityResult else {
+        guard let mTLSIdentity = mTLSIdentity else {
             return nil
         }
         
-        switch result {
-        case .success(let identity):
-            let credential = URLCredential(identity: identity,
-                                           certificates: nil,
-                                           persistence: .none)
-            return HChallengeResult(disposition: .useCredential, credential: credential)
-            
-        case .failure(let error):
-            Self.logger.log("Failed to load certificate: \(error)", level: .error)
-            return (disposition: .cancelAuthenticationChallenge, credential: nil)
-        }
+        let credential = URLCredential(identity: mTLSIdentity.identity,
+                                       certificates: nil,
+                                       persistence: .none)
+        return HChallengeResult(disposition: .useCredential, credential: credential)
     }
 
     private func processSSLPinning(_ challenge: URLAuthenticationChallenge, sslPinningKeys: [String]) -> HChallengeResult? {
@@ -103,11 +80,13 @@ final class HURLSessionDelegate: NSObject, URLSessionDelegate, @unchecked Sendab
         }
         
         // Check if any certificate in the chain matches one of the pinned keys
-        let chainCount = SecTrustGetCertificateCount(serverTrust)
+        guard let certificateChain = SecTrustCopyCertificateChain(serverTrust) as? [SecCertificate] else {
+            Self.logger.log("Failed to retrieve certificate chain", level: .error)
+            return (disposition: .cancelAuthenticationChallenge, credential: nil)
+        }
         
-        for index in 0..<chainCount {
-            guard let certificate = SecTrustGetCertificateAtIndex(serverTrust, index),
-                  let publicKey = SecCertificateCopyKey(certificate) else {
+        for certificate in certificateChain {
+            guard let publicKey = SecCertificateCopyKey(certificate) else {
                 continue
             }
             

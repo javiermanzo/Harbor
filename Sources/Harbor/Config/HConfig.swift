@@ -11,7 +11,7 @@ import Foundation
 struct HConfig: Sendable {
     var authProvider: HAuthProviderProtocol?
     var defaultHeaderParameters: [String: String]?
-    var mTLS: HmTLS?
+    var mTLSIdentity: HMTLSIdentity?
     var sslPinningKeys: [String]?
     var currentURLSession: URLSession?
     var mocksOnlyInDebug: Bool = true

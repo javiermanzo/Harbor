@@ -31,7 +31,7 @@ public extension Harbor {
 
     /// Configures mutual TLS for client certificate authentication.
     static func setMTLS(_ mTLS: HmTLS?) {
-        HRequestManager.config.mTLS = mTLS
+        HRequestManager.config.mTLSIdentity = mTLS?.extractIdentity()
     }
 
     /// Enables SSL pinning with SHA256 certificate hash.

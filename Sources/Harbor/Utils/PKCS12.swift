@@ -6,17 +6,20 @@
 //
 
 import Foundation
+import LogBird
 
 final class PKCS12 {
     
+    private static let logger = LogBird(subsystem: "com.harbor", category: "security")
+
     var label: String?
     var keyID: NSData?
     var trust: SecTrust?
     var certChain: [SecTrust]?
     var identity: SecIdentity?
     
-    public init(p12Data: Data, password: String) {
-        let importPasswordOption: NSDictionary = [kSecImportExportPassphrase as NSString: password]
+    init(p12Data: Data, password: Data) {
+        let importPasswordOption: NSDictionary = [kSecImportExportPassphrase as String: password]
         
         var items: CFArray?
         
@@ -24,7 +27,7 @@ final class PKCS12 {
         
         guard status == errSecSuccess else {
             if status == errSecAuthFailed {
-                NSLog("Incorrect password? ________")
+                Self.logger.log("PKCS12: Incorrect password")
             }
             return
         }

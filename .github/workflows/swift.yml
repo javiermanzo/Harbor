@@ -21,10 +21,6 @@ jobs:
     - name: Run Package Tests
       run: swift test -v --enable-code-coverage
 
-    # Debug: List available simulators to debug CI issues
-    - name: List Available Simulators
-      run: xcrun simctl list devices available
-
     # 2. Run Example App Tests (Integration via xcodebuild)
     # Using iPhone 16e on macos-26
     - name: Run Example App Tests

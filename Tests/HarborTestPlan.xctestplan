@@ -11,7 +11,7 @@
   "defaultOptions" : {
     "performanceAntipatternCheckerEnabled" : true,
     "targetForVariableExpansion" : {
-      "containerPath" : "container:../Example/HarborExample.xcodeproj",
+      "containerPath" : "container:..\/Example\/HarborExample.xcodeproj",
       "identifier" : "3B339D5E29A587A900ACD0E3",
       "name" : "HarborExample"
     }
@@ -19,16 +19,16 @@
   "testTargets" : [
     {
       "target" : {
-        "containerPath" : "container:../Example/HarborExample.xcodeproj",
-        "identifier" : "3B339D7429A587AB00ACD0E3",
-        "name" : "HarborExampleTests"
+        "containerPath" : "container:",
+        "identifier" : "HarborJRPCTests",
+        "name" : "HarborJRPCTests"
       }
     },
     {
       "target" : {
-        "containerPath" : "container:../Example/HarborExample.xcodeproj",
-        "identifier" : "3B339D7E29A587AB00ACD0E3",
-        "name" : "HarborExampleUITests"
+        "containerPath" : "container:",
+        "identifier" : "HarborTests",
+        "name" : "HarborTests"
       }
     }
   ],

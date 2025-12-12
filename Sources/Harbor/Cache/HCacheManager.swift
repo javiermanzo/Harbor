@@ -10,7 +10,7 @@ import Foundation
 public enum HCache {}
 
 extension HCache {
-    /// High-performance file-based cache manager using two-file strategy (Data + Metadata).
+    /// High-performance file-based cache manager using a single-file strategy (Codable Wrapper).
     /// Provides granular control over expiration that URLCache cannot easily offer.
     @HRequestManagerActor
     final class Manager: Sendable {
@@ -71,7 +71,7 @@ extension HCache {
                 fallbackTime: config.expirationTime
             )
             
-            await storeData(data, for: key, expirationTime: effectiveExpirationTime)
+            await storeData(data, for: key, expirationTime: effectiveExpirationTime, maxObjectSize: config.maxObjectSizeInBytes)
         }
         
         /// Clears all cached data.
@@ -90,9 +90,13 @@ extension HCache {
             
             let dir = self.cacheDirectory
             diskQueue.async {
-                let (dataURL, metaURL) = FileStorage.urls(for: key, in: dir)
-                try? FileManager.default.removeItem(at: dataURL)
-                try? FileManager.default.removeItem(at: metaURL)
+                let fileURL = FileStorage.url(for: key, in: dir)
+                try? FileManager.default.removeItem(at: fileURL)
+                
+                // Cleanup legacy files if present
+                let legacyURLs = FileStorage.legacyUrls(for: key, in: dir)
+                try? FileManager.default.removeItem(at: legacyURLs.0)
+                try? FileManager.default.removeItem(at: legacyURLs.1)
             }
         }
         
@@ -114,39 +118,29 @@ extension HCache {
             return await withCheckedContinuation { continuation in
                 let dir = self.cacheDirectory
                 diskQueue.async {
-                    // 1. Resolve URLs
-                    let (dataURL, metaURL) = FileStorage.urls(for: key, in: dir)
+                    let fileURL = FileStorage.url(for: key, in: dir)
                     
-                    // 2. Read Metadata first
-                    guard let metaData = try? Data(contentsOf: metaURL),
-                          let metadata = try? JSONDecoder().decode(CacheMetadata.self, from: metaData) else {
+                    guard let fileData = try? Data(contentsOf: fileURL),
+                          let diskEntry = try? JSONDecoder().decode(DiskEntry.self, from: fileData) else {
                         continuation.resume(returning: nil)
                         return
                     }
                     
-                    // 3. Check expiration
-                    let entryForCheck = Entry(data: Data(), timestamp: metadata.timestamp, expirationTime: metadata.expirationTime)
-                    if entryForCheck.isExpired(maxAge: maxAge) {
-                        try? FileManager.default.removeItem(at: dataURL)
-                        try? FileManager.default.removeItem(at: metaURL)
+                    // Check expiration
+                    if diskEntry.isExpired(maxAge: maxAge) {
+                        try? FileManager.default.removeItem(at: fileURL)
                         continuation.resume(returning: nil)
                         return
                     }
                     
-                    // 4. Read Data
-                    guard let data = try? Data(contentsOf: dataURL) else {
-                        continuation.resume(returning: nil)
-                        return
-                    }
-                    
-                    // 5. Decode & Promote
+                    // Decode Model
                     do {
-                        let model = try JSONDecoder().decode(type, from: data)
-                        let entry = Entry(data: data, timestamp: metadata.timestamp, expirationTime: metadata.expirationTime)
+                        let model = try JSONDecoder().decode(type, from: diskEntry.data)
                         
+                        // Promote to Memory Cache
+                        let entry = Entry(data: diskEntry.data, timestamp: diskEntry.timestamp, expirationTime: diskEntry.expirationTime)
                         Task { @HRequestManagerActor in
-                            let nsKey = NSString(string: key)
-                            self.memoryCache.setObject(entry, forKey: nsKey, cost: data.count)
+                            self.memoryCache.setObject(entry, forKey: nsKey, cost: diskEntry.data.count)
                         }
                         
                         continuation.resume(returning: model)
@@ -157,8 +151,8 @@ extension HCache {
             }
         }
         
-        private func storeData(_ data: Data, for key: String, expirationTime: TimeInterval?) async {
-            guard data.count < 50 * 1024 * 1024 else { return } // 50MB limit
+        private func storeData(_ data: Data, for key: String, expirationTime: TimeInterval?, maxObjectSize: Int) async {
+            guard data.count < maxObjectSize else { return }
             
             let entry = Entry(data: data, timestamp: Date(), expirationTime: expirationTime)
             let nsKey = NSString(string: key)
@@ -169,16 +163,19 @@ extension HCache {
             // Persist to Disk
             let dir = self.cacheDirectory
             diskQueue.async {
-                let (dataURL, metaURL) = FileStorage.urls(for: key, in: dir)
-                let metadata = CacheMetadata(timestamp: entry.timestamp, expirationTime: entry.expirationTime, dataSize: data.count)
+                let fileURL = FileStorage.url(for: key, in: dir)
+                let diskEntry = DiskEntry(data: data, timestamp: entry.timestamp, expirationTime: entry.expirationTime)
                 
                 do {
-                    try data.write(to: dataURL)
-                    let metaData = try JSONEncoder().encode(metadata)
-                    try metaData.write(to: metaURL)
+                    let encodedEntry = try JSONEncoder().encode(diskEntry)
+                    try encodedEntry.write(to: fileURL)
+                    
+                    // Cleanup legacy files just in case they exist for this key
+                    let legacyURLs = FileStorage.legacyUrls(for: key, in: dir)
+                    try? FileManager.default.removeItem(at: legacyURLs.0) // data
+                    try? FileManager.default.removeItem(at: legacyURLs.1) // .meta
                 } catch {
-                    try? FileManager.default.removeItem(at: dataURL)
-                    try? FileManager.default.removeItem(at: metaURL)
+                    try? FileManager.default.removeItem(at: fileURL)
                 }
             }
         }
@@ -249,7 +246,13 @@ private extension HCache {
     /// Encapsulates low-level file system operations to avoid actor isolation conflicts.
     /// Being a separate struct, it does not inherit @HRequestManagerActor isolation.
     struct FileStorage {
-        static func urls(for key: String, in directory: URL) -> (URL, URL) {
+        static func url(for key: String, in directory: URL) -> URL {
+            let hash = key.sha256Hash
+            // Using .cache extension to distinguish from legacy files
+            return directory.appendingPathComponent(hash).appendingPathExtension("cache")
+        }
+        
+        static func legacyUrls(for key: String, in directory: URL) -> (URL, URL) {
             let hash = key.sha256Hash
             let dataURL = directory.appendingPathComponent(hash)
             let metaURL = dataURL.appendingPathExtension("meta")
@@ -259,19 +262,31 @@ private extension HCache {
         static func cleanupExpiredFiles(at directory: URL) {
             guard let resourceKeys = try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil) else { return }
             
-            let metaFiles = resourceKeys.filter { $0.pathExtension == "meta" }
-            
-            for metaURL in metaFiles {
-                guard let data = try? Data(contentsOf: metaURL),
-                      let metadata = try? JSONDecoder().decode(CacheMetadata.self, from: data) else {
+            // 1. Cleanup new format (.cache)
+            let cacheFiles = resourceKeys.filter { $0.pathExtension == "cache" }
+            for fileURL in cacheFiles {
+                guard let data = try? Data(contentsOf: fileURL),
+                      let diskEntry = try? JSONDecoder().decode(DiskEntry.self, from: data) else {
+                    // Corrupted file? Remove it
+                    try? FileManager.default.removeItem(at: fileURL)
                     continue
                 }
                 
-                if let expiration = metadata.expirationTime, Date().timeIntervalSince(metadata.timestamp) > expiration {
-                    let dataURL = metaURL.deletingPathExtension()
-                    try? FileManager.default.removeItem(at: metaURL)
-                    try? FileManager.default.removeItem(at: dataURL)
+                if diskEntry.isExpired(maxAge: nil) {
+                    try? FileManager.default.removeItem(at: fileURL)
                 }
+            }
+            
+            // 2. Cleanup legacy format (.meta)
+            let metaFiles = resourceKeys.filter { $0.pathExtension == "meta" }
+            for metaURL in metaFiles {
+                // We proactively remove legacy files during cleanup to migrate to new system over time
+                // or we can let them expire naturally. For now, let's just expire them.
+                // Assuming legacy CacheMetadata struct is no longer available here, we parse broadly or just delete.
+                // Since we removed CacheMetadata struct, we'll just delete legacy files to force refresh.
+                let dataURL = metaURL.deletingPathExtension()
+                try? FileManager.default.removeItem(at: metaURL)
+                try? FileManager.default.removeItem(at: dataURL)
             }
         }
     }
@@ -285,8 +300,15 @@ private struct CacheControlDirectives {
     var noStore = false
 }
 
-private struct CacheMetadata: Codable {
+/// Disk persistence wrapper containing both data and metadata in a single file.
+private struct DiskEntry: Codable {
+    let data: Data
     let timestamp: Date
     let expirationTime: TimeInterval?
-    let dataSize: Int
+    
+    func isExpired(maxAge: TimeInterval?) -> Bool {
+        let effectiveMaxAge = expirationTime ?? maxAge
+        guard let maxAge = effectiveMaxAge else { return false }
+        return Date().timeIntervalSince(timestamp) > maxAge
+    }
 }

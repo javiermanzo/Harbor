@@ -12,8 +12,8 @@ public extension HCache {
     enum Configuration: Sendable {
         /// Caching is disabled for this request.
         case disabled
-        /// Caching is enabled with optional custom expiration time.
-        case enabled(expirationTime: TimeInterval? = .oneWeek)
+        /// Caching is enabled with optional custom expiration time and max object size in MB (default 10MB).
+        case enabled(expirationTime: TimeInterval? = .oneWeek, maxObjectSizeInMBs: Int = 10)
 
         /// Whether caching is enabled for this configuration.
         var isEnabled: Bool {
@@ -30,8 +30,18 @@ public extension HCache {
             switch self {
             case .disabled:
                 return nil
-            case .enabled(let expirationTime):
+            case .enabled(let expirationTime, _):
                 return expirationTime
+            }
+        }
+
+        /// Gets the max object size in bytes. Returns 0 if disabled.
+        var maxObjectSizeInBytes: Int {
+            switch self {
+            case .disabled:
+                return 0
+            case .enabled(_, let maxObjectSizeInMBs):
+                return maxObjectSizeInMBs * 1024 * 1024
             }
         }
     }

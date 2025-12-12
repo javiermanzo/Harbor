@@ -284,7 +284,7 @@ class MyGetRequest: HGetRequestProtocol {
     // ... other properties
     
     var cacheConfiguration: HCache.Configuration? {
-        return .enabled(expirationTime: .oneDay) // Cache for 1 day
+        return .enabled(expirationTime: .oneDay, maxObjectSizeInMBs: 20) // Cache for 1 day, max size 20MB
     }
 }
 ```
@@ -300,6 +300,13 @@ Harbor provides convenient time intervals:
 .enabled(expirationTime: .oneDay)       // 1 day
 .enabled(expirationTime: .threeDays)    // 3 days
 .enabled(expirationTime: .oneWeek)      // 1 week (default)
+```
+
+##### Max Object Size
+You can also configure the maximum size for cached objects (in MB). The default is 10MB.
+
+```swift
+.enabled(maxObjectSizeInMBs: 50) // Allow up to 50MB
 ```
 
 #### HCache Performance

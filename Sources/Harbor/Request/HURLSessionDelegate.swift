@@ -7,8 +7,9 @@
 
 import Foundation
 import LogBird
+import Security
 
-final class HURLSessionDelegate: NSObject, URLSessionDelegate {
+final class HURLSessionDelegate: NSObject, URLSessionDelegate, @unchecked Sendable {
 
     typealias HChallengeResult = (disposition: URLSession.AuthChallengeDisposition, credential: URLCredential?)
 
@@ -18,15 +19,31 @@ final class HURLSessionDelegate: NSObject, URLSessionDelegate {
     private let mTLS: HmTLS?
     private let sslPinningSHA256: String?
 
+    private let clientIdentityResult: Result<SecIdentity, Error>?
+
     init(mTLS: HmTLS?, sslPinningSHA256: String?) {
         self.mTLS = mTLS
         self.sslPinningSHA256 = sslPinningSHA256
+        
+        if let mTLS {
+            self.clientIdentityResult = Result {
+                let p12Data = try Data(contentsOf: mTLS.p12FileUrl)
+                let p12Contents = PKCS12(p12Data: p12Data, password: mTLS.password)
+                
+                guard let identity = p12Contents.identity else {
+                    throw HRequestError.sslError
+                }
+                return identity
+            }
+        } else {
+            self.clientIdentityResult = nil
+        }
     }
 
     func urlSession(_ session: URLSession, didReceive challenge: URLAuthenticationChallenge, completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
         // Handle client certificate authentication (mTLS)
         if challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodClientCertificate {
-            if let mTLS, let result = processCertificateChallenge(challenge, mTLS: mTLS) {
+            if let result = processCertificateChallenge(challenge) {
                 return completionHandler(result.disposition, result.credential)
             }
             // If mTLS is not configured but client cert is requested, cancel
@@ -48,26 +65,24 @@ final class HURLSessionDelegate: NSObject, URLSessionDelegate {
         return completionHandler(.performDefaultHandling, nil)
     }
 
-    private func processCertificateChallenge(_ challenge: URLAuthenticationChallenge, mTLS: HmTLS) -> HChallengeResult? {
+    private func processCertificateChallenge(_ challenge: URLAuthenticationChallenge) -> HChallengeResult? {
         guard challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodClientCertificate else {
             return nil
         }
         
-        do {
-            let p12Data = try Data(contentsOf: mTLS.p12FileUrl)
-            let p12Contents = PKCS12(p12Data: p12Data, password: mTLS.password)
-            
-            guard let identity = p12Contents.identity else {
-                return (disposition: .cancelAuthenticationChallenge, credential: nil)
-            }
-            
+        guard let result = clientIdentityResult else {
+            return nil
+        }
+        
+        switch result {
+        case .success(let identity):
             let credential = URLCredential(identity: identity,
                                            certificates: nil,
                                            persistence: .none)
-            
             return HChallengeResult(disposition: .useCredential, credential: credential)
-        } catch {
-            // Failed to load certificate - cancel authentication
+            
+        case .failure(let error):
+            Self.logger.log("Failed to load certificate: \(error)", level: .error)
             return (disposition: .cancelAuthenticationChallenge, credential: nil)
         }
     }

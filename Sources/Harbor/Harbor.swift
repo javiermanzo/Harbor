@@ -34,11 +34,12 @@ public extension Harbor {
         HRequestManager.config.mTLS = mTLS
     }
     
-    /// Enables SSL pinning with SHA256 certificate hash.
-    static func setSSlPinningSHA256(_ sslPinningSHA256: String?) {
-        HRequestManager.config.sslPinningSHA256 = sslPinningSHA256
+    /// Enables SSL pinning with SHA256 public key hashes.
+    /// Provide multiple keys to support key rotation (backup pins).
+    static func setSSlPinningKeys(_ sslPinningKeys: [String]?) {
+        HRequestManager.config.sslPinningKeys = sslPinningKeys
     }
-    
+
     /// Sets custom URLSession for all Harbor requests.
     static func setCustomURLSession(_ customURLSession: URLSession) {
         HRequestManager.config.currentURLSession = customURLSession

@@ -13,14 +13,14 @@ final class HarborSecurityTests: XCTestCase {
     override func setUp() async throws {
         await Harbor.removeAllMocks()
         // Reset security configurations
-        await Harbor.setSSlPinningSHA256(nil)
+        await Harbor.setSSlPinningKeys(nil)
         await Harbor.setMTLS(nil)
     }
     
     override func tearDown() async throws {
         await Harbor.removeAllMocks()
         // Reset security configurations
-        await Harbor.setSSlPinningSHA256(nil)
+        await Harbor.setSSlPinningKeys(nil)
         await Harbor.setMTLS(nil)
     }
     
@@ -31,7 +31,7 @@ final class HarborSecurityTests: XCTestCase {
         let testSHA256 = "ABC123456789ABCDEF1234567890ABCDEF1234567890ABCDEF1234567890ABCDEF"
         
         // When
-        await Harbor.setSSlPinningSHA256(testSHA256)
+        await Harbor.setSSlPinningKeys([testSHA256])
         
         // Then
         // SSL pinning should be configured (we can't directly test internal state)
@@ -42,10 +42,10 @@ final class HarborSecurityTests: XCTestCase {
     func testSSLPinningWithNilValue() async throws {
         // Given
         let testSHA256 = "ABC123456789ABCDEF1234567890ABCDEF1234567890ABCDEF1234567890ABCDEF"
-        await Harbor.setSSlPinningSHA256(testSHA256)
+        await Harbor.setSSlPinningKeys([testSHA256])
         
         // When
-        await Harbor.setSSlPinningSHA256(nil)
+        await Harbor.setSSlPinningKeys(nil)
         
         // Then
         // SSL pinning should be disabled
@@ -55,7 +55,7 @@ final class HarborSecurityTests: XCTestCase {
     func testSSLPinningWithValidRequest() async throws {
         // Given
         let testSHA256 = "ABC123456789ABCDEF1234567890ABCDEF1234567890ABCDEF1234567890ABCDEF"
-        await Harbor.setSSlPinningSHA256(testSHA256)
+        await Harbor.setSSlPinningKeys([testSHA256])
         
         let mockResponse = TestSecureData(secret: "pinned-data")
         let jsonData = try JSONEncoder().encode(mockResponse)
@@ -140,7 +140,7 @@ final class HarborSecurityTests: XCTestCase {
     func testCombinedSSLPinningAndMTLS() async throws {
         // Given
         let testSHA256 = "ABC123456789ABCDEF1234567890ABCDEF1234567890ABCDEF1234567890ABCDEF"
-        await Harbor.setSSlPinningSHA256(testSHA256)
+        await Harbor.setSSlPinningKeys([testSHA256])
         
         let testP12URL = URL(fileURLWithPath: "/tmp/test.p12")
         let testPassword = "test-password"
@@ -172,7 +172,7 @@ final class HarborSecurityTests: XCTestCase {
     func testSSLPinningFailure() async throws {
         // Given
         let testSHA256 = "INVALID_HASH"
-        await Harbor.setSSlPinningSHA256(testSHA256)
+        await Harbor.setSSlPinningKeys([testSHA256])
         
         // Mock a SSL-related failure (using existing error types)
         let mock = await HMock(request: SecureGetRequest.self, statusCode: 500, error: .noConnectionError)

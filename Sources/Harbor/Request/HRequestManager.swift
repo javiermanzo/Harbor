@@ -409,8 +409,8 @@ extension HRequestManager {
         configuration.timeoutIntervalForResource = 30
 
         // If mTLS or SSL pinning is configured, create a new URLSession with delegate
-        if config.mTLS != nil || config.sslPinningSHA256 != nil {
-            let sessionDelegate = HURLSessionDelegate(mTLS: config.mTLS, sslPinningSHA256: config.sslPinningSHA256)
+        if config.mTLS != nil || config.sslPinningKeys != nil {
+            let sessionDelegate = HURLSessionDelegate(mTLS: config.mTLS, sslPinningKeys: config.sslPinningKeys)
             let newSession = URLSession(configuration: configuration, delegate: sessionDelegate, delegateQueue: nil)
             config.currentURLSession = newSession
             return newSession

@@ -17,13 +17,13 @@ final class HURLSessionDelegate: NSObject, URLSessionDelegate, @unchecked Sendab
     private static let logger = LogBird(subsystem: "com.harbor", category: "ssl")
 
     private let mTLS: HmTLS?
-    private let sslPinningSHA256: String?
+    private let sslPinningKeys: [String]?
 
     private let clientIdentityResult: Result<SecIdentity, Error>?
 
-    init(mTLS: HmTLS?, sslPinningSHA256: String?) {
+    init(mTLS: HmTLS?, sslPinningKeys: [String]?) {
         self.mTLS = mTLS
-        self.sslPinningSHA256 = sslPinningSHA256
+        self.sslPinningKeys = sslPinningKeys
         
         if let mTLS {
             self.clientIdentityResult = Result {
@@ -52,11 +52,11 @@ final class HURLSessionDelegate: NSObject, URLSessionDelegate, @unchecked Sendab
 
         // Handle server trust validation (SSL pinning)
         if challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodServerTrust {
-            if let sslPinningSHA256, let result = processSSLPinning(challenge, sslPinningSHA256: sslPinningSHA256) {
+            if let sslPinningKeys, let result = processSSLPinning(challenge, sslPinningKeys: sslPinningKeys) {
                 return completionHandler(result.disposition, result.credential)
             }
             // If SSL pinning is configured but validation fails, reject
-            if sslPinningSHA256 != nil {
+            if sslPinningKeys != nil {
                 return completionHandler(.cancelAuthenticationChallenge, nil)
             }
         }
@@ -87,7 +87,7 @@ final class HURLSessionDelegate: NSObject, URLSessionDelegate, @unchecked Sendab
         }
     }
 
-    private func processSSLPinning(_ challenge: URLAuthenticationChallenge, sslPinningSHA256: String) -> HChallengeResult? {
+    private func processSSLPinning(_ challenge: URLAuthenticationChallenge, sslPinningKeys: [String]) -> HChallengeResult? {
         guard challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodServerTrust,
               let serverTrust = challenge.protectionSpace.serverTrust else {
             return nil
@@ -102,26 +102,33 @@ final class HURLSessionDelegate: NSObject, URLSessionDelegate, @unchecked Sendab
             return (disposition: .cancelAuthenticationChallenge, credential: nil)
         }
         
-        // Get certificate chain for pinning validation
-        guard let trustCertificateChain = SecTrustCopyCertificateChain(serverTrust) as? [SecCertificate],
-              !trustCertificateChain.isEmpty else {
-            Self.logger.log("SSL Pinning Failed: Unable to get certificate chain", level: .error)
-            return (disposition: .cancelAuthenticationChallenge, credential: nil)
-        }
-
-        // Check if any certificate in the chain matches the pinned hash
-        for serverCertificate in trustCertificateChain {
-            let serverCertificateData = SecCertificateCopyData(serverCertificate) as Data
-            let serverCertificateHash = SHA256.sha256(data: serverCertificateData)
-
-            if serverCertificateHash == sslPinningSHA256 {
+        // Check if any certificate in the chain matches one of the pinned keys
+        let chainCount = SecTrustGetCertificateCount(serverTrust)
+        
+        for index in 0..<chainCount {
+            guard let certificate = SecTrustGetCertificateAtIndex(serverTrust, index),
+                  let publicKey = SecCertificateCopyKey(certificate) else {
+                continue
+            }
+            
+            var keyError: Unmanaged<CFError>?
+            guard let publicKeyData = SecKeyCopyExternalRepresentation(publicKey, &keyError) as Data? else {
+                if let error = keyError?.takeRetainedValue() {
+                    Self.logger.log("Failed to extract public key data: \(error)", level: .error)
+                }
+                continue
+            }
+            
+            let publicKeyHash = SHA256.sha256(data: publicKeyData)
+            
+            if sslPinningKeys.contains(publicKeyHash) {
                 let credential = URLCredential(trust: serverTrust)
                 return HChallengeResult(.useCredential, credential)
             }
         }
 
         // SSL pinning failed - reject connection
-        Self.logger.log("SSL Pinning Failed: Certificate hash mismatch", level: .error)
+        Self.logger.log("SSL Pinning Failed: Public Key hash mismatch", level: .error)
         return (disposition: .cancelAuthenticationChallenge, credential: nil)
     }
 }

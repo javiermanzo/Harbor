@@ -12,7 +12,7 @@ on:
 jobs:
   build:
 
-    runs-on: macos-15
+    runs-on: macos-26
 
     steps:
     - uses: actions/checkout@v4
@@ -31,13 +31,13 @@ jobs:
       run: xcrun simctl list devices available
 
     # 2. Run Example App Tests (Integration via xcodebuild)
-    # Using iPhone 15 which is more likely to be available/stable on CI runners than 16
+    # Using iPhone 16e on macos-26
     - name: Run Example App Tests
       run: |
         xcodebuild test \
           -project Example/HarborExample.xcodeproj \
           -scheme HarborExample \
-          -destination 'platform=iOS Simulator,name=iPhone 15' \
+          -destination 'platform=iOS Simulator,name=iPhone 16e' \
           -resultBundlePath TestResults \
           CODE_SIGN_IDENTITY="" \
           CODE_SIGNING_REQUIRED=NO \

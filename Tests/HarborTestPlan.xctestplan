@@ -1,0 +1,36 @@
+{
+  "configurations" : [
+    {
+      "id" : "9728B792-D184-411E-AE78-45D4849F53C3",
+      "name" : "Test Scheme Action",
+      "options" : {
+
+      }
+    }
+  ],
+  "defaultOptions" : {
+    "performanceAntipatternCheckerEnabled" : true,
+    "targetForVariableExpansion" : {
+      "containerPath" : "container:..\/Example\/HarborExample.xcodeproj",
+      "identifier" : "3B339D5E29A587A900ACD0E3",
+      "name" : "HarborExample"
+    }
+  },
+  "testTargets" : [
+    {
+      "target" : {
+        "containerPath" : "container:",
+        "identifier" : "HarborJRPCTests",
+        "name" : "HarborJRPCTests"
+      }
+    },
+    {
+      "target" : {
+        "containerPath" : "container:",
+        "identifier" : "HarborTests",
+        "name" : "HarborTests"
+      }
+    }
+  ],
+  "version" : 1
+}

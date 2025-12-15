@@ -10,407 +10,307 @@ import Foundation
 public enum HCache {}
 
 extension HCache {
-    /// Pure NSCache-based cache manager with file system persistence.
-    /// Eliminates URLCache overhead and duplication for maximum performance.
+    /// High-performance file-based cache manager using a single-file strategy (Codable Wrapper).
+    /// Provides granular control over expiration that URLCache cannot easily offer.
     @HRequestManagerActor
     final class Manager: Sendable {
-
+        
         /// Shared instance of the cache manager.
         static let shared = Manager()
         
-        /// Binary separator for metadata/data separation in cache files
-        private let dataSeparator = Data([0xFF, 0xFF, 0xFF, 0xFF])
-
-        /// Fast in-memory cache
+        /// Fast in-memory cache (L1)
         private let memoryCache = NSCache<NSString, Entry>()
-
-        /// Cache directory for persistence
-        private let cacheDirectory: URL
-
-        /// Background queue for disk operations
-        private let diskQueue = DispatchQueue(label: "harbor.cache.disk", qos: .utility)
-
-        /// Cache for frequently accessed keys to avoid SHA256 recomputation
-        private var keyCache = [String: String]()
-
+        
+        /// Cache directory for persistence (L2)
+        let cacheDirectory: URL
+        
+        /// Background queue for disk operations to avoid blocking main thread
+        let diskQueue = DispatchQueue(label: "harbor.cache.disk", qos: .utility)
+        
         private init() {
-            // Setup cache directory with proper error handling
-            guard let cacheDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first else {
-                // Fallback to temporary directory if cache directory is unavailable
-                let fallbackDir = FileManager.default.temporaryDirectory
-                self.cacheDirectory = fallbackDir.appendingPathComponent("Harbor")
-                self.keyCache.reserveCapacity(1000)
-                try? FileManager.default.createDirectory(at: cacheDirectory, withIntermediateDirectories: true)
+            // 1. Setup cache directory safely in Library/Caches
+            guard let systemCacheDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first else {
+                self.cacheDirectory = FileManager.default.temporaryDirectory.appendingPathComponent("HarborCache")
                 return
             }
-            self.cacheDirectory = cacheDir.appendingPathComponent("Harbor")
-
-            // Initialize key cache with capacity for performance optimization
-            self.keyCache.reserveCapacity(1000)
-
-            // Create directory if needed
+            
+            self.cacheDirectory = systemCacheDir.appendingPathComponent("HarborCache", isDirectory: true)
+            
+            // 2. Create directory
             try? FileManager.default.createDirectory(at: cacheDirectory, withIntermediateDirectories: true)
-
-            // Configure NSCache
+            
+            // 3. Configure NSCache limits
             let memoryMB = HRequestManager.config.defaultMemoryCacheCapacity
             memoryCache.totalCostLimit = memoryMB * 1024 * 1024
-            memoryCache.countLimit = 1000
-            memoryCache.evictsObjectsWithDiscardedContent = true
-
-            // Load cached entries into memory for immediate availability
-            loadAllCachedEntriesIntoMemory(capacity: HRequestManager.config.defaultStartUpMemoryCacheCapacity)
+            memoryCache.countLimit = 500
+            
+            // 4. Perform background cleanup
+            let dir = self.cacheDirectory
+            diskQueue.async {
+                FileStorage.cleanupExpiredFiles(at: dir)
+            }
         }
-
+        
         // MARK: - Public API
-
-        /// Retrieves cached data for a request with result protocol.
-        /// - Parameter request: The request object with associated model type.
-        /// - Returns: The decoded model if found and valid, `nil` otherwise.
+        
+        /// Retrieves cached data for a request.
         func getCachedData<Request: HGetRequestProtocol>(for request: Request) async -> Request.Model? {
             let config = request.cacheConfiguration ?? HRequestManager.config.defaultCacheConfiguration
             guard config.isEnabled, let key = request.cacheKey else { return nil }
-
+            
             return await getCachedData(for: key, type: Request.Model.self, maxAge: config.expirationTime)
         }
-
-        /// Stores data for a request if caching is enabled.
-        /// - Parameters:
-        ///   - data: The response data to cache.
-        ///   - request: The HGetRequestProtocol request object.
-        ///   - response: The HTTP URL response for extracting cache headers.
+        
+        /// Stores data for a request.
         func storeData(_ data: Data, for request: any HGetRequestProtocol, response: HTTPURLResponse?) async {
             let config = request.cacheConfiguration ?? HRequestManager.config.defaultCacheConfiguration
             guard config.isEnabled, let key = request.cacheKey else { return }
-
-            // Calculate effective expiration time prioritizing HTTP headers
+            
             let effectiveExpirationTime = calculateEffectiveExpirationTime(
                 fromResponse: response,
                 fallbackTime: config.expirationTime
             )
-
-            await storeData(data, for: key, expirationTime: effectiveExpirationTime)
+            
+            await storeData(data, for: key, expirationTime: effectiveExpirationTime, maxObjectSize: config.maxObjectSizeInBytes)
         }
-
-        /// Clears all cached data from both memory and disk.
+        
+        /// Clears all cached data.
         func clearAllCache() {
             memoryCache.removeAllObjects()
-            keyCache.removeAll(keepingCapacity: true)
-
+            
             diskQueue.async {
                 try? FileManager.default.removeItem(at: self.cacheDirectory)
                 try? FileManager.default.createDirectory(at: self.cacheDirectory, withIntermediateDirectories: true)
             }
         }
-
-        /// Removes cached data for a specific key from both memory and disk.
-        /// - Parameter key: The cache key to remove.
+        
+        /// Removes specific cached data.
         func removeCachedData(for key: String) {
-            let nsKey = NSString(string: key)
-            memoryCache.removeObject(forKey: nsKey)
-            keyCache.removeValue(forKey: key)
-
+            memoryCache.removeObject(forKey: NSString(string: key))
+            
+            let dir = self.cacheDirectory
             diskQueue.async {
-                let fileURL = self.fileURL(for: key)
+                let fileURL = FileStorage.url(for: key, in: dir)
                 try? FileManager.default.removeItem(at: fileURL)
+                
+                // Cleanup legacy files if present
+                let legacyURLs = FileStorage.legacyUrls(for: key, in: dir)
+                try? FileManager.default.removeItem(at: legacyURLs.0)
+                try? FileManager.default.removeItem(at: legacyURLs.1)
             }
+        }
+        
+        // MARK: - Core Logic
+        
+        private func getCachedData<T: HModel>(for key: String, type: T.Type, maxAge: TimeInterval?) async -> T? {
+            let nsKey = NSString(string: key)
+            
+            // 🚀 L1: Memory Cache
+            if let entry = memoryCache.object(forKey: nsKey) {
+                if !entry.isExpired(maxAge: maxAge) {
+                    return try? JSONDecoder().decode(type, from: entry.data)
+                } else {
+                    memoryCache.removeObject(forKey: nsKey)
+                }
+            }
+            
+            // 💾 L2: Disk Cache
+            return await withCheckedContinuation { continuation in
+                let dir = self.cacheDirectory
+                
+                diskQueue.async { [key] in
+                    let fileURL = FileStorage.url(for: key, in: dir)
+                    
+                    guard let fileData = try? Data(contentsOf: fileURL),
+                          let diskEntry = try? JSONDecoder().decode(DiskEntry.self, from: fileData) else {
+                        continuation.resume(returning: nil)
+                        return
+                    }
+                    
+                    // Check expiration
+                    if diskEntry.isExpired(maxAge: maxAge) {
+                        try? FileManager.default.removeItem(at: fileURL)
+                        continuation.resume(returning: nil)
+                        return
+                    }
+                    
+                    // Decode Model
+                    do {
+                        let model = try JSONDecoder().decode(type, from: diskEntry.data)
+                        
+                        // Promote to Memory Cache
+                        let entry = Entry(data: diskEntry.data, timestamp: diskEntry.timestamp, expirationTime: diskEntry.expirationTime)
+
+                        Task { @HRequestManagerActor [weak self] in
+                            self?.memoryCache.setObject(entry, forKey: NSString(string: key), cost: diskEntry.data.count)
+                        }
+                        
+                        continuation.resume(returning: model)
+                    } catch {
+                        continuation.resume(returning: nil)
+                    }
+                }
+            }
+        }
+        
+        private func storeData(_ data: Data, for key: String, expirationTime: TimeInterval?, maxObjectSize: Int) async {
+            guard data.count < maxObjectSize else { return }
+            
+            let entry = Entry(data: data, timestamp: Date(), expirationTime: expirationTime)
+            let nsKey = NSString(string: key)
+            
+            // Update Memory
+            memoryCache.setObject(entry, forKey: nsKey, cost: data.count)
+            
+            // Persist to Disk
+            let dir = self.cacheDirectory
+            diskQueue.async {
+                let fileURL = FileStorage.url(for: key, in: dir)
+                let diskEntry = DiskEntry(data: data, timestamp: entry.timestamp, expirationTime: entry.expirationTime)
+                
+                do {
+                    let encodedEntry = try JSONEncoder().encode(diskEntry)
+                    try encodedEntry.write(to: fileURL)
+                    
+                    // Cleanup legacy files just in case they exist for this key
+                    let legacyURLs = FileStorage.legacyUrls(for: key, in: dir)
+                    try? FileManager.default.removeItem(at: legacyURLs.0) // data
+                    try? FileManager.default.removeItem(at: legacyURLs.1) // .meta
+                } catch {
+                    try? FileManager.default.removeItem(at: fileURL)
+                }
+            }
+        }
+        
+        // MARK: - Expiration Logic
+        
+        func calculateEffectiveExpirationTime(fromResponse response: HTTPURLResponse?, fallbackTime: TimeInterval?) -> TimeInterval? {
+            guard let response = response else { return fallbackTime }
+            let headers = response.allHeaderFields
+            
+            if let cacheControl = headers["Cache-Control"] as? String {
+                let directives = parseCacheControlDirectives(cacheControl)
+                if directives.noCache || directives.noStore { return 0 }
+                if let maxAge = directives.maxAge { return TimeInterval(maxAge) }
+            }
+            
+            if let expiresString = headers["Expires"] as? String,
+               let expiresDate = parseExpiresHeader(expiresString) {
+                return max(expiresDate.timeIntervalSinceNow, 0)
+            }
+            
+            return fallbackTime
+        }
+        
+        private func parseCacheControlDirectives(_ cacheControl: String) -> CacheControlDirectives {
+             let directives = cacheControl.lowercased().components(separatedBy: ",")
+             var result = CacheControlDirectives()
+             
+             for directive in directives {
+                 let trimmed = directive.trimmingCharacters(in: .whitespacesAndNewlines)
+                 if trimmed.hasPrefix("max-age=") {
+                     result.maxAge = Int(String(trimmed.dropFirst(8)))
+                 } else if trimmed == "no-cache" {
+                     result.noCache = true
+                 } else if trimmed == "no-store" {
+                     result.noStore = true
+                 }
+             }
+             return result
+         }
+        
+        private static let expiresDateFormatter: DateFormatter = {
+            let formatter = DateFormatter()
+            formatter.locale = Locale(identifier: "en_US_POSIX")
+            formatter.timeZone = TimeZone(secondsFromGMT: 0)
+            return formatter
+        }()
+        
+        private func parseExpiresHeader(_ expiresString: String) -> Date? {
+            let formatter = Self.expiresDateFormatter
+            let formats = [
+                "EEE, dd MMM yyyy HH:mm:ss zzz",
+                "EEEE, dd-MMM-yy HH:mm:ss zzz",
+                "EEE MMM d HH:mm:ss yyyy"
+            ]
+            for format in formats {
+                formatter.dateFormat = format
+                if let date = formatter.date(from: expiresString) { return date }
+            }
+            return nil
         }
     }
 }
 
-// MARK: - Internal Implementation
-extension HCache.Manager {
+// MARK: - Private File Storage Implementation
 
-    /// Loads cached entries from disk into memory asynchronously for immediate availability.
-    /// Prioritizes most recently used entries and limits memory usage.
-    func loadAllCachedEntriesIntoMemory(capacity: Int) {
-        diskQueue.async {
-            guard let files = try? FileManager.default.contentsOfDirectory(at: self.cacheDirectory, includingPropertiesForKeys: [.contentModificationDateKey, .fileSizeKey]) else {
-                return
-            }
-
-            var totalMemoryUsed = 0
-            let maxMemoryUsage = capacity * 1024 * 1024
-
-            // Sort by modification date (most recent first) for better cache hit rates
-            let sortedFiles = files
-                .compactMap { url -> (URL, Date, Int)? in
-                    guard let date = try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate,
-                          let size = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize else { return nil }
-                    return (url, date, size)
-                }
-                .sorted { $0.1 > $1.1 } // Most recent first
-
-            for (fileURL, _, _) in sortedFiles {
-                guard totalMemoryUsed < maxMemoryUsage else { break }
-
-                if let entry = self.loadEntryFromDisk(at: fileURL) {
-                    // Check if expired and remove if so
-                    if entry.isExpired(maxAge: entry.expirationTime) {
-                        try? FileManager.default.removeItem(at: fileURL)
-                        continue
-                    }
-
-                    // Load valid entry into memory cache on main actor
-                    let key = fileURL.lastPathComponent
-                    totalMemoryUsed += entry.data.count
-
-                    Task { @HRequestManagerActor in
-                        let nsKey = NSString(string: key)
-                        self.memoryCache.setObject(entry, forKey: nsKey, cost: entry.data.count)
-                    }
-                }
-            }
+private extension HCache {
+    /// Encapsulates low-level file system operations to avoid actor isolation conflicts.
+    /// Being a separate struct, it does not inherit @HRequestManagerActor isolation.
+    struct FileStorage {
+        static func url(for key: String, in directory: URL) -> URL {
+            let hash = key.sha256Hash
+            // Using .cache extension to distinguish from legacy files
+            return directory.appendingPathComponent(hash).appendingPathExtension("cache")
         }
-    }
-
-    // MARK: - Core Implementation
-
-    func getCachedData<T: HModel>(for key: String, type: T.Type, maxAge: TimeInterval?) async -> T? {
-        let nsKey = NSString(string: key)
-
-        // 🚀 L1: Check memory cache first (fastest path)
-        if let entry = memoryCache.object(forKey: nsKey) {
-            if !entry.isExpired(maxAge: maxAge) {
-                // Decode directly from memory - no async needed
-                do {
-                    return try JSONDecoder().decode(type, from: entry.data)
-                } catch {
-                    // Corrupted data - remove from memory only
-                    memoryCache.removeObject(forKey: nsKey)
-                }
-            } else {
-                // Expired - remove from memory
-                memoryCache.removeObject(forKey: nsKey)
-            }
+        
+        static func legacyUrls(for key: String, in directory: URL) -> (URL, URL) {
+            let hash = key.sha256Hash
+            let dataURL = directory.appendingPathComponent(hash)
+            let metaURL = dataURL.appendingPathExtension("meta")
+            return (dataURL, metaURL)
         }
-
-        // 💾 L2: Check disk cache
-        return await withCheckedContinuation { continuation in
-            diskQueue.async {
-                let fileURL = self.fileURL(for: key)
-
-                guard let entry = self.loadEntryFromDisk(at: fileURL),
-                      !entry.isExpired(maxAge: maxAge) else {
-                    // Remove expired file
+        
+        static func cleanupExpiredFiles(at directory: URL) {
+            guard let resourceKeys = try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil) else { return }
+            
+            // 1. Cleanup new format (.cache)
+            let cacheFiles = resourceKeys.filter { $0.pathExtension == "cache" }
+            for fileURL in cacheFiles {
+                guard let data = try? Data(contentsOf: fileURL),
+                      let diskEntry = try? JSONDecoder().decode(DiskEntry.self, from: data) else {
+                    // Corrupted file? Remove it
                     try? FileManager.default.removeItem(at: fileURL)
-                    continuation.resume(returning: nil)
-                    return
+                    continue
                 }
-
-                // Try decode from disk
-                do {
-                    let model = try JSONDecoder().decode(type, from: entry.data)
-
-                    // 📈 Promote to memory cache for faster future access
-                    Task { @HRequestManagerActor in
-                        let nsKey = NSString(string: key)
-                        self.memoryCache.setObject(entry, forKey: nsKey, cost: entry.data.count)
-                    }
-
-                    continuation.resume(returning: model)
-                } catch {
-                    // Corrupted data - remove file
+                
+                if diskEntry.isExpired(maxAge: nil) {
                     try? FileManager.default.removeItem(at: fileURL)
-                    continuation.resume(returning: nil)
                 }
             }
-        }
-    }
-
-    func storeData(_ data: Data, for key: String, expirationTime: TimeInterval?) async {
-        // Skip caching if data exceeds size limit
-        guard data.count < 4 * 1024 * 1024 else { return } // 4MB limit
-
-        let entry = Entry(data: data, timestamp: Date(), expirationTime: expirationTime)
-        let nsKey = NSString(string: key)
-
-        // Store in memory immediately for instant access
-        memoryCache.setObject(entry, forKey: nsKey, cost: data.count)
-
-        // Get file URL with cached hash computation for performance
-        let fileURL = cachedFileURL(for: key)
-
-        // Persist to disk async
-        diskQueue.async {
-            self.saveEntryToDisk(entry, at: fileURL)
-        }
-    }
-
-    // MARK: - Disk Operations (nonisolated for performance)
-
-    nonisolated func fileURL(for key: String) -> URL {
-        // Direct SHA256 computation for filename generation
-        let fileName = key.sha256Hash
-        return cacheDirectory.appendingPathComponent(fileName)
-    }
-
-    func cachedFileURL(for key: String) -> URL {
-        // Use cached SHA256 hash to avoid recomputation in hot paths
-        let fileName: String
-        if let cached = keyCache[key] {
-            fileName = cached
-        } else {
-            fileName = key.sha256Hash
-            keyCache[key] = fileName
-            // Prevent unbounded memory growth by clearing cache when limit reached
-            if keyCache.count > 1000 {
-                keyCache.removeAll(keepingCapacity: true)
-            }
-        }
-        return cacheDirectory.appendingPathComponent(fileName)
-    }
-
-    nonisolated func saveEntryToDisk(_ entry: Entry, at url: URL) {
-        let metadata = CacheMetadata(
-            timestamp: entry.timestamp,
-            expirationTime: entry.expirationTime,
-            dataSize: entry.data.count
-        )
-
-        do {
-            let metadataData = try JSONEncoder().encode(metadata)
-            let combined = metadataData + dataSeparator + entry.data
-            try combined.write(to: url)
-        } catch {
-            // Silent fail - cache miss on next read
-        }
-    }
-
-    nonisolated func loadEntryFromDisk(at url: URL) -> Entry? {
-        guard let data = try? Data(contentsOf: url) else { return nil }
-
-        // Find separator
-        guard let separatorRange = data.range(of: dataSeparator) else { return nil }
-
-        let metadataData = data[..<separatorRange.lowerBound]
-        let entryData = data[separatorRange.upperBound...]
-
-        guard let metadata = try? JSONDecoder().decode(CacheMetadata.self, from: metadataData) else {
-            return nil
-        }
-
-        return Entry(
-            data: Data(entryData),
-            timestamp: metadata.timestamp,
-            expirationTime: metadata.expirationTime
-        )
-    }
-
-    // MARK: - HTTP Cache Headers Parsing
-
-    /// Calculates effective expiration time prioritizing HTTP response headers over config
-    /// - Parameters:
-    ///   - response: HTTP response containing cache headers
-    ///   - fallbackTime: Fallback expiration time from cache configuration
-    /// - Returns: Effective expiration time in seconds, or nil if never expires
-    func calculateEffectiveExpirationTime(fromResponse response: HTTPURLResponse?, fallbackTime: TimeInterval?) -> TimeInterval? {
-        guard let response = response else { return fallbackTime }
-
-        let headers = response.allHeaderFields
-
-        // 1. Check Cache-Control directives (highest priority)
-        if let cacheControl = headers["Cache-Control"] as? String {
-            let result = parseCacheControlDirectives(cacheControl)
             
-            // Handle no-cache/no-store (immediate expiration)
-            if result.noCache || result.noStore {
-                return 0
-            }
-            
-            // Use max-age if available
-            if let maxAge = result.maxAge {
-                return TimeInterval(maxAge)
-            }
-        }
-
-        // 2. Check Expires header (medium priority)
-        if let expiresString = headers["Expires"] as? String {
-            if let expirationTime = parseExpiresHeader(expiresString) {
-                return expirationTime
+            // 2. Cleanup legacy format (.meta)
+            let metaFiles = resourceKeys.filter { $0.pathExtension == "meta" }
+            for metaURL in metaFiles {
+                // We proactively remove legacy files during cleanup to migrate to new system over time
+                // or we can let them expire naturally. For now, let's just expire them.
+                // Assuming legacy CacheMetadata struct is no longer available here, we parse broadly or just delete.
+                // Since we removed CacheMetadata struct, we'll just delete legacy files to force refresh.
+                let dataURL = metaURL.deletingPathExtension()
+                try? FileManager.default.removeItem(at: metaURL)
+                try? FileManager.default.removeItem(at: dataURL)
             }
         }
-
-        // 3. Fallback to configuration (lowest priority)
-        return fallbackTime
-    }
-
-    /// Parses Cache-Control header directives
-    /// - Parameter cacheControl: Cache-Control header value
-    /// - Returns: Parsed cache control directives
-    private func parseCacheControlDirectives(_ cacheControl: String) -> CacheControlDirectives {
-        let directives = cacheControl.lowercased().components(separatedBy: ",")
-        var result = CacheControlDirectives()
-        
-        for directive in directives {
-            let trimmed = directive.trimmingCharacters(in: .whitespacesAndNewlines)
-            
-            if trimmed.hasPrefix("max-age=") {
-                let maxAgeString = String(trimmed.dropFirst(8))
-                result.maxAge = Int(maxAgeString)
-            } else if trimmed == "no-cache" {
-                result.noCache = true
-            } else if trimmed == "no-store" {
-                result.noStore = true
-            } else if trimmed == "must-revalidate" {
-                result.mustRevalidate = true
-            } else if trimmed.hasPrefix("s-maxage=") {
-                let sMaxAgeString = String(trimmed.dropFirst(10))
-                result.sMaxAge = Int(sMaxAgeString)
-            }
-        }
-        
-        return result
-    }
-
-    /// Shared date formatter for optimal performance
-    /// Uses en_US_POSIX locale and UTC timezone as per HTTP standards
-    private static let expiresDateFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.timeZone = TimeZone(secondsFromGMT: 0) // Explicit UTC
-        formatter.calendar = Calendar(identifier: .gregorian)
-        return formatter
-    }()
-    
-    /// Parses Expires header to calculate expiration time from now
-    /// - Parameter expiresString: Expires header value (RFC 7234 format)
-    /// - Returns: Expiration time in seconds from now, or nil if invalid
-    private func parseExpiresHeader(_ expiresString: String) -> TimeInterval? {
-        let formatter = Self.expiresDateFormatter
-        
-        // Try common date formats in order of likelihood
-        let formats = [
-            "EEE, dd MMM yyyy HH:mm:ss zzz",  // RFC 7234 (most common)
-            "EEEE, dd-MMM-yy HH:mm:ss zzz",   // RFC 850 (obsolete)
-            "EEE MMM d HH:mm:ss yyyy",        // ANSI C asctime()
-            "EEE, dd-MMM-yyyy HH:mm:ss zzz"   // Common variant
-        ]
-
-        for format in formats {
-            formatter.dateFormat = format
-            if let expirationDate = formatter.date(from: expiresString) {
-                let timeInterval = expirationDate.timeIntervalSinceNow
-                return max(timeInterval, 0) // Don't allow negative expiration
-            }
-        }
-
-        return nil
     }
 }
 
 // MARK: - Supporting Types
 
-/// Cache-Control directive parsing result
 private struct CacheControlDirectives {
     var maxAge: Int?
-    var sMaxAge: Int?
     var noCache = false
     var noStore = false
-    var mustRevalidate = false
 }
 
-private struct CacheMetadata: Codable {
+/// Disk persistence wrapper containing both data and metadata in a single file.
+private struct DiskEntry: Codable {
+    let data: Data
     let timestamp: Date
     let expirationTime: TimeInterval?
-    let dataSize: Int
+    
+    func isExpired(maxAge: TimeInterval?) -> Bool {
+        let effectiveMaxAge = expirationTime ?? maxAge
+        guard let maxAge = effectiveMaxAge else { return false }
+        return Date().timeIntervalSince(timestamp) > maxAge
+    }
 }

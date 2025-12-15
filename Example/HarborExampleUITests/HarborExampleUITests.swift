@@ -7,6 +7,7 @@
 
 import XCTest
 
+@MainActor
 final class HarborExampleUITests: XCTestCase {
 
     override func setUpWithError() throws {

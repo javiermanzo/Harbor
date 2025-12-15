@@ -18,9 +18,9 @@ final class PKCS12 {
     var certChain: [SecTrust]?
     var identity: SecIdentity?
     
-    init(p12Data: Data, password: Data) {
-        let importPasswordOption: NSDictionary = [kSecImportExportPassphrase as String: password]
-        
+    init(p12Data: Data, password: String) {
+        let importPasswordOption: NSDictionary = [kSecImportExportPassphrase as NSString: password]
+
         var items: CFArray?
         
         let status = SecPKCS12Import(p12Data as NSData, importPasswordOption, &items)

@@ -3,22 +3,16 @@
 	archiveVersion = 1;
 	classes = {
 	};
-	objectVersion = 56;
+	objectVersion = 70;
 	objects = {
 
 /* Begin PBXBuildFile section */
-		3B339D6329A587A900ACD0E3 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B339D6229A587A900ACD0E3 /* AppDelegate.swift */; };
-		3B339D6529A587A900ACD0E3 /* SceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B339D6429A587A900ACD0E3 /* SceneDelegate.swift */; };
-		3B339D6C29A587AB00ACD0E3 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 3B339D6B29A587AB00ACD0E3 /* Assets.xcassets */; };
-		3B339D6F29A587AB00ACD0E3 /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 3B339D6D29A587AB00ACD0E3 /* LaunchScreen.storyboard */; };
 		3B339D7A29A587AB00ACD0E3 /* HarborExampleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B339D7929A587AB00ACD0E3 /* HarborExampleTests.swift */; };
 		3B339D8429A587AB00ACD0E3 /* HarborExampleUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B339D8329A587AB00ACD0E3 /* HarborExampleUITests.swift */; };
-		3B339D9829A58A8400ACD0E3 /* KanyeQuote.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B339D9729A58A8400ACD0E3 /* KanyeQuote.swift */; };
 		3B339DA129A58CA400ACD0E3 /* Harbor in Frameworks */ = {isa = PBXBuildFile; productRef = 3B339DA029A58CA400ACD0E3 /* Harbor */; };
 		3B7B82652C59A08C0029C7A7 /* HarborJRPC in Frameworks */ = {isa = PBXBuildFile; productRef = 3B7B82642C59A08C0029C7A7 /* HarborJRPC */; };
-		3B7B82672C59A1DB0029C7A7 /* JRPCRequest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B7B82662C59A1DB0029C7A7 /* JRPCRequest.swift */; };
-		3B7B82692C5A78CF0029C7A7 /* RequestsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B7B82682C5A78CF0029C7A7 /* RequestsView.swift */; };
-		3BFA50342C187EA10039F6FD /* RESTRequest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3BFA50332C187EA10039F6FD /* RESTRequest.swift */; };
+		8D9D58622EF05B7100F148DB /* Harbor in Frameworks */ = {isa = PBXBuildFile; productRef = 8D9D58612EF05B7100F148DB /* Harbor */; };
+		8D9D58642EF05B7100F148DB /* HarborJRPC in Frameworks */ = {isa = PBXBuildFile; productRef = 8D9D58632EF05B7100F148DB /* HarborJRPC */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -41,29 +35,36 @@
 /* Begin PBXFileReference section */
 		3B20D3A42EEB81CE003DC520 /* HarborTestPlan.xctestplan */ = {isa = PBXFileReference; lastKnownFileType = text; name = HarborTestPlan.xctestplan; path = ../Tests/HarborTestPlan.xctestplan; sourceTree = "<group>"; };
 		3B339D5F29A587A900ACD0E3 /* HarborExample.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = HarborExample.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		3B339D6229A587A900ACD0E3 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
-		3B339D6429A587A900ACD0E3 /* SceneDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SceneDelegate.swift; sourceTree = "<group>"; };
-		3B339D6B29A587AB00ACD0E3 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
-		3B339D6E29A587AB00ACD0E3 /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; name = Base; path = Base.lproj/LaunchScreen.storyboard; sourceTree = "<group>"; };
-		3B339D7029A587AB00ACD0E3 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		3B339D7529A587AB00ACD0E3 /* HarborExampleTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = HarborExampleTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		3B339D7929A587AB00ACD0E3 /* HarborExampleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HarborExampleTests.swift; sourceTree = "<group>"; };
 		3B339D7F29A587AB00ACD0E3 /* HarborExampleUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = HarborExampleUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		3B339D8329A587AB00ACD0E3 /* HarborExampleUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HarborExampleUITests.swift; sourceTree = "<group>"; };
-		3B339D9729A58A8400ACD0E3 /* KanyeQuote.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KanyeQuote.swift; sourceTree = "<group>"; };
 		3B339D9E29A58C9200ACD0E3 /* Harbor */ = {isa = PBXFileReference; lastKnownFileType = wrapper; name = Harbor; path = ..; sourceTree = "<group>"; };
-		3B7B82662C59A1DB0029C7A7 /* JRPCRequest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JRPCRequest.swift; sourceTree = "<group>"; };
-		3B7B82682C5A78CF0029C7A7 /* RequestsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RequestsView.swift; sourceTree = "<group>"; };
-		3BFA50332C187EA10039F6FD /* RESTRequest.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = RESTRequest.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		8D9D58922EF0646900F148DB /* PBXFileSystemSynchronizedBuildFileExceptionSet */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 3B339D5E29A587A900ACD0E3 /* HarborExample */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
+/* Begin PBXFileSystemSynchronizedRootGroup section */
+		8D9D58852EF0646900F148DB /* HarborExample */ = {isa = PBXFileSystemSynchronizedRootGroup; exceptions = (8D9D58922EF0646900F148DB /* PBXFileSystemSynchronizedBuildFileExceptionSet */, ); explicitFileTypes = {}; explicitFolders = (); path = HarborExample; sourceTree = "<group>"; };
+/* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
 		3B339D5C29A587A900ACD0E3 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				8D9D58622EF05B7100F148DB /* Harbor in Frameworks */,
 				3B339DA129A58CA400ACD0E3 /* Harbor in Frameworks */,
 				3B7B82652C59A08C0029C7A7 /* HarborJRPC in Frameworks */,
+				8D9D58642EF05B7100F148DB /* HarborJRPC in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -89,7 +90,7 @@
 			children = (
 				3B20D3A42EEB81CE003DC520 /* HarborTestPlan.xctestplan */,
 				3B339D9229A5884100ACD0E3 /* Packages */,
-				3B339D6129A587A900ACD0E3 /* HarborExample */,
+				8D9D58852EF0646900F148DB /* HarborExample */,
 				3B339D7829A587AB00ACD0E3 /* HarborExampleTests */,
 				3B339D8229A587AB00ACD0E3 /* HarborExampleUITests */,
 				3B339D6029A587A900ACD0E3 /* Products */,
@@ -105,21 +106,6 @@
 				3B339D7F29A587AB00ACD0E3 /* HarborExampleUITests.xctest */,
 			);
 			name = Products;
-			sourceTree = "<group>";
-		};
-		3B339D6129A587A900ACD0E3 /* HarborExample */ = {
-			isa = PBXGroup;
-			children = (
-				3B339D9929A58A8700ACD0E3 /* Model */,
-				3B339D9429A58A4200ACD0E3 /* Requests */,
-				3B339D6229A587A900ACD0E3 /* AppDelegate.swift */,
-				3B339D6429A587A900ACD0E3 /* SceneDelegate.swift */,
-				3B7B82682C5A78CF0029C7A7 /* RequestsView.swift */,
-				3B339D6B29A587AB00ACD0E3 /* Assets.xcassets */,
-				3B339D6D29A587AB00ACD0E3 /* LaunchScreen.storyboard */,
-				3B339D7029A587AB00ACD0E3 /* Info.plist */,
-			);
-			path = HarborExample;
 			sourceTree = "<group>";
 		};
 		3B339D7829A587AB00ACD0E3 /* HarborExampleTests */ = {
@@ -146,23 +132,6 @@
 			name = Packages;
 			sourceTree = "<group>";
 		};
-		3B339D9429A58A4200ACD0E3 /* Requests */ = {
-			isa = PBXGroup;
-			children = (
-				3BFA50332C187EA10039F6FD /* RESTRequest.swift */,
-				3B7B82662C59A1DB0029C7A7 /* JRPCRequest.swift */,
-			);
-			path = Requests;
-			sourceTree = "<group>";
-		};
-		3B339D9929A58A8700ACD0E3 /* Model */ = {
-			isa = PBXGroup;
-			children = (
-				3B339D9729A58A8400ACD0E3 /* KanyeQuote.swift */,
-			);
-			path = Model;
-			sourceTree = "<group>";
-		};
 		3B339D9F29A58CA000ACD0E3 /* Frameworks */ = {
 			isa = PBXGroup;
 			children = (
@@ -185,10 +154,15 @@
 			);
 			dependencies = (
 			);
+			fileSystemSynchronizedGroups = (
+				8D9D58852EF0646900F148DB /* HarborExample */,
+			);
 			name = HarborExample;
 			packageProductDependencies = (
 				3B339DA029A58CA400ACD0E3 /* Harbor */,
 				3B7B82642C59A08C0029C7A7 /* HarborJRPC */,
+				8D9D58612EF05B7100F148DB /* Harbor */,
+				8D9D58632EF05B7100F148DB /* HarborJRPC */,
 			);
 			productName = HarborExample;
 			productReference = 3B339D5F29A587A900ACD0E3 /* HarborExample.app */;
@@ -262,6 +236,9 @@
 				Base,
 			);
 			mainGroup = 3B339D5629A587A900ACD0E3;
+			packageReferences = (
+				8D9D58602EF05B7000F148DB /* XCLocalSwiftPackageReference "../../Harbor" */,
+			);
 			productRefGroup = 3B339D6029A587A900ACD0E3 /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
@@ -278,8 +255,6 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				3B339D6F29A587AB00ACD0E3 /* LaunchScreen.storyboard in Resources */,
-				3B339D6C29A587AB00ACD0E3 /* Assets.xcassets in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -304,12 +279,6 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				3B7B82672C59A1DB0029C7A7 /* JRPCRequest.swift in Sources */,
-				3B7B82692C5A78CF0029C7A7 /* RequestsView.swift in Sources */,
-				3BFA50342C187EA10039F6FD /* RESTRequest.swift in Sources */,
-				3B339D9829A58A8400ACD0E3 /* KanyeQuote.swift in Sources */,
-				3B339D6329A587A900ACD0E3 /* AppDelegate.swift in Sources */,
-				3B339D6529A587A900ACD0E3 /* SceneDelegate.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -343,17 +312,6 @@
 			targetProxy = 3B339D8029A587AB00ACD0E3 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
-
-/* Begin PBXVariantGroup section */
-		3B339D6D29A587AB00ACD0E3 /* LaunchScreen.storyboard */ = {
-			isa = PBXVariantGroup;
-			children = (
-				3B339D6E29A587AB00ACD0E3 /* Base */,
-			);
-			name = LaunchScreen.storyboard;
-			sourceTree = "<group>";
-		};
-/* End PBXVariantGroup section */
 
 /* Begin XCBuildConfiguration section */
 		3B339D8729A587AB00ACD0E3 /* Debug */ = {
@@ -531,7 +489,6 @@
 		3B339D8D29A587AB00ACD0E3 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = YES;
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
@@ -550,7 +507,6 @@
 		3B339D8E29A587AB00ACD0E3 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = YES;
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
@@ -569,7 +525,6 @@
 		3B339D9029A587AB00ACD0E3 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = YES;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -587,7 +542,6 @@
 		3B339D9129A587AB00ACD0E3 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = YES;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -643,12 +597,27 @@
 		};
 /* End XCConfigurationList section */
 
+/* Begin XCLocalSwiftPackageReference section */
+		8D9D58602EF05B7000F148DB /* XCLocalSwiftPackageReference "../../Harbor" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = ../../Harbor;
+		};
+/* End XCLocalSwiftPackageReference section */
+
 /* Begin XCSwiftPackageProductDependency section */
 		3B339DA029A58CA400ACD0E3 /* Harbor */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = Harbor;
 		};
 		3B7B82642C59A08C0029C7A7 /* HarborJRPC */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = HarborJRPC;
+		};
+		8D9D58612EF05B7100F148DB /* Harbor */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = Harbor;
+		};
+		8D9D58632EF05B7100F148DB /* HarborJRPC */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = HarborJRPC;
 		};

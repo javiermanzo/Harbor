@@ -6,6 +6,16 @@
 //
 
 import Foundation
+@preconcurrency import Security
+
+/// A Sendable wrapper for SecIdentity
+public struct HMTLSIdentity: Sendable {
+    public let identity: SecIdentity
+    
+    public init(identity: SecIdentity) {
+        self.identity = identity
+    }
+}
 
 /// Configuration for mutual TLS (mTLS) authentication.
 /// Use this to configure client certificates for secure communication.
@@ -22,5 +32,20 @@ public struct HmTLS: Sendable {
     public init(p12FileUrl: URL, password: String) {
         self.p12FileUrl = p12FileUrl
         self.password = password
+    }
+    
+    func extractIdentity() -> HMTLSIdentity? {
+        do {
+            let p12Data = try Data(contentsOf: p12FileUrl)
+            let p12Contents = PKCS12(p12Data: p12Data, password: password)
+
+            if let identity = p12Contents.identity {
+                return HMTLSIdentity(identity: identity)
+            } else {
+                return nil
+            }
+        } catch {
+            return nil
+        }
     }
 }

@@ -6,7 +6,6 @@
 //
 
 import Foundation
-import LogBird
 import SystemConfiguration
 
 /// Global actor to manage shared mutable state in a thread-safe way.
@@ -409,8 +408,8 @@ extension HRequestManager {
         configuration.timeoutIntervalForResource = 30
 
         // If mTLS or SSL pinning is configured, create a new URLSession with delegate
-        if config.mTLS != nil || config.sslPinningSHA256 != nil {
-            let sessionDelegate = HURLSessionDelegate(mTLS: config.mTLS, sslPinningSHA256: config.sslPinningSHA256)
+        if config.mTLSIdentity != nil || config.sslPinningKeys != nil {
+            let sessionDelegate = HURLSessionDelegate(mTLSIdentity: config.mTLSIdentity, sslPinningKeys: config.sslPinningKeys)
             let newSession = URLSession(configuration: configuration, delegate: sessionDelegate, delegateQueue: nil)
             config.currentURLSession = newSession
             return newSession

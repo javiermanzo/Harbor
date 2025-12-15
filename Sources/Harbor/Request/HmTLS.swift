@@ -47,8 +47,8 @@ public struct HmTLS: Sendable {
     func extractIdentity() -> HMTLSIdentity? {
         do {
             let p12Data = try Data(contentsOf: p12FileUrl)
-            let p12Contents = PKCS12(p12Data: p12Data, password: password)
-            
+            let p12Contents = PKCS12(p12Data: p12Data, password: String(data: password, encoding: .utf8) ?? .init())
+
             if let identity = p12Contents.identity {
                 return HMTLSIdentity(identity: identity)
             } else {

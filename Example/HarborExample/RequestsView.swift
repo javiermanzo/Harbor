@@ -13,7 +13,12 @@ struct RequestsView: View {
     @State private var results: [String] = []
 
     init() {
-        Task { await HarborJRPC.setURL("https://ethereum.publicnode.com") }
+        Task {
+            guard let url = Bundle.main.url(forResource: "certificate", withExtension: "p12") else { return }
+            let mTLS = HmTLS(p12FileUrl: url, password: "notapassword")
+            await Harbor.setMTLS(mTLS)
+            await HarborJRPC.setURL("https://ethereum.publicnode.com")
+        }
     }
 
     var body: some View {
@@ -22,7 +27,11 @@ struct RequestsView: View {
                 requestREST()
             }.buttonStyle(.borderedProminent)
 
-            Button("JRPC Request") {
+            Button("REST MTLS Request") {
+                requestMTLsREST()
+            }.buttonStyle(.borderedProminent)
+
+            Button("JRPC xRequest") {
                 requestJRPC()
             }.buttonStyle(.borderedProminent)
             
@@ -61,6 +70,25 @@ struct RequestsView: View {
             Spacer()
         }
         .padding()
+    }
+
+    func requestMTLsREST() {
+        results.removeAll()
+        Task {
+            let response = await MTLSRequest().request()
+
+            let resultText: String
+            switch response {
+            case .success(let result):
+                resultText = "🌐 Hello \"\(result.user ?? "user"), using MTLS \(result.sslProtocol ?? "")\""
+            case .error(let error):
+                resultText = "❌ MTLS REST Error: \(error)"
+            }
+
+            await MainActor.run {
+                results.append(resultText)
+            }
+        }
     }
 
     func requestREST() {

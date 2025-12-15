@@ -42,11 +42,9 @@ public struct HmTLS: Sendable {
             if let identity = p12Contents.identity {
                 return HMTLSIdentity(identity: identity)
             } else {
-                print("Harbor: Failed to extract identity from P12")
                 return nil
             }
         } catch {
-            print("Harbor: Failed to read P12 file: \(error)")
             return nil
         }
     }

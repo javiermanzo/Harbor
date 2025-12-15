@@ -6,7 +6,6 @@
 //
 
 import Foundation
-import LogBird
 import SystemConfiguration
 
 /// Global actor to manage shared mutable state in a thread-safe way.

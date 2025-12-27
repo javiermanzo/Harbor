@@ -17,8 +17,10 @@ final class PKCS12 {
     var trust: SecTrust?
     var certChain: [SecTrust]?
     var identity: SecIdentity?
+    var loggingEnabled: Bool
 
-    init(p12Data: Data, password: String) {
+    init(p12Data: Data, password: String, loggingEnabled: Bool = true) {
+        self.loggingEnabled = loggingEnabled
         let importPasswordOption: NSDictionary = [kSecImportExportPassphrase as NSString: password]
 
         var items: CFArray?
@@ -27,20 +29,32 @@ final class PKCS12 {
 
         guard status == errSecSuccess else {
             if status == errSecAuthFailed {
-                Self.logger.log("PKCS12: Incorrect password")
+                #if DEBUG
+                if loggingEnabled {
+                    Self.logger.log("PKCS12: Incorrect password")
+                }
+                #endif
             }
             return
         }
 
         guard let theItemsCFArray = items else {
-            Self.logger.log("PKCS12: error loading items")
+            #if DEBUG
+            if loggingEnabled {
+                Self.logger.log("PKCS12: error loading items")
+            }
+            #endif
             return
         }
         
         let theItemsNSArray: NSArray = theItemsCFArray as NSArray
 
         guard let dictArray = theItemsNSArray as? [[String: AnyObject]] else {
-            Self.logger.log("PKCS12: error loading items")
+            #if DEBUG
+            if loggingEnabled {
+                Self.logger.log("PKCS12: error loading items")
+            }
+            #endif
             return
         }
 

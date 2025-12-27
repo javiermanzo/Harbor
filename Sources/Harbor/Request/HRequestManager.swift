@@ -62,7 +62,7 @@ extension HRequestManager {
         }
 
         if let request = request as? HDebugRequestProtocol {
-            request.printRequest(urlRequest: urlRequest)
+            request.logRequest(urlRequest: urlRequest)
         }
 
         do {
@@ -87,7 +87,7 @@ extension HRequestManager {
             }
 
             if let request = request as? HDebugRequestProtocol {
-                request.printResponse(httpResponse: httpResponse, data: data, duration: duration)
+                request.logResponse(httpResponse: httpResponse, data: data, duration: duration)
             }
 
             return await processResponse(model: model,
@@ -203,7 +203,7 @@ extension HRequestManager {
         }
 
         if let request = request as? HDebugRequestProtocol {
-            request.printRequest(urlRequest: urlRequest)
+            request.logRequest(urlRequest: urlRequest)
         }
 
         do {
@@ -228,7 +228,7 @@ extension HRequestManager {
             }
 
             if let request = request as? HDebugRequestProtocol {
-                request.printResponse(httpResponse: httpResponse, data: data, duration: duration)
+                request.logResponse(httpResponse: httpResponse, data: data, duration: duration)
             }
 
             return await processResponse(request: request, statusCode: httpResponse.statusCode, data: data)
@@ -423,7 +423,7 @@ extension HRequestManager {
 
     static func logError(_ error: HRequestError, request: HRequestBaseRequestProtocol) {
         if let request = request as? HDebugRequestProtocol {
-            request.printErrorResponse(error: error)
+            request.logErrorResponse(error: error)
         }
     }
 }

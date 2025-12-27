@@ -224,7 +224,7 @@ final class HarborDebugTests: XCTestCase {
         
         // This test verifies that the method doesn't crash when called
         // The actual logging is handled by LogBird and would require more complex mocking
-        await XCTAssertNoThrowAsync(await request.printRequest(urlRequest: urlRequest))
+        await XCTAssertNoThrowAsync(await request.logRequest(urlRequest: urlRequest))
     }
     
     func testPrintRequestWithNoneDebugType() async {
@@ -232,7 +232,7 @@ final class HarborDebugTests: XCTestCase {
         let urlRequest = URLRequest(url: URL(string: "https://api.example.com/test")!)
         
         // Should not crash even with .none debug type
-        await XCTAssertNoThrowAsync(await request.printRequest(urlRequest: urlRequest))
+        await XCTAssertNoThrowAsync(await request.logRequest(urlRequest: urlRequest))
     }
     
     func testPrintResponseWithResponseDebugType() async {
@@ -243,14 +243,14 @@ final class HarborDebugTests: XCTestCase {
                                       headerFields: nil)!
         let data = "test response".data(using: .utf8)!
         
-        await XCTAssertNoThrowAsync(await request.printResponse(httpResponse: response, data: data, duration: 123.45))
+        await XCTAssertNoThrowAsync(await request.logResponse(httpResponse: response, data: data, duration: 123.45))
     }
     
     func testPrintErrorResponseWithError() async {
         let request = TestDebugRequest(debugType: .requestAndResponse)
         let error = HRequestError.noConnectionError
         
-        await XCTAssertNoThrowAsync(await request.printErrorResponse(error: error))
+        await XCTAssertNoThrowAsync(await request.logErrorResponse(error: error))
     }
 }
 

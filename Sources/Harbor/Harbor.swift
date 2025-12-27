@@ -31,7 +31,7 @@ public extension Harbor {
 
     /// Configures mutual TLS for client certificate authentication.
     static func setMTLS(_ mTLS: HmTLS?) {
-        HRequestManager.config.mTLSIdentity = mTLS?.extractIdentity()
+        HRequestManager.config.mTLSIdentity = mTLS?.extractIdentity(loggingEnabled: HRequestManager.config.isLoggingEnabled)
     }
 
     /// Enables SSL pinning with SHA256 certificate hash.
@@ -69,6 +69,12 @@ public extension Harbor {
     /// Configures whether mocks are only active in DEBUG builds.
     static func setMocksOnlyInDebug(_ value: Bool) {
         HRequestManager.config.mocksOnlyInDebug = value
+    }
+
+    /// Configures whether debug logs are enabled.
+    /// - Parameter enabled: If true, logs will be printed (subject to #if DEBUG). If false, no logs will be printed.
+    static func setLoggingEnabled(_ enabled: Bool) {
+        HRequestManager.config.isLoggingEnabled = enabled
     }
 }
 

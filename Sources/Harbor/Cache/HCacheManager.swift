@@ -46,7 +46,7 @@ extension HCache {
             
             // 4. Perform background cleanup
             let dir = self.cacheDirectory
-            diskQueue.async {
+            Task.detached(priority: .background) {
                 FileStorage.cleanupExpiredFiles(at: dir)
             }
         }

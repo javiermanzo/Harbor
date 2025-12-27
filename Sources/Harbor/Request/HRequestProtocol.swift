@@ -187,10 +187,7 @@ public extension HGetRequestProtocol {
             case .success(let data):
                 continuation.yield((response: data, origin: .remote))
             case .error(let error):
-                // Only throw error if we didn't get cache data
-                if await cache() == nil {
-                    continuation.finish(throwing: error)
-                }
+                continuation.finish(throwing: error)
             }
         }
     }

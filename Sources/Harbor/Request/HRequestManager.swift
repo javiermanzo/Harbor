@@ -6,7 +6,7 @@
 //
 
 import Foundation
-import SystemConfiguration
+import Network
 
 /// Global actor to manage shared mutable state in a thread-safe way.
 /// This actor ensures that Harbor's internal state is accessed safely across concurrent contexts.
@@ -449,55 +449,25 @@ private extension HRequestManager {
 
 // MARK: - Connectivity Functions
 private extension HRequestManager {
-    /// Enhanced network connectivity check with fallback strategies
+    private static let monitor = NWPathMonitor()
+    private static let monitorQueue = DispatchQueue(label: "com.harbor.networkMonitor")
+    private static var isMonitorStarted = false
+
+    /// Enhanced network connectivity check using NWPathMonitor
     static func isConnectedToNetwork() -> Bool {
-        // Primary check: SystemConfiguration reachability
-        if let reachability = createReachabilityRef() {
-            var flags: SCNetworkReachabilityFlags = SCNetworkReachabilityFlags(rawValue: 0)
-            
-            guard SCNetworkReachabilityGetFlags(reachability, &flags) else {
-                return performFallbackConnectivityCheck()
-            }
-            
-            let isReachable = flags.contains(.reachable)
-            let needsConnection = flags.contains(.connectionRequired)
-            
-            #if os(iOS) || os(watchOS) || os(tvOS)
-            let isWWAN = flags.contains(.isWWAN)
-            #else
-            let isWWAN = false // macOS doesn't have cellular connectivity
-            #endif
-            
-            // Connected if reachable and doesn't need connection, or if on cellular
-            if isReachable && (!needsConnection || isWWAN) {
-                return true
-            }
+        if !isMonitorStarted {
+            monitor.start(queue: monitorQueue)
+            isMonitorStarted = true
         }
-        
-        // Fallback connectivity check
-        return performFallbackConnectivityCheck()
-    }
-    
-    /// Creates a reachability reference for network status checking
-    private static func createReachabilityRef() -> SCNetworkReachability? {
-        var zeroAddress = sockaddr_in()
-        zeroAddress.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
-        zeroAddress.sin_family = sa_family_t(AF_INET)
-        
-        return withUnsafePointer(to: &zeroAddress) { zeroSockAddress in
-            zeroSockAddress.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockAddr in
-                SCNetworkReachabilityCreateWithAddress(nil, sockAddr)
-            }
+
+        if monitor.currentPath.status == .satisfied {
+            return true
         }
-    }
-    
-    /// Fallback connectivity check for edge cases
-    private static func performFallbackConnectivityCheck() -> Bool {
-        // In debug/simulator environments, be more lenient
+
+        // Fallback for debug/simulator environments
         #if DEBUG || targetEnvironment(simulator)
         return true
         #else
-        // For release builds, assume no connection if primary check fails
         return false
         #endif
     }

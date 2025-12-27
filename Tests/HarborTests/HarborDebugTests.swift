@@ -266,4 +266,3 @@ private struct TestDebugRequest: HGetRequestProtocol, HDebugRequestProtocol {
         self.debugType = debugType
     }
 }
-

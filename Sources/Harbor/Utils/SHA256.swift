@@ -6,23 +6,17 @@
 //
 
 import Foundation
-import CommonCrypto
+import CryptoKit
 
 final class SHA256 {
     static func sha256(data: Data) -> String {
-        var hash = [UInt8](repeating: 0, count: Int(CC_SHA256_DIGEST_LENGTH))
-        data.withUnsafeBytes {
-            _ = CC_SHA256($0.baseAddress, CC_LONG(data.count), &hash)
-        }
-        return Data(hash).base64EncodedString()
+        let digest = CryptoKit.SHA256.hash(data: data)
+        return Data(digest).base64EncodedString()
     }
     
     static func hash(data: Data) -> Data {
-        var hash = [UInt8](repeating: 0, count: Int(CC_SHA256_DIGEST_LENGTH))
-        data.withUnsafeBytes {
-            _ = CC_SHA256($0.baseAddress, CC_LONG(data.count), &hash)
-        }
-        return Data(hash)
+        let digest = CryptoKit.SHA256.hash(data: data)
+        return Data(digest)
     }
 }
 

@@ -21,7 +21,8 @@ struct HURLBuilder {
 
         if let pathParameters {
             for (key, value) in pathParameters {
-                compositeUrl = compositeUrl.replacingOccurrences(of: "{\(key)}", with: value)
+                let encodedValue = value.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? value
+                compositeUrl = compositeUrl.replacingOccurrences(of: "{\(key)}", with: encodedValue)
             }
         }
 

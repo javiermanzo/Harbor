@@ -242,8 +242,9 @@ final class HarborStreamTests: XCTestCase {
             for try await (response, origin) in request.requestStream(source: .cacheAndRemote) {
                 results.append((response, origin))
             }
+            XCTFail("Stream should throw error when remote fails")
         } catch {
-            XCTFail("Stream should not throw error when cache exists, even if network fails: \(error)")
+             // Expected error
         }
         
         // Should get only cache result since network fails

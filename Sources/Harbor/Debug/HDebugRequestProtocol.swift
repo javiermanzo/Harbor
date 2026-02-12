@@ -42,7 +42,7 @@ public enum HDebugRequestType: Sendable {
 }
 
 @HRequestManagerActor
-public extension HDebugRequestProtocol {
+extension HDebugRequestProtocol {
     
     /// Shared logger instance for debug output using LogBird framework.
     /// Uses "com.harbor" subsystem with "debugging" category for organized log filtering.
@@ -50,7 +50,9 @@ public extension HDebugRequestProtocol {
     
     /// Prints detailed request information to the console.
     /// - Parameter urlRequest: The URL request to debug.
-    func printRequest(urlRequest: URLRequest) {
+    func logRequest(urlRequest: URLRequest) {
+        #if DEBUG
+        guard HRequestManager.config.isLoggingEnabled else { return }
         if let request = self as? HRequestBaseRequestProtocol,
            self.debugType == .request || self.debugType == .requestAndResponse {
             var additionalInfo: [String: String] = [:]
@@ -83,6 +85,7 @@ public extension HDebugRequestProtocol {
             
             Self.logger.log("Request \(String(describing: type(of: request)))", extraMessages: extraMessages, additionalInfo: additionalInfo, level: .debug)
         }
+        #endif
     }
     
     /// Prints detailed response information to the console.
@@ -90,7 +93,9 @@ public extension HDebugRequestProtocol {
     ///   - httpResponse: The HTTP response received.
     ///   - data: The response data.
     ///   - duration: The request duration in milliseconds.
-    func printResponse(httpResponse: HTTPURLResponse, data: Data, duration: Double) {
+    func logResponse(httpResponse: HTTPURLResponse, data: Data, duration: Double) {
+        #if DEBUG
+        guard HRequestManager.config.isLoggingEnabled else { return }
         if self.debugType == .response || self.debugType == .requestAndResponse {
             var extraMessages: [LBExtraMessage] = []
             if let value = String(data: data, encoding: String.Encoding.ascii) {
@@ -106,11 +111,14 @@ public extension HDebugRequestProtocol {
             
             Self.logger.log("Response \(String(describing: type(of: self)))", extraMessages: extraMessages, additionalInfo: additionalInfo, level: .debug)
         }
+        #endif
     }
     
     /// Prints error response information to the console.
     /// - Parameter error: The error that occurred during the request.
-    func printErrorResponse(error: HRequestError) {
+    func logErrorResponse(error: HRequestError) {
+        #if DEBUG
+        guard HRequestManager.config.isLoggingEnabled else { return }
         if self.debugType == .response || self.debugType == .requestAndResponse {
             var extraMessages: [LBExtraMessage] = []
             
@@ -121,6 +129,7 @@ public extension HDebugRequestProtocol {
             
             Self.logger.log("Response Error \(String(describing: type(of: self)))", extraMessages: extraMessages, additionalInfo: additionalInfo, level: .error)
         }
+        #endif
     }
     
     /// Converts a dictionary to a JSON string representation.
@@ -133,7 +142,11 @@ public extension HDebugRequestProtocol {
             let jsonString = String(data: jsonData, encoding: .utf8)
             return jsonString
         } catch {
-            Self.logger.log("Error converting dictionary to JSON", error: error)
+            #if DEBUG
+            if HRequestManager.config.isLoggingEnabled {
+                Self.logger.log("Error converting dictionary to JSON", error: error)
+            }
+            #endif
             return nil
         }
     }

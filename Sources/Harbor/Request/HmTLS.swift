@@ -34,7 +34,7 @@ public struct HmTLS: Sendable {
         self.password = password
     }
     
-    func extractIdentity(loggingEnabled: Bool = true) -> HMTLSIdentity? {
+    func extractIdentity(loggingEnabled: Bool = false) -> HMTLSIdentity? {
         do {
             let p12Data = try Data(contentsOf: p12FileUrl)
             let p12Contents = PKCS12(p12Data: p12Data, password: password, loggingEnabled: loggingEnabled)

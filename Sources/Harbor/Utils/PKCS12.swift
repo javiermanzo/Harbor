@@ -19,7 +19,7 @@ final class PKCS12 {
     var identity: SecIdentity?
     var loggingEnabled: Bool
 
-    init(p12Data: Data, password: String, loggingEnabled: Bool = true) {
+    init(p12Data: Data, password: String, loggingEnabled: Bool = false) {
         self.loggingEnabled = loggingEnabled
         let importPasswordOption: NSDictionary = [kSecImportExportPassphrase as NSString: password]
 

@@ -16,7 +16,7 @@ final class HarborCacheTests: XCTestCase {
         await Harbor.removeAllMocks()
         await Harbor.setMocksOnlyInDebug(false)
         // Set default cache to disabled (original behavior)
-        await Harbor.setDefaultCacheConfiguration(.disabled)
+        await Harbor.setDefaultCachePolicy(.disabled)
     }
     
     override func tearDown() async throws {
@@ -34,7 +34,7 @@ final class HarborCacheTests: XCTestCase {
     
     func testCacheUsesDefaultFromConfig() async {
         // Set default cache policy to custom with 1 hour expiration
-        await Harbor.setDefaultCacheConfiguration(.custom(HCache.Configuration(expirationTime: .oneHour)))
+        await Harbor.setDefaultCachePolicy(.custom(HCache.Configuration(expirationTime: .oneHour)))
         
         let request = TestCacheableRequest() // Uses explicit cache configuration
         let cachedData = await request.cache()
@@ -43,7 +43,7 @@ final class HarborCacheTests: XCTestCase {
         XCTAssertNil(cachedData, "No cached data expected for new request")
         
         // Reset to disabled for other tests
-        await Harbor.setDefaultCacheConfiguration(.disabled)
+        await Harbor.setDefaultCachePolicy(.disabled)
     }
     
     func testCacheConfigurationDefaults() {

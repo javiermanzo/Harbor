@@ -47,7 +47,7 @@ public extension Harbor {
 
     /// Sets default cache policy for requests without explicit cache settings.
     /// Default is .urlCache (automatic ETags).
-    static func setDefaultCacheConfiguration(_ cachePolicy: HCache.Policy) {
+    static func setDefaultCachePolicy(_ cachePolicy: HCache.Policy) {
         HRequestManager.config.defaultCachePolicy = cachePolicy
     }
 

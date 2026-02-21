@@ -269,22 +269,22 @@ Harbor includes a complete caching system to optimize the performance of your GE
 You can set a global default cache configuration for all requests:
 
 ```swift
-// Enable cache globally with 1 week expiration
-await Harbor.setDefaultCacheConfiguration(.enabled(expirationTime: .oneWeek))
+// Enable cache globally with custom cache (1 week expiration)
+await Harbor.setDefaultCachePolicy(.custom(HCache.Configuration(expirationTime: .oneWeek)))
 
 // Disable cache globally
-await Harbor.setDefaultCacheConfiguration(.disabled)
+await Harbor.setDefaultCachePolicy(.disabled)
 ```
 
 ##### Per-Request Cache
-You can override the default cache configuration for specific GET requests by implementing `HGetRequestProtocol`:
+You can override the default cache policy for specific GET requests by implementing `HGetRequestProtocol`:
 
 ```swift
 class MyGetRequest: HGetRequestProtocol {
     // ... other properties
     
-    var cacheConfiguration: HCache.Configuration? {
-        return .enabled(expirationTime: .oneDay, maxObjectSizeInMBs: 20) // Cache for 1 day, max size 20MB
+    var cachePolicy: HCache.Policy {
+        return .custom(HCache.Configuration(expirationTime: .oneDay, maxObjectSizeInMBs: 20))
     }
 }
 ```
@@ -293,20 +293,20 @@ class MyGetRequest: HGetRequestProtocol {
 Harbor provides convenient time intervals:
 
 ```swift
-.enabled(expirationTime: .fiveMinutes)  // 5 minutes
-.enabled(expirationTime: .fifteenMinutes) // 15 minutes
-.enabled(expirationTime: .thirtyMinutes) // 30 minutes
-.enabled(expirationTime: .oneHour)      // 1 hour
-.enabled(expirationTime: .oneDay)       // 1 day
-.enabled(expirationTime: .threeDays)    // 3 days
-.enabled(expirationTime: .oneWeek)      // 1 week (default)
+HCache.Configuration(expirationTime: .fiveMinutes)  // 5 minutes
+HCache.Configuration(expirationTime: .fifteenMinutes) // 15 minutes
+HCache.Configuration(expirationTime: .thirtyMinutes) // 30 minutes
+HCache.Configuration(expirationTime: .oneHour)      // 1 hour
+HCache.Configuration(expirationTime: .oneDay)       // 1 day
+HCache.Configuration(expirationTime: .threeDays)    // 3 days
+HCache.Configuration(expirationTime: .oneWeek)      // 1 week (default)
 ```
 
 ##### Max Object Size
 You can also configure the maximum size for cached objects (in MB). The default is 10MB.
 
 ```swift
-.enabled(maxObjectSizeInMBs: 50) // Allow up to 50MB
+HCache.Configuration(expirationTime: .oneDay, maxObjectSizeInMBs: 50) // Allow up to 50MB
 ```
 
 #### HCache Performance

@@ -16,7 +16,7 @@ final class HarborStreamTests: XCTestCase {
         await Harbor.removeAllMocks()
         await Harbor.setMocksOnlyInDebug(false)
         // Set default cache to disabled (original behavior)
-        await Harbor.setDefaultCacheConfiguration(.disabled)
+        await Harbor.setDefaultCachePolicy(.disabled)
     }
     
     override func tearDown() async throws {

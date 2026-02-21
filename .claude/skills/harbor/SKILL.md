@@ -108,8 +108,8 @@ await Harbor.setSSlPinningKeys(["sha256hash1", "sha256hash2"])
 let mtls = HmTLS(p12FileUrl: certUrl, password: "password")
 await Harbor.setMTLS(mtls)
 
-// Set default cache
-await Harbor.setDefaultCacheConfiguration(.enabled(expirationTime: .oneDay))
+// Set default cache policy
+await Harbor.setDefaultCachePolicy(.custom(HCache.Configuration(expirationTime: .oneDay)))
 ```
 
 ### Cache Policies (NEW)

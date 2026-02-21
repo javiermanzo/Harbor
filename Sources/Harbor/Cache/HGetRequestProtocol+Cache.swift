@@ -19,15 +19,25 @@ public extension HGetRequestProtocol {
     }
 
     /// Clears cached data for this specific request.
-    /// Only works with custom cache policy.
+    /// Works with both URLCache and custom cache policies.
     func clearCache() async {
-        guard case .custom = cachePolicy else {
-            // URLCache - clearing is handled by URLCache automatically
-            return
-        }
+        guard let cacheKey,
+              let url = URL(string: cacheKey) else { return }
         
-        guard let cacheKey else { return }
-        await HCache.Manager.shared.removeCachedData(for: cacheKey)
+        switch cachePolicy {
+        case .urlCache(let urlCache):
+            // Remove from URLCache
+            var request = URLRequest(url: url)
+            request.httpMethod = "GET"
+            urlCache.removeCachedResponse(for: request)
+            
+        case .custom:
+            // Remove from custom cache
+            await HCache.Manager.shared.removeCachedData(for: cacheKey)
+            
+        case .disabled:
+            break
+        }
     }
 }
 

@@ -86,10 +86,10 @@ final class HarborETagTests: XCTestCase {
     
     // MARK: - Clear Cache Tests
     
-    func testClearCacheDoesNothingForURLCache() async throws {
+    func testClearCacheWorksForURLCache() async throws {
         let request = GetUsersRequest()
         
-        // Should not crash or throw
+        // Should not crash - now supports URLCache
         await request.clearCache()
     }
     

@@ -10,12 +10,11 @@ import Foundation
 public extension HCache {
     /// Defines the caching strategy for network requests.
     enum Policy: Sendable, Equatable {
-        /// Use URLCache with optional custom configuration - automatic ETag/304 support.
-        /// Pass nil for default configuration (50MB memory, 200MB disk).
-        /// Pass custom URLCache for specific memory/disk limits.
+        /// Use URLCache with automatic ETag/304 support.
+        /// Default uses URLCache.shared. Pass custom URLCache for specific memory/disk limits.
         /// This is the default and recommended option for most use cases.
         /// Benefits: Automatic ETag handling, 304 responses, Cache-Control compliance.
-        case urlCache(URLCache = URLCache.shared)
+        case urlCache(URLCache = .shared)
 
         /// Use Harbor's custom cache system with full control over expiration and storage.
         /// Use this when you need: Custom TTL, size limits, manual cache invalidation.
@@ -35,8 +34,8 @@ public extension HCache {
             }
         }
         
-        /// Get custom URLCache if provided
-        var customURLCache: URLCache? {
+        /// Get the URLCache being used
+        var urlCache: URLCache? {
             switch self {
             case .urlCache(let cache):
                 return cache
@@ -60,9 +59,8 @@ public extension HCache {
         public static func == (lhs: Policy, rhs: Policy) -> Bool {
             switch (lhs, rhs) {
             case (.urlCache(let lCache), .urlCache(let rCache)):
-                // URLCache no es Equatable, comparamos por configuración
-                return lCache?.memoryCapacity == rCache?.memoryCapacity &&
-                       lCache?.diskCapacity == rCache?.diskCapacity
+                return lCache.memoryCapacity == rCache.memoryCapacity &&
+                       lCache.diskCapacity == rCache.diskCapacity
             case (.disabled, .disabled):
                 return true
             case (.custom(let lConfig), .custom(let rConfig)):

@@ -419,20 +419,9 @@ extension HRequestManager {
         configuration.timeoutIntervalForResource = 30
         
         // Configure URLCache based on default cache policy
-        let cache: URLCache
-        if case .urlCache(let customCache) = config.defaultCachePolicy,
-           let customCache = customCache {
-            // Use custom URLCache if provided
-            cache = customCache
-        } else {
-            // Default URLCache: 50MB memory, 200MB disk
-            cache = URLCache(
-                memoryCapacity: 50 * 1024 * 1024,
-                diskCapacity: 200 * 1024 * 1024,
-                diskPath: "harbor_urlcache"
-            )
+        if case .urlCache(let cache) = config.defaultCachePolicy {
+            configuration.urlCache = cache
         }
-        configuration.urlCache = cache
         configuration.requestCachePolicy = .returnCacheDataElseLoad
 
         // If mTLS or SSL pinning is configured, create a new URLSession with delegate

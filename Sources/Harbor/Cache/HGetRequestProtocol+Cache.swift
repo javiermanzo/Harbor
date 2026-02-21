@@ -15,7 +15,7 @@ public extension HGetRequestProtocol {
     func cache() async -> Model? {
         guard case .custom(let config) = cachePolicy,
               let cacheKey else { return nil }
-        return await HCache.Manager.shared.getCachedData(forKey: cacheKey.absoluteString, type: Model.self, config: config)
+        return await HCache.Manager.shared.getCachedData(forKey: cacheKey, type: Model.self, config: config)
     }
 
     /// Clears cached data for this specific request.
@@ -26,13 +26,14 @@ public extension HGetRequestProtocol {
         switch cachePolicy {
         case .urlCache(let urlCache):
             // Remove from URLCache
-            var request = URLRequest(url: cacheKey)
+            guard let url = URL(string: cacheKey) else { return }
+            var request = URLRequest(url: url)
             request.httpMethod = "GET"
             urlCache.removeCachedResponse(for: request)
             
         case .custom:
             // Remove from custom cache
-            await HCache.Manager.shared.removeCachedData(for: cacheKey.absoluteString)
+            await HCache.Manager.shared.removeCachedData(for: cacheKey)
 
         case .disabled:
             break
@@ -42,12 +43,12 @@ public extension HGetRequestProtocol {
 
 extension HGetRequestProtocol {
     /// Generates a cache key for this request based on the complete URL.
-    var cacheKey: URL? {
+    var cacheKey: String? {
         let compositeURL: URL? = HURLBuilder.compositeURL(url: url,
                                                           pathParameters: pathParameters,
                                                           queryParameters: queryParameters)
 
-        return compositeURL
+        return compositeURL?.absoluteString
     }
 }
 

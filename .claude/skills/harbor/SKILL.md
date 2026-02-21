@@ -12,7 +12,7 @@ Harbor is a protocol-oriented networking library for Swift that provides a moder
 
 Harbor supports:
 - REST and JSON-RPC 2.0 requests
-- Two-level caching system (NSCache + FileSystem)
+- **Dual caching system**: URLCache (automatic ETags) + Custom cache (manual control)
 - Authentication with custom providers
 - Security features (mTLS, SSL Pinning)
 - Mock system for testing
@@ -34,9 +34,10 @@ Harbor supports:
 - **Thread-safe**: Actor-isolated configuration
 
 ### Cache System
-- **Location**: `Sources/Harbor/Cache/HCacheManager.swift`
-- **Architecture**: Two-level cache (memory + disk)
-- **Features**: Configurable expiration, HTTP header respect
+- **Location**: `Sources/Harbor/Cache/`
+- **URLCache** (default): Automatic ETags, 304 responses, zero configuration
+- **Custom Cache**: Two-level (memory + disk), manual TTL, size limits
+- **Policy-based**: Choose per request via `cachePolicy`
 
 ### Security
 - **mTLS**: `Sources/Harbor/Request/HmTLS.swift`
@@ -55,7 +56,7 @@ Harbor supports:
 ```
 Sources/Harbor/
 ├── Auth/          # Authentication providers
-├── Cache/         # Cache system
+├── Cache/         # Cache system (URLCache + Custom)
 ├── Config/        # Global configuration
 ├── Debug/         # Debug and logging
 ├── Mock/          # Testing mocks
@@ -72,12 +73,12 @@ Sources/Harbor/
 
 ## Quick Reference
 
-### Basic GET Request
+### Basic GET Request (Default: URLCache with ETags)
 ```swift
 struct GetUserRequest: HGetRequestProtocol {
     typealias Model = User
     let url: String = "https://api.example.com/user"
-    let cacheConfiguration: HCache.Configuration? = .enabled(expirationTime: .oneHour)
+    // cachePolicy = .urlCache by default (automatic ETags)
 }
 
 let response = await GetUserRequest().request()
@@ -109,6 +110,30 @@ await Harbor.setMTLS(mtls)
 
 // Set default cache
 await Harbor.setDefaultCacheConfiguration(.enabled(expirationTime: .oneDay))
+```
+
+### Cache Policies (NEW)
+```swift
+// Option 1: URLCache (default) - Automatic ETags, 304 responses
+struct GetUsersRequest: HGetRequestProtocol {
+    typealias Model = [User]
+    let url = "https://api.example.com/users"
+    // cachePolicy = .urlCache by default
+}
+
+// Option 2: Custom cache - Manual TTL and size control
+struct GetUsersRequest: HGetRequestProtocol {
+    typealias Model = [User]
+    let url = "https://api.example.com/users"
+    let cachePolicy: HCache.Policy = .custom(.enabled(expirationTime: .oneHour))
+}
+
+// Option 3: No caching
+struct GetUsersRequest: HGetRequestProtocol {
+    typealias Model = [User]
+    let url = "https://api.example.com/users"
+    let cachePolicy: HCache.Policy = .disabled
+}
 ```
 
 ### Response Handling

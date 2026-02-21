@@ -116,7 +116,11 @@ public protocol HRequestWithBodyProtocol: HRequestWithEmptyResponseProtocol {
 public protocol HGetRequestProtocol: HRequestWithResultProtocol {
     /// Query parameters to append to the URL. Default: `nil`.
     var queryParameters: [String: String]? { get }
-    /// Cache configuration for this request.
+    /// Cache policy for this request. Default: `.urlCache` (automatic ETags).
+    var cachePolicy: HCache.Policy { get }
+    /// Legacy cache configuration (deprecated - use cachePolicy instead).
+    /// Default: `nil` (uses cachePolicy).
+    @available(*, deprecated, message: "Use cachePolicy instead")
     var cacheConfiguration: HCache.Configuration? { get }
 }
 /// Protocol for POST requests that create new resources.
@@ -134,6 +138,7 @@ public protocol HDeleteRequestProtocol: HRequestWithEmptyResponseProtocol {}
 public extension HGetRequestProtocol {
     var httpMethod: HHttpMethod { .get }
     var queryParameters: [String: String]? { nil }
+    var cachePolicy: HCache.Policy { .urlCache }
     var cacheConfiguration: HCache.Configuration? { nil }
     
     /// Creates an async throwing stream that emits responses from cache and/or remote sources.
@@ -156,9 +161,30 @@ public extension HGetRequestProtocol {
             continuation.finish()
         }
         
+        // Resolve effective cache policy (support legacy cacheConfiguration)
+        let effectivePolicy: HCache.Policy
+        if let config = cacheConfiguration {
+            effectivePolicy = .custom(config)
+        } else {
+            effectivePolicy = cachePolicy
+        }
+        
+        // Stream is only supported with custom cache policy
+        // For URLCache or disabled, just do a normal request
+        guard case .custom = effectivePolicy else {
+            // For URLCache or disabled, just do a normal request
+            let result = await request()
+            switch result {
+            case .success(let data):
+                continuation.yield((response: data, origin: .remote))
+            case .error(let error):
+                continuation.finish(throwing: error)
+            }
+            return
+        }
+        
         switch source {
         case .cacheOnly:
-            // Only check cache
             if let cachedData = await cache() {
                 continuation.yield((response: cachedData, origin: .cache))
             } else {
@@ -166,7 +192,6 @@ public extension HGetRequestProtocol {
             }
             
         case .remoteOnly:
-            // Only make network request
             let remoteResult = await request()
             switch remoteResult {
             case .success(let data):
@@ -176,12 +201,10 @@ public extension HGetRequestProtocol {
             }
             
         case .cacheAndRemote:
-            // First try cache, then remote
             if let cachedData = await cache() {
                 continuation.yield((response: cachedData, origin: .cache))
             }
             
-            // Always try remote after cache (if any)
             let remoteResult = await request()
             switch remoteResult {
             case .success(let data):

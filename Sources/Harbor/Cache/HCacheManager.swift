@@ -39,9 +39,8 @@ extension HCache {
             // 2. Create directory
             try? FileManager.default.createDirectory(at: cacheDirectory, withIntermediateDirectories: true)
             
-            // 3. Configure NSCache limits
-            let memoryMB = HRequestManager.config.defaultMemoryCacheCapacity
-            memoryCache.totalCostLimit = memoryMB * 1024 * 1024
+            // 3. Configure NSCache limits (default 100MB, will be updated per-request)
+            memoryCache.totalCostLimit = 100 * 1024 * 1024
             memoryCache.countLimit = 500
             
             // 4. Perform background cleanup
@@ -53,18 +52,36 @@ extension HCache {
         
         // MARK: - Public API
         
-        /// Retrieves cached data for a request.
-        func getCachedData<Request: HGetRequestProtocol>(for request: Request) async -> Request.Model? {
-            let config = request.cacheConfiguration ?? HRequestManager.config.defaultCacheConfiguration
-            guard config.isEnabled, let key = request.cacheKey else { return nil }
+        /// Retrieves cached data by key (for custom cache policy).
+        func getCachedData<T: HModel>(forKey key: String, type: T.Type, config: HCache.Configuration) async -> T? {
+            return await getCachedData(for: key, type: type, maxAge: config.expirationTime)
+        }
+        
+        /// Stores data by key (for custom cache policy).
+        func storeData(_ data: Data, forKey key: String, config: HCache.Configuration, response: HTTPURLResponse?) async {
+            let effectiveExpirationTime = calculateEffectiveExpirationTime(
+                fromResponse: response,
+                fallbackTime: config.expirationTime
+            )
             
+            await storeData(data, for: key, expirationTime: effectiveExpirationTime, maxObjectSize: config.maxObjectSizeInBytes)
+        }
+        
+        // MARK: - Legacy API (for backward compatibility with tests)
+        
+        /// Legacy method - retrieves cached data for a request using its cacheConfiguration.
+        @available(*, deprecated, message: "Use request.cache() instead")
+        func getCachedData<Request: HGetRequestProtocol>(for request: Request) async -> Request.Model? {
+            let config = request.cacheConfiguration ?? HCache.Configuration()
+            guard let key = request.cacheKey else { return nil }
             return await getCachedData(for: key, type: Request.Model.self, maxAge: config.expirationTime)
         }
         
-        /// Stores data for a request.
+        /// Legacy method - stores data for a request using its cacheConfiguration.
+        @available(*, deprecated, message: "Use storeData(_:forKey:config:response:) instead")
         func storeData(_ data: Data, for request: any HGetRequestProtocol, response: HTTPURLResponse?) async {
-            let config = request.cacheConfiguration ?? HRequestManager.config.defaultCacheConfiguration
-            guard config.isEnabled, let key = request.cacheKey else { return }
+            let config = request.cacheConfiguration ?? HCache.Configuration()
+            guard let key = request.cacheKey else { return }
             
             let effectiveExpirationTime = calculateEffectiveExpirationTime(
                 fromResponse: response,
@@ -163,21 +180,24 @@ extension HCache {
             memoryCache.setObject(entry, forKey: nsKey, cost: data.count)
             
             // Persist to Disk
-            let dir = self.cacheDirectory
-            diskQueue.async {
-                let fileURL = FileStorage.url(for: key, in: dir)
-                let diskEntry = DiskEntry(data: data, timestamp: entry.timestamp, expirationTime: entry.expirationTime)
-                
-                do {
-                    let encodedEntry = try JSONEncoder().encode(diskEntry)
-                    try encodedEntry.write(to: fileURL)
+            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                let dir = self.cacheDirectory
+                diskQueue.async {
+                    let fileURL = FileStorage.url(for: key, in: dir)
+                    let diskEntry = DiskEntry(data: data, timestamp: entry.timestamp, expirationTime: entry.expirationTime)
                     
-                    // Cleanup legacy files just in case they exist for this key
-                    let legacyURLs = FileStorage.legacyUrls(for: key, in: dir)
-                    try? FileManager.default.removeItem(at: legacyURLs.0) // data
-                    try? FileManager.default.removeItem(at: legacyURLs.1) // .meta
-                } catch {
-                    try? FileManager.default.removeItem(at: fileURL)
+                    do {
+                        let encodedEntry = try JSONEncoder().encode(diskEntry)
+                        try encodedEntry.write(to: fileURL)
+                        
+                        // Cleanup legacy files just in case they exist for this key
+                        let legacyURLs = FileStorage.legacyUrls(for: key, in: dir)
+                        try? FileManager.default.removeItem(at: legacyURLs.0) // data
+                        try? FileManager.default.removeItem(at: legacyURLs.1) // .meta
+                    } catch {
+                        try? FileManager.default.removeItem(at: fileURL)
+                    }
+                    continuation.resume()
                 }
             }
         }

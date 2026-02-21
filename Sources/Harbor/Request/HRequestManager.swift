@@ -128,8 +128,19 @@ extension HRequestManager {
             do {
                 let parsedResponse = try request.parseData(data: data, model: model)
 
+                // Only store in custom cache if using custom cache policy
                 if let request = request as? any HGetRequestProtocol {
-                    await HCache.Manager.shared.storeData(data, for: request, response: httpResponse)
+                    let effectivePolicy: HCache.Policy
+                    if let config = request.cacheConfiguration {
+                        effectivePolicy = .custom(config)
+                    } else {
+                        effectivePolicy = request.cachePolicy
+                    }
+                    
+                    if case .custom(let config) = effectivePolicy,
+                       let cacheKey = request.cacheKey {
+                        await HCache.Manager.shared.storeData(data, forKey: cacheKey, config: config, response: httpResponse)
+                    }
                 }
 
                 return .success(parsedResponse)
@@ -406,6 +417,16 @@ extension HRequestManager {
         // TODO: Implement request config timeout
         configuration.timeoutIntervalForRequest = 15
         configuration.timeoutIntervalForResource = 30
+        
+        // Configure URLCache for automatic ETag/304 support
+        // Memory: 50MB, Disk: 200MB
+        let cache = URLCache(
+            memoryCapacity: 50 * 1024 * 1024,
+            diskCapacity: 200 * 1024 * 1024,
+            diskPath: "harbor_urlcache"
+        )
+        configuration.urlCache = cache
+        configuration.requestCachePolicy = .returnCacheDataElseLoad
 
         // If mTLS or SSL pinning is configured, create a new URLSession with delegate
         if config.mTLSIdentity != nil || config.sslPinningKeys != nil {

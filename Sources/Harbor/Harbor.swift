@@ -51,19 +51,10 @@ public extension Harbor {
         HRequestManager.config.currentURLSession = customURLSession
     }
 
-    /// Sets default cache configuration for requests without explicit cache settings.
-    static func setDefaultCacheConfiguration(_ cacheConfiguration: HCache.Configuration) {
-        HRequestManager.config.defaultCacheConfiguration = cacheConfiguration
-    }
-
-    /// Sets the default memory cache capacity.
-    static func setDefaultMemoryCacheCapacity(_ capacity: Int) {
-        HRequestManager.config.defaultMemoryCacheCapacity = capacity
-    }
-
-    /// Sets the default start up memory cache capacity.
-    static func setDefaultStartUpMemoryCacheCapacity(_ capacity: Int) {
-        HRequestManager.config.defaultStartUpMemoryCacheCapacity = capacity
+    /// Sets default cache policy for requests without explicit cache settings.
+    /// Default is .urlCache (automatic ETags).
+    static func setDefaultCacheConfiguration(_ cachePolicy: HCache.Policy) {
+        HRequestManager.config.defaultCachePolicy = cachePolicy
     }
 
     /// Configures whether mocks are only active in DEBUG builds.

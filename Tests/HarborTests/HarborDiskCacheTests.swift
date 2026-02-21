@@ -116,7 +116,7 @@ final class HarborDiskCacheTests: XCTestCase {
         // 1. Create data > 10MB but < 20MB
         let largeData = Data(count: 15 * 1024 * 1024)
         var request = TestDiskRequest(url: "https://disk.test/large-custom")
-        request.cacheConfiguration = .enabled(maxObjectSizeInMBs: 20)
+        request.cacheConfiguration = HCache.Configuration(maxObjectSizeInMBs: 20)
         
         // 2. Try store
         await HCache.Manager.shared.storeData(largeData, for: request, response: nil)
@@ -157,5 +157,5 @@ private struct TestDiskModel: HModel {
 private struct TestDiskRequest: HGetRequestProtocol {
     typealias Model = TestDiskModel
     let url: String
-    var cacheConfiguration: HCache.Configuration? = .enabled()
+    var cacheConfiguration: HCache.Configuration? = HCache.Configuration()
 }

@@ -16,7 +16,7 @@ struct HConfig: Sendable {
     var currentURLSession: URLSession?
     var mocksOnlyInDebug: Bool = true
     var isLoggingEnabled: Bool = false
-    var defaultCachePolicy: HCache.Policy = .urlCache()
+    var defaultCachePolicy: HCache.Policy? = nil
 
     var mocksEnabled: Bool {
         #if DEBUG

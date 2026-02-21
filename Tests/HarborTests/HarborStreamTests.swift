@@ -265,5 +265,5 @@ private struct TestStreamRequest: HGetRequestProtocol {
     typealias Model = TestStreamData
     
     let url: String = "https://stream.example.com/test"
-    let cacheConfiguration: HCache.Configuration? = HCache.Configuration()
+    let cachePolicy: HCache.Policy = .custom(HCache.Configuration())
 }

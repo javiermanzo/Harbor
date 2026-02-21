@@ -27,15 +27,16 @@ final class HarborDiskCacheTests: XCTestCase {
     func testDataIsPersistedAsSingleFile() async throws {
         let testData = "Disk Persistence Test".data(using: .utf8)!
         let request = TestDiskRequest(url: "https://disk.test/1")
+        let config = HCache.Configuration()
         
         // 1. Store Data
-        await HCache.Manager.shared.storeData(testData, for: request, response: nil)
+        guard let key = request.cacheKey else { return XCTFail() }
+        await HCache.Manager.shared.storeData(testData, forKey: key, config: config, response: nil)
         
         // 2. Wait for background disk write
         HCache.Manager.shared.diskQueue.sync {}
         
         // 3. Verify File Exists
-        guard let key = request.cacheKey else { return XCTFail() }
         let hash = key.sha256Hash
         let cacheDir = HCache.Manager.shared.cacheDirectory
         
@@ -57,6 +58,7 @@ final class HarborDiskCacheTests: XCTestCase {
         let testData = try JSONEncoder().encode(rawString)
         
         let request = TestDiskRequest(url: "https://disk.test/lazy")
+        let config = HCache.Configuration()
         
         // 1. Manually write file to disk (simulating previous session)
         guard let key = request.cacheKey else { return XCTFail() }
@@ -71,7 +73,7 @@ final class HarborDiskCacheTests: XCTestCase {
         try encodedEntry.write(to: fileURL)
         
         // 2. Try to get data (should hit disk)
-        let cached: TestDiskModel? = await HCache.Manager.shared.getCachedData(for: request)
+        let cached: TestDiskModel? = await HCache.Manager.shared.getCachedData(forKey: key, type: TestDiskModel.self, config: config)
         
         XCTAssertNotNil(cached)
         XCTAssertEqual(cached?.value, "Lazy Load Test")
@@ -79,6 +81,7 @@ final class HarborDiskCacheTests: XCTestCase {
     
     func testCorruptedCacheFileIsIgnored() async throws {
         let request = TestDiskRequest(url: "https://disk.test/corrupt")
+        let config = HCache.Configuration()
         
         guard let key = request.cacheKey else { return XCTFail() }
         let hash = key.sha256Hash
@@ -89,7 +92,7 @@ final class HarborDiskCacheTests: XCTestCase {
         try "Not A Valid DiskEntry JSON".data(using: .utf8)!.write(to: fileURL)
         
         // 2. Try to get data
-        let cached: TestDiskModel? = await HCache.Manager.shared.getCachedData(for: request)
+        let cached: TestDiskModel? = await HCache.Manager.shared.getCachedData(forKey: key, type: TestDiskModel.self, config: config)
         
         // 3. Should fail gracefully (return nil)
         XCTAssertNil(cached, "Should return nil if cache file is corrupted")
@@ -99,13 +102,14 @@ final class HarborDiskCacheTests: XCTestCase {
         // 1. Create data > 10MB (Default Limit set in Manager)
         let largeData = Data(count: 11 * 1024 * 1024)
         let request = TestDiskRequest(url: "https://disk.test/large")
+        let config = HCache.Configuration()
         
         // 2. Try store
-        await HCache.Manager.shared.storeData(largeData, for: request, response: nil)
+        guard let key = request.cacheKey else { return }
+        await HCache.Manager.shared.storeData(largeData, forKey: key, config: config, response: nil)
         HCache.Manager.shared.diskQueue.sync {}
         
         // 3. Verify NOT in disk
-        guard let key = request.cacheKey else { return }
         let hash = key.sha256Hash
         let fileURL = HCache.Manager.shared.cacheDirectory.appendingPathComponent(hash).appendingPathExtension("cache")
         
@@ -115,15 +119,15 @@ final class HarborDiskCacheTests: XCTestCase {
     func testCustomLargeFileLimit() async {
         // 1. Create data > 10MB but < 20MB
         let largeData = Data(count: 15 * 1024 * 1024)
-        var request = TestDiskRequest(url: "https://disk.test/large-custom")
-        request.cacheConfiguration = HCache.Configuration(maxObjectSizeInMBs: 20)
+        let request = TestDiskRequest(url: "https://disk.test/large-custom")
+        let config = HCache.Configuration(maxObjectSizeInMBs: 20)
         
         // 2. Try store
-        await HCache.Manager.shared.storeData(largeData, for: request, response: nil)
+        guard let key = request.cacheKey else { return }
+        await HCache.Manager.shared.storeData(largeData, forKey: key, config: config, response: nil)
         HCache.Manager.shared.diskQueue.sync {}
         
         // 3. Verify IS in disk
-        guard let key = request.cacheKey else { return }
         let hash = key.sha256Hash
         let fileURL = HCache.Manager.shared.cacheDirectory.appendingPathComponent(hash).appendingPathExtension("cache")
         
@@ -157,5 +161,5 @@ private struct TestDiskModel: HModel {
 private struct TestDiskRequest: HGetRequestProtocol {
     typealias Model = TestDiskModel
     let url: String
-    var cacheConfiguration: HCache.Configuration? = HCache.Configuration()
+    let cachePolicy: HCache.Policy = .custom(HCache.Configuration())
 }

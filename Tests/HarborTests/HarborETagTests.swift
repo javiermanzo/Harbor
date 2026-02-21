@@ -29,13 +29,12 @@ final class HarborETagTests: XCTestCase {
     
     func testCustomCachePolicy() async throws {
         let request = GetUsersWithCustomCacheRequest()
-        switch request.cachePolicy {
-        case .custom(let config):
-            XCTAssertEqual(config.expirationTime, .oneHour)
-            XCTAssertEqual(config.maxObjectSizeInMBs, 10)
-        default:
+        guard case .custom(let config) = request.cachePolicy else {
             XCTFail("Expected custom cache policy")
+            return
         }
+        XCTAssertEqual(config.expirationTime, .oneHour)
+        XCTAssertEqual(config.maxObjectSizeInMBs, 10)
     }
     
     func testDisabledCachePolicy() async throws {
@@ -47,31 +46,6 @@ final class HarborETagTests: XCTestCase {
     func testURLCachePolicyIsCachingEnabled() async throws {
         let request = GetUsersRequest()
         XCTAssertTrue(request.cachePolicy.isCachingEnabled)
-    }
-    
-    // MARK: - Legacy CacheConfiguration Support Tests
-    
-    func testLegacyCacheConfigurationStillWorks() async throws {
-        let request = GetUsersLegacyRequest()
-        
-        // Should use custom cache from legacy configuration
-        let effectivePolicy = request.resolveEffectivePolicy()
-        
-        switch effectivePolicy {
-        case .custom(let config):
-            XCTAssertEqual(config.expirationTime, .oneHour)
-        default:
-            XCTFail("Legacy cacheConfiguration should be converted to custom policy")
-        }
-    }
-    
-    func testNewCachePolicyTakesPrecedenceOverLegacy() async throws {
-        // Use .disabled (not default) to verify new policy is used
-        let request = GetUsersBothPoliciesRequest()
-        
-        // cachePolicy should be used, not cacheConfiguration
-        // Since cachePolicy is .disabled, isCachingEnabled should be false
-        XCTAssertFalse(request.cachePolicy.isCachingEnabled, "New cachePolicy (.disabled) should take precedence")
     }
     
     // MARK: - Cache Method Tests
@@ -138,6 +112,23 @@ final class HarborETagTests: XCTestCase {
         let cached = await request.cache()
         XCTAssertNil(cached, "Cache should be cleared")
     }
+    
+    // MARK: - Custom URLCache Tests
+    
+    func testCustomURLCachePolicy() async throws {
+        let customCache = URLCache(
+            memoryCapacity: 100 * 1024 * 1024,
+            diskCapacity: 500 * 1024 * 1024
+        )
+        let request = GetUsersCustomURLCacheRequest(urlCache: customCache)
+        
+        guard case .urlCache(let cache) = request.cachePolicy else {
+            XCTFail("Expected urlCache policy")
+            return
+        }
+        XCTAssertEqual(cache.memoryCapacity, 100 * 1024 * 1024)
+        XCTAssertEqual(cache.diskCapacity, 500 * 1024 * 1024)
+    }
 }
 
 // MARK: - Test Requests
@@ -160,18 +151,14 @@ private struct GetUsersNoCacheRequest: HGetRequestProtocol {
     let cachePolicy: HCache.Policy = .disabled
 }
 
-private struct GetUsersLegacyRequest: HGetRequestProtocol {
+private struct GetUsersCustomURLCacheRequest: HGetRequestProtocol {
     typealias Model = TestUser
     let url = "https://api.example.com/users"
-    // Using deprecated cacheConfiguration
-    let cacheConfiguration: HCache.Configuration? = HCache.Configuration(expirationTime: .oneHour)
-}
-
-private struct GetUsersBothPoliciesRequest: HGetRequestProtocol {
-    typealias Model = TestUser
-    let url = "https://api.example.com/users"
-    let cachePolicy: HCache.Policy = .disabled  // Use disabled to test precedence
-    let cacheConfiguration: HCache.Configuration? = HCache.Configuration(expirationTime: .oneHour)
+    let cachePolicy: HCache.Policy
+    
+    init(urlCache: URLCache) {
+        self.cachePolicy = .urlCache(urlCache)
+    }
 }
 
 // MARK: - Test Models
@@ -182,20 +169,3 @@ private struct TestUser: Codable, Sendable {
     let email: String
 }
 
-// MARK: - Policy Resolution Helper
-
-private extension HGetRequestProtocol {
-    func resolveEffectivePolicy() -> HCache.Policy {
-        // If new cachePolicy is explicitly set (not default), use it
-        // Otherwise fall back to legacy cacheConfiguration
-        let defaultPolicy: HCache.Policy = .urlCache()
-        if cachePolicy != defaultPolicy {
-            return cachePolicy
-        }
-        // If using default policy but has legacy config, use custom
-        if let config = cacheConfiguration {
-            return .custom(config)
-        }
-        return cachePolicy
-    }
-}

@@ -34,12 +34,6 @@ public extension Harbor {
         HRequestManager.config.mTLSIdentity = mTLS?.extractIdentity(loggingEnabled: HRequestManager.config.isLoggingEnabled)
     }
 
-    /// Enables SSL pinning with SHA256 certificate hash.
-    @available(*, deprecated, renamed: "setSSlPinningKeys", message: "Use setSSlPinningKeys to support Public Key Pinning (SPKI) and backup pins.")
-    static func setSSlPinningSHA256(_ sslPinningSHA256: String?) {
-        setSSlPinningKeys(sslPinningSHA256.map { [$0] })
-    }
-
     /// Enables SSL pinning with SHA256 public key hashes.
     /// Provide multiple keys to support key rotation (backup pins).
     static func setSSlPinningKeys(_ sslPinningKeys: [String]?) {

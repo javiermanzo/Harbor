@@ -67,30 +67,6 @@ extension HCache {
             await storeData(data, for: key, expirationTime: effectiveExpirationTime, maxObjectSize: config.maxObjectSizeInBytes)
         }
         
-        // MARK: - Legacy API (for backward compatibility with tests)
-        
-        /// Legacy method - retrieves cached data for a request using its cacheConfiguration.
-        @available(*, deprecated, message: "Use request.cache() instead")
-        func getCachedData<Request: HGetRequestProtocol>(for request: Request) async -> Request.Model? {
-            let config = request.cacheConfiguration ?? HCache.Configuration()
-            guard let key = request.cacheKey else { return nil }
-            return await getCachedData(for: key, type: Request.Model.self, maxAge: config.expirationTime)
-        }
-        
-        /// Legacy method - stores data for a request using its cacheConfiguration.
-        @available(*, deprecated, message: "Use storeData(_:forKey:config:response:) instead")
-        func storeData(_ data: Data, for request: any HGetRequestProtocol, response: HTTPURLResponse?) async {
-            let config = request.cacheConfiguration ?? HCache.Configuration()
-            guard let key = request.cacheKey else { return }
-            
-            let effectiveExpirationTime = calculateEffectiveExpirationTime(
-                fromResponse: response,
-                fallbackTime: config.expirationTime
-            )
-            
-            await storeData(data, for: key, expirationTime: effectiveExpirationTime, maxObjectSize: config.maxObjectSizeInBytes)
-        }
-        
         /// Clears all cached data.
         func clearAllCache() {
             memoryCache.removeAllObjects()

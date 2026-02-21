@@ -129,18 +129,10 @@ extension HRequestManager {
                 let parsedResponse = try request.parseData(data: data, model: model)
 
                 // Only store in custom cache if using custom cache policy
-                if let request = request as? any HGetRequestProtocol {
-                    let effectivePolicy: HCache.Policy
-                    if let config = request.cacheConfiguration {
-                        effectivePolicy = .custom(config)
-                    } else {
-                        effectivePolicy = request.cachePolicy
-                    }
-                    
-                    if case .custom(let config) = effectivePolicy,
-                       let cacheKey = request.cacheKey {
-                        await HCache.Manager.shared.storeData(data, forKey: cacheKey, config: config, response: httpResponse)
-                    }
+                if let request = request as? any HGetRequestProtocol,
+                   case .custom(let config) = request.cachePolicy,
+                   let cacheKey = request.cacheKey {
+                    await HCache.Manager.shared.storeData(data, forKey: cacheKey, config: config, response: httpResponse)
                 }
 
                 return .success(parsedResponse)
@@ -418,11 +410,12 @@ extension HRequestManager {
         configuration.timeoutIntervalForRequest = 15
         configuration.timeoutIntervalForResource = 30
         
-        // Configure URLCache based on default cache policy
-        if case .urlCache(let cache) = config.defaultCachePolicy {
+        // Configure URLCache if defaultCachePolicy is set
+        if let defaultPolicy = config.defaultCachePolicy,
+           case .urlCache(let cache) = defaultPolicy {
             configuration.urlCache = cache
+            configuration.requestCachePolicy = .returnCacheDataElseLoad
         }
-        configuration.requestCachePolicy = .returnCacheDataElseLoad
 
         // If mTLS or SSL pinning is configured, create a new URLSession with delegate
         if config.mTLSIdentity != nil || config.sslPinningKeys != nil {

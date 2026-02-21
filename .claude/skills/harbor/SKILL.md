@@ -132,7 +132,17 @@ struct GetUsersRequest: HGetRequestProtocol {
     ))
 }
 
-// Option 3: No caching
+// Option 3: Custom URLCache with specific limits
+struct GetUsersRequest: HGetRequestProtocol {
+    typealias Model = [User]
+    let url = "https://api.example.com/users"
+    let cachePolicy: HCache.Policy = .urlCache(URLCache(
+        memoryCapacity: 100 * 1024 * 1024,
+        diskCapacity: 500 * 1024 * 1024
+    ))
+}
+
+// Option 4: No caching
 struct GetUsersRequest: HGetRequestProtocol {
     typealias Model = [User]
     let url = "https://api.example.com/users"
@@ -147,7 +157,8 @@ Harbor provides two caching strategies:
 ### URLCache (Default)
 - Automatic ETags and 304 responses
 - Respects Cache-Control headers
-- Zero configuration required
+- Zero configuration required (50MB memory, 200MB disk)
+- Custom URLCache can be passed for specific limits
 - Recommended for most use cases
 
 ### Custom Cache
@@ -157,12 +168,20 @@ Harbor provides two caching strategies:
 - Use when you need fine-grained control
 
 ```swift
-// Configuration options
+// URLCache configuration
+let customURLCache = URLCache(
+    memoryCapacity: 100 * 1024 * 1024,  // 100MB memory
+    diskCapacity: 500 * 1024 * 1024     // 500MB disk
+)
+let policy: HCache.Policy = .urlCache(customURLCache)
+
+// Custom cache configuration
 let config = HCache.Configuration(
     expirationTime: .oneHour,        // Cache TTL
     maxObjectSizeInMBs: 10,           // Max object size (default: 10MB)
     memoryCacheCapacityInMBs: 100     // Memory cache size (default: 100MB)
 )
+let policy: HCache.Policy = .custom(config)
 ```
 
 ### Response Handling

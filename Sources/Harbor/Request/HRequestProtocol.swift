@@ -138,7 +138,7 @@ public protocol HDeleteRequestProtocol: HRequestWithEmptyResponseProtocol {}
 public extension HGetRequestProtocol {
     var httpMethod: HHttpMethod { .get }
     var queryParameters: [String: String]? { nil }
-    var cachePolicy: HCache.Policy { .urlCache }
+    var cachePolicy: HCache.Policy { .urlCache() }
     var cacheConfiguration: HCache.Configuration? { nil }
     
     /// Creates an async throwing stream that emits responses from cache and/or remote sources.

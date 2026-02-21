@@ -418,13 +418,20 @@ extension HRequestManager {
         configuration.timeoutIntervalForRequest = 15
         configuration.timeoutIntervalForResource = 30
         
-        // Configure URLCache for automatic ETag/304 support
-        // Memory: 50MB, Disk: 200MB
-        let cache = URLCache(
-            memoryCapacity: 50 * 1024 * 1024,
-            diskCapacity: 200 * 1024 * 1024,
-            diskPath: "harbor_urlcache"
-        )
+        // Configure URLCache based on default cache policy
+        let cache: URLCache
+        if case .urlCache(let customCache) = config.defaultCachePolicy,
+           let customCache = customCache {
+            // Use custom URLCache if provided
+            cache = customCache
+        } else {
+            // Default URLCache: 50MB memory, 200MB disk
+            cache = URLCache(
+                memoryCapacity: 50 * 1024 * 1024,
+                diskCapacity: 200 * 1024 * 1024,
+                diskPath: "harbor_urlcache"
+            )
+        }
         configuration.urlCache = cache
         configuration.requestCachePolicy = .returnCacheDataElseLoad
 

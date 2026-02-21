@@ -24,7 +24,7 @@ final class HarborETagTests: XCTestCase {
     
     func testDefaultCachePolicyIsURLCache() async throws {
         let request = GetUsersRequest()
-        XCTAssertEqual(request.cachePolicy, .urlCache, "Default cache policy should be urlCache")
+        XCTAssertEqual(request.cachePolicy, .urlCache(), "Default cache policy should be urlCache")
     }
     
     func testCustomCachePolicy() async throws {
@@ -145,7 +145,7 @@ final class HarborETagTests: XCTestCase {
 private struct GetUsersRequest: HGetRequestProtocol {
     typealias Model = TestUser
     let url = "https://api.example.com/users"
-    // Uses default cachePolicy = .urlCache
+    // Uses default cachePolicy = .urlCache()
 }
 
 private struct GetUsersWithCustomCacheRequest: HGetRequestProtocol {
@@ -188,7 +188,7 @@ private extension HGetRequestProtocol {
     func resolveEffectivePolicy() -> HCache.Policy {
         // If new cachePolicy is explicitly set (not default), use it
         // Otherwise fall back to legacy cacheConfiguration
-        let defaultPolicy: HCache.Policy = .urlCache
+        let defaultPolicy: HCache.Policy = .urlCache()
         if cachePolicy != defaultPolicy {
             return cachePolicy
         }

@@ -125,7 +125,11 @@ struct GetUsersRequest: HGetRequestProtocol {
 struct GetUsersRequest: HGetRequestProtocol {
     typealias Model = [User]
     let url = "https://api.example.com/users"
-    let cachePolicy: HCache.Policy = .custom(.enabled(expirationTime: .oneHour))
+    let cachePolicy: HCache.Policy = .custom(HCache.Configuration(
+        expirationTime: .oneHour,
+        maxObjectSizeInMBs: 10,
+        memoryCacheCapacityInMBs: 100
+    ))
 }
 
 // Option 3: No caching
@@ -134,6 +138,31 @@ struct GetUsersRequest: HGetRequestProtocol {
     let url = "https://api.example.com/users"
     let cachePolicy: HCache.Policy = .disabled
 }
+```
+
+## Cache System
+
+Harbor provides two caching strategies:
+
+### URLCache (Default)
+- Automatic ETags and 304 responses
+- Respects Cache-Control headers
+- Zero configuration required
+- Recommended for most use cases
+
+### Custom Cache
+- Two-level cache (NSCache L1 + Disk L2)
+- Manual TTL control
+- Size limits per object
+- Use when you need fine-grained control
+
+```swift
+// Configuration options
+let config = HCache.Configuration(
+    expirationTime: .oneHour,        // Cache TTL
+    maxObjectSizeInMBs: 10,           // Max object size (default: 10MB)
+    memoryCacheCapacityInMBs: 100     // Memory cache size (default: 100MB)
+)
 ```
 
 ### Response Handling

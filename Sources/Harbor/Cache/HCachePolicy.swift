@@ -8,11 +8,13 @@
 import Foundation
 
 public extension HCache {
-    /// Defines the caching strategy for network requests.
-    enum Policy: Sendable, Equatable {
+    /// Defines the caching type for network requests.
+    enum CacheType: Sendable, Equatable {
         /// Use URLCache with automatic ETag/304 support.
-        /// Default uses URLCache.shared. Pass custom URLCache for specific memory/disk limits.
-        case urlCache(URLCache = .shared)
+        /// - Parameters:
+        ///   - urlCache: The URLCache to use. Defaults to URLCache.shared.
+        ///   - requestCachePolicy: The cache policy for requests. Defaults to .useProtocolCachePolicy.
+        case urlCache(urlCache: URLCache = .shared, requestCachePolicy: NSURLRequest.CachePolicy = .useProtocolCachePolicy)
 
         /// Use Harbor's custom cache system with full control over expiration and storage.
         case custom(Configuration)
@@ -20,7 +22,7 @@ public extension HCache {
         /// No caching - always fetch fresh data from network.
         case disabled
         
-        /// Whether caching is enabled for this policy.
+        /// Whether caching is enabled for this type.
         var isCachingEnabled: Bool {
             switch self {
             case .urlCache, .custom:
@@ -32,11 +34,12 @@ public extension HCache {
         
         // MARK: - Equatable
         
-        public static func == (lhs: Policy, rhs: Policy) -> Bool {
+        public static func == (lhs: CacheType, rhs: CacheType) -> Bool {
             switch (lhs, rhs) {
-            case (.urlCache(let lCache), .urlCache(let rCache)):
+            case (.urlCache(let lCache, let lPolicy), .urlCache(let rCache, let rPolicy)):
                 return lCache.memoryCapacity == rCache.memoryCapacity &&
-                       lCache.diskCapacity == rCache.diskCapacity
+                       lCache.diskCapacity == rCache.diskCapacity &&
+                       lPolicy == rPolicy
             case (.disabled, .disabled):
                 return true
             case (.custom(let lConfig), .custom(let rConfig)):

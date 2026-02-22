@@ -52,7 +52,7 @@ extension HDebugRequestProtocol {
     /// - Parameter urlRequest: The URL request to debug.
     func logRequest(urlRequest: URLRequest) {
         #if DEBUG
-        guard HRequestManager.config.isLoggingEnabled else { return }
+        guard HConfig.shared.isLoggingEnabled else { return }
         if let request = self as? HRequestBaseRequestProtocol,
            self.debugType == .request || self.debugType == .requestAndResponse {
             var additionalInfo: [String: String] = [:]
@@ -95,7 +95,7 @@ extension HDebugRequestProtocol {
     ///   - duration: The request duration in milliseconds.
     func logResponse(httpResponse: HTTPURLResponse, data: Data, duration: Double) {
         #if DEBUG
-        guard HRequestManager.config.isLoggingEnabled else { return }
+        guard HConfig.shared.isLoggingEnabled else { return }
         if self.debugType == .response || self.debugType == .requestAndResponse {
             var extraMessages: [LBExtraMessage] = []
             if let value = String(data: data, encoding: String.Encoding.ascii) {
@@ -118,7 +118,7 @@ extension HDebugRequestProtocol {
     /// - Parameter error: The error that occurred during the request.
     func logErrorResponse(error: HRequestError) {
         #if DEBUG
-        guard HRequestManager.config.isLoggingEnabled else { return }
+        guard HConfig.shared.isLoggingEnabled else { return }
         if self.debugType == .response || self.debugType == .requestAndResponse {
             var extraMessages: [LBExtraMessage] = []
             
@@ -143,7 +143,7 @@ extension HDebugRequestProtocol {
             return jsonString
         } catch {
             #if DEBUG
-            if HRequestManager.config.isLoggingEnabled {
+            if HConfig.shared.isLoggingEnabled {
                 Self.logger.log("Error converting dictionary to JSON", error: error)
             }
             #endif

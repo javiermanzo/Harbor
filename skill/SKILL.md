@@ -37,7 +37,7 @@ Harbor supports:
 - **Location**: `Sources/Harbor/Cache/`
 - **URLCache** (default): Automatic ETags, 304 responses, zero configuration
 - **Custom Cache**: Two-level (memory + disk), manual TTL, size limits
-- **Policy-based**: Choose per request via `cachePolicy`
+- **Policy-based**: Choose per request via `cacheType`
 
 ### Security
 - **mTLS**: `Sources/Harbor/Request/HmTLS.swift`
@@ -78,7 +78,7 @@ Sources/Harbor/
 struct GetUserRequest: HGetRequestProtocol {
     typealias Model = User
     let url: String = "https://api.example.com/user"
-    // cachePolicy = .urlCache by default (automatic ETags)
+    // cacheType = .urlCache by default (automatic ETags)
 }
 
 let response = await GetUserRequest().request()
@@ -109,7 +109,7 @@ let mtls = HmTLS(p12FileUrl: certUrl, password: "password")
 await Harbor.setMTLS(mtls)
 
 // Set default cache policy
-await Harbor.setDefaultCachePolicy(.custom(HCache.Configuration(expirationTime: .oneDay)))
+await Harbor.setDefaultCacheType(.custom(HCache.Configuration(expirationTime: .oneDay)))
 ```
 
 ### Cache Policies (NEW)
@@ -118,14 +118,14 @@ await Harbor.setDefaultCachePolicy(.custom(HCache.Configuration(expirationTime: 
 struct GetUsersRequest: HGetRequestProtocol {
     typealias Model = [User]
     let url = "https://api.example.com/users"
-    // cachePolicy = .urlCache by default
+    // cacheType = .urlCache by default
 }
 
 // Option 2: Custom cache - Manual TTL and size control
 struct GetUsersRequest: HGetRequestProtocol {
     typealias Model = [User]
     let url = "https://api.example.com/users"
-    let cachePolicy: HCache.Policy = .custom(HCache.Configuration(
+    let cacheType: HCache.CacheType = .custom(HCache.Configuration(
         expirationTime: .oneHour,
         maxObjectSizeInMBs: 10,
         memoryCacheCapacityInMBs: 100
@@ -136,7 +136,7 @@ struct GetUsersRequest: HGetRequestProtocol {
 struct GetUsersRequest: HGetRequestProtocol {
     typealias Model = [User]
     let url = "https://api.example.com/users"
-    let cachePolicy: HCache.Policy = .urlCache(URLCache(
+    let cacheType: HCache.CacheType = .urlCache(URLCache(
         memoryCapacity: 100 * 1024 * 1024,
         diskCapacity: 500 * 1024 * 1024
     ))
@@ -146,7 +146,7 @@ struct GetUsersRequest: HGetRequestProtocol {
 struct GetUsersRequest: HGetRequestProtocol {
     typealias Model = [User]
     let url = "https://api.example.com/users"
-    let cachePolicy: HCache.Policy = .disabled
+    let cacheType: HCache.CacheType = .disabled
 }
 ```
 
@@ -172,8 +172,8 @@ Harbor provides two caching strategies:
 let customURLCache = URLCache(
     memoryCapacity: 100 * 1024 * 1024,  // 100MB memory
     diskCapacity: 500 * 1024 * 1024     // 500MB disk
-)
-let policy: HCache.Policy = .urlCache(customURLCache)
+))
+let policy: HCache.CacheType = .urlCache(customURLCache)
 
 // Custom cache configuration
 let config = HCache.Configuration(
@@ -181,7 +181,7 @@ let config = HCache.Configuration(
     maxObjectSizeInMBs: 10,           // Max object size (default: 10MB)
     memoryCacheCapacityInMBs: 100     // Memory cache size (default: 100MB)
 )
-let policy: HCache.Policy = .custom(config)
+let policy: HCache.CacheType = .custom(config)
 ```
 
 ### Response Handling

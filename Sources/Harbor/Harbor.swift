@@ -21,45 +21,45 @@ public extension Harbor {
 
     /// Configures authentication provider for requests requiring auth.
     static func setAuthProvider(_ authProvider: HAuthProviderProtocol?) {
-        HRequestManager.config.authProvider = authProvider
+        HConfig.shared.authProvider = authProvider
     }
 
     /// Sets default headers applied to all requests.
     static func setDefaultHeaderParameters(_ defaultHeaderParameters: [String: String]?) {
-        HRequestManager.config.defaultHeaderParameters = defaultHeaderParameters
+        HConfig.shared.defaultHeaderParameters = defaultHeaderParameters
     }
 
     /// Configures mutual TLS for client certificate authentication.
     static func setMTLS(_ mTLS: HmTLS?) {
-        HRequestManager.config.mTLSIdentity = mTLS?.extractIdentity(loggingEnabled: HRequestManager.config.isLoggingEnabled)
+        HConfig.shared.mTLSIdentity = mTLS?.extractIdentity(loggingEnabled: HConfig.shared.isLoggingEnabled)
     }
 
     /// Enables SSL pinning with SHA256 public key hashes.
     /// Provide multiple keys to support key rotation (backup pins).
     static func setSSlPinningKeys(_ sslPinningKeys: [String]?) {
-        HRequestManager.config.sslPinningKeys = sslPinningKeys
+        HConfig.shared.sslPinningKeys = sslPinningKeys
     }
 
     /// Sets custom URLSession for all Harbor requests.
     static func setCustomURLSession(_ customURLSession: URLSession) {
-        HRequestManager.config.currentURLSession = customURLSession
+        HConfig.shared.currentURLSession = customURLSession
     }
 
-    /// Sets default cache policy for requests without explicit cache settings.
-    /// Default is .urlCache (automatic ETags).
-    static func setDefaultCachePolicy(_ cachePolicy: HCache.Policy) {
-        HRequestManager.config.defaultCachePolicy = cachePolicy
+    /// Sets default cache type for requests without explicit cache settings.
+    /// Default is .urlCache.
+    static func setDefaultCacheType(_ cacheType: HCache.CacheType) {
+        HConfig.shared.defaultCacheType = cacheType
     }
 
     /// Configures whether mocks are only active in DEBUG builds.
     static func setMocksOnlyInDebug(_ value: Bool) {
-        HRequestManager.config.mocksOnlyInDebug = value
+        HConfig.shared.mocksOnlyInDebug = value
     }
 
     /// Configures whether debug logs are enabled.
     /// - Parameter enabled: If true, logs will be printed (subject to #if DEBUG). If false, no logs will be printed.
     static func setLoggingEnabled(_ enabled: Bool) {
-        HRequestManager.config.isLoggingEnabled = enabled
+        HConfig.shared.isLoggingEnabled = enabled
     }
 }
 

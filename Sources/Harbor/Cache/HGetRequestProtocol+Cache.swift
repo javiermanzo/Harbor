@@ -10,21 +10,64 @@ import Foundation
 public extension HGetRequestProtocol {
 
     /// Retrieves cached data for this request using the associated Model type.
-    /// Only works with custom cache policy. For URLCache, use standard request methods.
+    /// Works with both custom cache and URLCache types.
     /// - Returns: The cached model if found and valid, `nil` otherwise.
     func cache() async -> Model? {
-        guard case .custom(let config) = cachePolicy,
-              let cacheKey else { return nil }
-        return await HCache.Manager.shared.getCachedData(forKey: cacheKey, type: Model.self, config: config)
+        let effectiveCacheType: HCache.CacheType
+        if let cacheType {
+            effectiveCacheType = cacheType
+        } else {
+            effectiveCacheType = await HConfig.shared.defaultCacheType
+        }
+        
+        switch effectiveCacheType {
+        case .custom(let config):
+            guard let cacheKey = await cacheKey() else { return nil }
+            return await HCache.Manager.shared.getCachedData(forKey: cacheKey, type: Model.self, config: config)
+            
+        case .urlCache(let urlCache, _):
+            guard let urlRequest = await urlRequest() else { return nil }
+            
+            if let cached = urlCache.cachedResponse(for: urlRequest) {
+                return try? JSONDecoder().decode(Model.self, from: cached.data)
+            }
+            return nil
+            
+        case .disabled:
+            return nil
+        }
+    }
+
+    /// Saves response data to cache for this request.
+    /// Only works with custom cache type. For URLCache, the system handles caching automatically.
+    /// - Parameters:
+    ///   - data: The response data to cache.
+    ///   - response: The HTTP response containing cache headers (optional).
+    func saveCache(_ data: Data, response: HTTPURLResponse?) async {
+        let requestCacheType = self.cacheType
+        
+        let effectiveCacheType: HCache.CacheType
+        if let requestCacheType = requestCacheType {
+            effectiveCacheType = requestCacheType
+        } else {
+            effectiveCacheType = await HConfig.shared.defaultCacheType
+        }
+
+        if case .custom(let config) = effectiveCacheType,
+           let cacheKey = await cacheKey() {
+            await HCache.Manager.shared.storeData(data, forKey: cacheKey, config: config, response: response)
+        }
     }
 
     /// Clears cached data for this specific request.
-    /// Works with both URLCache and custom cache policies.
+    /// Works with both URLCache and custom cache types.
     func clearCache() async {
-        guard let cacheKey else { return }
-        
-        switch cachePolicy {
-        case .urlCache(let urlCache):
+        guard let cacheKey = await cacheKey() else { return }
+
+        guard let cacheType else { return }
+
+        switch cacheType {
+        case .urlCache(let urlCache, _):
             // Remove from URLCache
             guard let url = URL(string: cacheKey) else { return }
             var request = URLRequest(url: url)
@@ -41,14 +84,20 @@ public extension HGetRequestProtocol {
     }
 }
 
-extension HGetRequestProtocol {
+private extension HGetRequestProtocol {
+    /// Builds and returns a URLRequest for this request.
+    /// - Returns: The configured URLRequest, or nil if the request cannot be built.
+    func urlRequest() async -> URLRequest? {
+        await HURLBuilder.buildUrlRequest(request: self)
+    }
+
     /// Generates a cache key for this request based on the complete URL.
-    var cacheKey: String? {
-        let compositeURL: URL? = HURLBuilder.compositeURL(url: url,
+    /// - Returns: The cache key string, or nil if the URL cannot be built.
+    func cacheKey() async -> String? {
+        let compositeURL: URL? = await HURLBuilder.compositeURL(url: url,
                                                           pathParameters: pathParameters,
                                                           queryParameters: queryParameters)
 
         return compositeURL?.absoluteString
     }
 }
-

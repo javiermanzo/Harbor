@@ -81,22 +81,22 @@ enum Configuration {
 
 1. **Disabled** - No caching
 ```swift
-let cacheConfiguration: HCache.Configuration? = .disabled
+let cacheType: HCache.CacheType? = .disabled
 // or simply
-let cacheConfiguration: HCache.Configuration? = nil
+let cacheType: HCache.CacheType? = nil
 ```
 
 2. **Enabled** - Cache with expiration time
 ```swift
-let cacheConfiguration: HCache.Configuration? = .enabled(expirationTime: .oneHour)
+let cacheType: HCache.CacheType? = .custom(HCache.Configuration(expirationTime: .oneHour))
 ```
 
 3. **Custom** - Cache with expiration and size limit
 ```swift
-let cacheConfiguration: HCache.Configuration? = .custom(
+let cacheType: HCache.CacheType? = .custom(HCache.Configuration(
     expirationTime: .oneDay,
     maxObjectSize: 5_000_000  // 5MB max per object
-)
+))
 ```
 
 ### Predefined Expiration Times
@@ -115,10 +115,10 @@ extension TimeInterval {
 
 **Usage:**
 ```swift
-.enabled(expirationTime: .fiveMinutes)
-.enabled(expirationTime: .oneHour)
-.enabled(expirationTime: .oneDay)
-.enabled(expirationTime: .oneWeek)
+.custom(HCache.Configuration(expirationTime: .fiveMinutes))
+.custom(HCache.Configuration(expirationTime: .oneHour))
+.custom(HCache.Configuration(expirationTime: .oneDay))
+.custom(HCache.Configuration(expirationTime: .oneWeek))
 ```
 
 ## Global vs Per-Request Configuration
@@ -129,7 +129,7 @@ Set default cache behavior for all requests:
 
 ```swift
 // Enable cache globally with 1 hour expiration
-await Harbor.setDefaultCacheConfiguration(.enabled(expirationTime: .oneHour))
+await Harbor.setDefaultCacheType(.custom(HCache.Configuration(expirationTime: .oneHour)))
 
 // All requests without explicit cache config will use this
 struct GetUserRequest: HGetRequestProtocol {
@@ -148,7 +148,7 @@ Override global settings for specific requests:
 struct GetUserRequest: HGetRequestProtocol {
     typealias Model = User
     let url = "https://api.example.com/user"
-    let cacheConfiguration: HCache.Configuration? = .enabled(expirationTime: .oneDay)
+    let cacheType: HCache.CacheType? = .custom(HCache.Configuration(expirationTime: .oneDay))
     // This overrides global configuration
 }
 
@@ -156,7 +156,7 @@ struct GetUserRequest: HGetRequestProtocol {
 struct GetBalanceRequest: HGetRequestProtocol {
     typealias Model = Balance
     let url = "https://api.example.com/balance"
-    let cacheConfiguration: HCache.Configuration? = .disabled
+    let cacheType: HCache.CacheType? = .disabled
     // Never cache this request
 }
 ```
@@ -176,7 +176,7 @@ struct GetBalanceRequest: HGetRequestProtocol {
 struct GetCountriesRequest: HGetRequestProtocol {
     typealias Model = [Country]
     let url = "https://api.example.com/countries"
-    let cacheConfiguration: HCache.Configuration? = .enabled(expirationTime: .oneWeek)
+    let cacheType: HCache.CacheType? = .custom(HCache.Configuration(expirationTime: .oneWeek))
 }
 ```
 
@@ -187,7 +187,7 @@ struct GetCountriesRequest: HGetRequestProtocol {
 struct GetUserProfileRequest: HGetRequestProtocol {
     typealias Model = UserProfile
     let url = "https://api.example.com/profile"
-    let cacheConfiguration: HCache.Configuration? = .enabled(expirationTime: .oneHour)
+    let cacheType: HCache.CacheType? = .custom(HCache.Configuration(expirationTime: .oneHour))
 }
 ```
 
@@ -198,7 +198,7 @@ struct GetUserProfileRequest: HGetRequestProtocol {
 struct GetFeedRequest: HGetRequestProtocol {
     typealias Model = [Post]
     let url = "https://api.example.com/feed"
-    let cacheConfiguration: HCache.Configuration? = .enabled(expirationTime: .fiveMinutes)
+    let cacheType: HCache.CacheType? = .custom(HCache.Configuration(expirationTime: .fiveMinutes))
 }
 ```
 
@@ -209,7 +209,7 @@ struct GetFeedRequest: HGetRequestProtocol {
 struct GetBalanceRequest: HGetRequestProtocol {
     typealias Model = Balance
     let url = "https://api.example.com/balance"
-    let cacheConfiguration: HCache.Configuration? = .disabled
+    let cacheType: HCache.CacheType? = .disabled
 }
 ```
 
@@ -230,7 +230,7 @@ Harbor will use the smaller of:
 **Example:**
 ```swift
 // Request configured for 1 day cache
-let cacheConfiguration: HCache.Configuration? = .enabled(expirationTime: .oneDay)
+let cacheType: HCache.CacheType? = .custom(HCache.Configuration(expirationTime: .oneDay))
 
 // But server responds with: Cache-Control: max-age=3600 (1 hour)
 // Harbor will cache for 1 hour (respects server preference)
@@ -270,16 +270,16 @@ These directives prevent caching regardless of request configuration.
 
 ```swift
 // Limit cache objects to 5MB
-let cacheConfiguration: HCache.Configuration? = .custom(
+let cacheType: HCache.CacheType? = .custom(HCache.Configuration(
     expirationTime: .oneHour,
     maxObjectSize: 5_000_000
-)
+))
 
 // Larger images might need bigger limits
-let cacheConfiguration: HCache.Configuration? = .custom(
+let cacheType: HCache.CacheType? = .custom(HCache.Configuration(
     expirationTime: .oneDay,
     maxObjectSize: 20_000_000  // 20MB
-)
+))
 ```
 
 **Objects exceeding the limit are not cached.**
@@ -362,7 +362,7 @@ func requestStream(source: HRequestSource = .cacheAndRemote)
 struct GetUserRequest: HGetRequestProtocol {
     typealias Model = User
     let url = "https://api.example.com/user"
-    let cacheConfiguration: HCache.Configuration? = .enabled(expirationTime: .oneHour)
+    let cacheType: HCache.CacheType? = .custom(HCache.Configuration(expirationTime: .oneHour))
 }
 
 // Stream will emit twice: first from cache, then from network
@@ -512,7 +512,7 @@ else {
 struct GetCategoriesRequest: HGetRequestProtocol {
     typealias Model = [Category]
     let url = "https://api.example.com/categories"
-    let cacheConfiguration: HCache.Configuration? = .enabled(expirationTime: .oneWeek)
+    let cacheType: HCache.CacheType? = .custom(HCache.Configuration(expirationTime: .oneWeek))
 }
 ```
 
@@ -523,7 +523,7 @@ struct GetCategoriesRequest: HGetRequestProtocol {
 struct GetBalanceRequest: HGetRequestProtocol {
     typealias Model = Balance
     let url = "https://api.example.com/balance"
-    let cacheConfiguration: HCache.Configuration? = .disabled
+    let cacheType: HCache.CacheType? = .disabled
 }
 ```
 
@@ -558,10 +558,10 @@ func logout() async {
 struct GetImageRequest: HGetRequestProtocol {
     typealias Model = Data
     let url: String
-    let cacheConfiguration: HCache.Configuration? = .custom(
-        expirationTime: .oneWeek,
+    let cacheType: HCache.CacheType? = .custom(HCache.Configuration(
+    expirationTime: .oneWeek,
         maxObjectSize: 10_000_000  // 10MB
-    )
+    ))
 }
 ```
 
@@ -591,10 +591,10 @@ Don't override server cache directives. If the server says `no-cache`, Harbor re
 **To minimize memory:**
 ```swift
 // Large objects should have size limits
-let cacheConfiguration: HCache.Configuration? = .custom(
+let cacheType: HCache.CacheType? = .custom(HCache.Configuration(
     expirationTime: .oneDay,
     maxObjectSize: 5_000_000  // Limit to 5MB
-)
+))
 ```
 
 ### Disk Usage
@@ -635,10 +635,10 @@ Task {
 **Check configuration:**
 ```swift
 // Ensure cache is enabled
-let cacheConfiguration: HCache.Configuration? = .enabled(expirationTime: .oneHour)
+let cacheType: HCache.CacheType? = .custom(HCache.Configuration(expirationTime: .oneHour))
 
 // Not disabled
-// let cacheConfiguration: HCache.Configuration? = .disabled
+// let cacheType: HCache.CacheType? = .disabled
 ```
 
 **Check HTTP headers:**
@@ -653,10 +653,10 @@ let cacheConfiguration: HCache.Configuration? = .enabled(expirationTime: .oneHou
 **Check expiration time:**
 ```swift
 // Might be too long
-.enabled(expirationTime: .oneWeek)
+.custom(HCache.Configuration(expirationTime: .oneWeek))
 
 // Try shorter expiration
-.enabled(expirationTime: .tenMinutes)
+.custom(HCache.Configuration(expirationTime: .tenMinutes))
 ```
 
 **Force refresh:**
@@ -669,7 +669,8 @@ let response = await request.request()
 
 **Set size limits:**
 ```swift
-.custom(expirationTime: .oneDay, maxObjectSize: 2_000_000)
+.custom(HCache.Configuration(
+    expirationTime: .oneDay, maxObjectSize: 2_000_000)
 ```
 
 **Periodic cleanup:**

@@ -22,7 +22,7 @@ protocol HRequestBaseRequestProtocol {
     // Optional with defaults
     var headers: [String: String]? { get }
     var needsAuth: Bool { get }
-    var cacheConfiguration: HCache.Configuration? { get }
+    var cacheType: HCache.CacheType? { get }
     var retries: Int { get }
     var timeout: TimeInterval { get }
 }
@@ -34,7 +34,7 @@ protocol HRequestBaseRequestProtocol {
 **Optional Properties (with defaults):**
 - `headers`: Custom headers for this request (default: `nil`)
 - `needsAuth`: Whether authentication is required (default: `false`)
-- `cacheConfiguration`: Cache settings (default: `nil` - no caching)
+- `cacheType`: Cache settings (default: `nil` - no caching)
 - `retries`: Number of retry attempts (default: `0`)
 - `timeout`: Request timeout in seconds (default: `60`)
 
@@ -111,7 +111,7 @@ struct SearchUsersRequest: HGetRequestProtocol {
 struct GetUserRequest: HGetRequestProtocol {
     typealias Model = User
     let url: String = "https://api.example.com/users/1"
-    let cacheConfiguration: HCache.Configuration? = .enabled(expirationTime: .oneHour)
+    let cacheType: HCache.CacheType? = .custom(HCache.Configuration(expirationTime: .oneHour))
 }
 ```
 
@@ -645,14 +645,14 @@ await UserAPI.Delete(userId: "123").request()
 struct GetCountriesRequest: HGetRequestProtocol {
     typealias Model = [Country]
     let url = "https://api.example.com/countries"
-    let cacheConfiguration: HCache.Configuration? = .enabled(expirationTime: .oneWeek)
+    let cacheType: HCache.CacheType? = .custom(HCache.Configuration(expirationTime: .oneWeek))
 }
 
 // Don't cache dynamic data
 struct GetUserBalanceRequest: HGetRequestProtocol {
     typealias Model = Balance
     let url = "https://api.example.com/balance"
-    let cacheConfiguration: HCache.Configuration? = nil  // Always fetch fresh
+    let cacheType: HCache.CacheType? = nil  // Always fetch fresh
 }
 ```
 

@@ -29,8 +29,8 @@ final class HarborDiskCacheTests: XCTestCase {
         let request = TestDiskRequest(url: "https://disk.test/1")
         let config = HCache.Configuration()
         
-        // 1. Store Data
-        guard let key = request.cacheKey else { return XCTFail() }
+        // 1. Store Data - use URL directly as cache key
+        let key = request.url
         await HCache.Manager.shared.storeData(testData, forKey: key, config: config, response: nil)
         
         // 2. Wait for background disk write
@@ -60,8 +60,8 @@ final class HarborDiskCacheTests: XCTestCase {
         let request = TestDiskRequest(url: "https://disk.test/lazy")
         let config = HCache.Configuration()
         
-        // 1. Manually write file to disk (simulating previous session)
-        guard let key = request.cacheKey else { return XCTFail() }
+        // 1. Manually write file to disk (simulating previous session) - use URL directly as key
+        let key = request.url
         let hash = key.sha256Hash
         let cacheDir = HCache.Manager.shared.cacheDirectory
         let fileURL = cacheDir.appendingPathComponent(hash).appendingPathExtension("cache")
@@ -83,7 +83,7 @@ final class HarborDiskCacheTests: XCTestCase {
         let request = TestDiskRequest(url: "https://disk.test/corrupt")
         let config = HCache.Configuration()
         
-        guard let key = request.cacheKey else { return XCTFail() }
+        let key = request.url
         let hash = key.sha256Hash
         let cacheDir = HCache.Manager.shared.cacheDirectory
         let fileURL = cacheDir.appendingPathComponent(hash).appendingPathExtension("cache")
@@ -104,8 +104,8 @@ final class HarborDiskCacheTests: XCTestCase {
         let request = TestDiskRequest(url: "https://disk.test/large")
         let config = HCache.Configuration()
         
-        // 2. Try store
-        guard let key = request.cacheKey else { return }
+        // 2. Try store - use URL directly as key
+        let key = request.url
         await HCache.Manager.shared.storeData(largeData, forKey: key, config: config, response: nil)
         HCache.Manager.shared.diskQueue.sync {}
         
@@ -122,8 +122,8 @@ final class HarborDiskCacheTests: XCTestCase {
         let request = TestDiskRequest(url: "https://disk.test/large-custom")
         let config = HCache.Configuration(maxObjectSizeInMBs: 20)
         
-        // 2. Try store
-        guard let key = request.cacheKey else { return }
+        // 2. Try store - use URL directly as key
+        let key = request.url
         await HCache.Manager.shared.storeData(largeData, forKey: key, config: config, response: nil)
         HCache.Manager.shared.diskQueue.sync {}
         
@@ -161,5 +161,5 @@ private struct TestDiskModel: HModel {
 private struct TestDiskRequest: HGetRequestProtocol {
     typealias Model = TestDiskModel
     let url: String
-    let cachePolicy: HCache.Policy = .custom(HCache.Configuration())
+    let cacheType: HCache.CacheType = .custom(HCache.Configuration())
 }

@@ -1,6 +1,7 @@
 import XCTest
 @testable import Harbor
 
+@HRequestManagerActor
 final class HarborManagerTests: XCTestCase {
 
     func testShouldAddSinglePathParameterCorrectlyToURL() async throws {
@@ -32,7 +33,7 @@ final class HarborManagerTests: XCTestCase {
         let service = MockGetRequest<String>(url: "https://example.com", queryParameters: ["id": "123", "sort": "desc"])
 
         // When
-        let request = await HRequestManager.buildUrlRequest(request: service)
+        let request = HURLBuilder.buildUrlRequest(request: service)
         
         // Then
         XCTAssertNotNil(request)
@@ -45,14 +46,14 @@ final class HarborManagerTests: XCTestCase {
         let service = MockPostRequest(url: "https://example.com", bodyParameters: ["name": "John"])
 
         // When
-        let request = await HRequestManager.buildUrlRequest(request: service)
+        let request = HURLBuilder.buildUrlRequest(request: service)
 
         // Then
         XCTAssertNotNil(request)
         XCTAssertEqual(request?.url?.absoluteString, "https://example.com")
         XCTAssertEqual(request?.httpMethod, "POST")
         XCTAssertEqual(request?.allHTTPHeaderFields?["Content-Type"], "application/json")
-        let httpBody = await HRequestManager.dataBody(params: ["name": "John"], type: .json)
+        let httpBody = HURLBuilder.dataBody(params: ["name": "John"], type: .json, boundary: nil)
         XCTAssertEqual(request?.httpBody, httpBody)
     }
 
@@ -61,7 +62,7 @@ final class HarborManagerTests: XCTestCase {
         let service = MockInvalidRequest()
 
         // When
-        let request = await HRequestManager.buildUrlRequest(request: service)
+        let request = HURLBuilder.buildUrlRequest(request: service)
 
         // Then
         XCTAssertNil(request)

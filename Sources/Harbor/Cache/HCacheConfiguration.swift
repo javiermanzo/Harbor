@@ -9,7 +9,7 @@ import Foundation
 
 public extension HCache {
     /// Configuration for custom cache behavior.
-    /// Used with `.custom(Configuration)` policy.
+    /// Used with `.custom(Configuration)` cacheType.
     struct Configuration: Sendable, Equatable {
         /// Cache expiration time in seconds. Nil means no expiration.
         public let expirationTime: TimeInterval?

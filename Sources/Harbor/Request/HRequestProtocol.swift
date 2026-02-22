@@ -116,8 +116,8 @@ public protocol HRequestWithBodyProtocol: HRequestWithEmptyResponseProtocol {
 public protocol HGetRequestProtocol: HRequestWithResultProtocol {
     /// Query parameters to append to the URL. Default: `nil`.
     var queryParameters: [String: String]? { get }
-    /// Cache policy for this request. Default: `.urlCache` (automatic ETags).
-    var cachePolicy: HCache.Policy { get }
+    /// Cache type for this request. Default: `nil` (uses global default).
+    var cacheType: HCache.CacheType? { get }
 }
 /// Protocol for POST requests that create new resources.
 public protocol HPostRequestProtocol: HRequestWithBodyProtocol {}
@@ -134,7 +134,7 @@ public protocol HDeleteRequestProtocol: HRequestWithEmptyResponseProtocol {}
 public extension HGetRequestProtocol {
     var httpMethod: HHttpMethod { .get }
     var queryParameters: [String: String]? { nil }
-    var cachePolicy: HCache.Policy { .urlCache() }
+    var cacheType: HCache.CacheType? { nil }
     
     /// Creates an async throwing stream that emits responses from cache and/or remote sources.
     /// - Parameter source: The data source preference (default: .cacheAndRemote)
@@ -142,7 +142,7 @@ public extension HGetRequestProtocol {
     func requestStream(source: HRequestSource = .cacheAndRemote) -> AsyncThrowingStream<(response: Model, origin: HOriginType), Error> {
         return AsyncThrowingStream { continuation in
             Task {
-                await handleStreamRequest(source: source, continuation: continuation)
+                await self.handleStreamRequest(source: source, continuation: continuation)
             }
         }
     }
@@ -154,19 +154,6 @@ public extension HGetRequestProtocol {
     ) async {
         defer {
             continuation.finish()
-        }
-        
-        // Stream is only supported with custom cache policy
-        // For URLCache or disabled, just do a normal request
-        guard case .custom = cachePolicy else {
-            let result = await request()
-            switch result {
-            case .success(let data):
-                continuation.yield((response: data, origin: .remote))
-            case .error(let error):
-                continuation.finish(throwing: error)
-            }
-            return
         }
         
         switch source {

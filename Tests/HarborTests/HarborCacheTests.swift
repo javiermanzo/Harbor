@@ -16,7 +16,7 @@ final class HarborCacheTests: XCTestCase {
         await Harbor.removeAllMocks()
         await Harbor.setMocksOnlyInDebug(false)
         // Set default cache to disabled (original behavior)
-        await Harbor.setDefaultCachePolicy(.disabled)
+        await Harbor.setDefaultCacheType(.disabled)
     }
     
     override func tearDown() async throws {
@@ -29,12 +29,12 @@ final class HarborCacheTests: XCTestCase {
     
     func testCacheDefaultValue() {
         let request = TestDefaultCacheableRequest()
-        XCTAssertEqual(request.cachePolicy, .urlCache(), "Cache policy should be urlCache by default")
+        XCTAssertNil(request.cacheType, "Cache policy should be nil by default (uses config default)")
     }
     
     func testCacheUsesDefaultFromConfig() async {
         // Set default cache policy to custom with 1 hour expiration
-        await Harbor.setDefaultCachePolicy(.custom(HCache.Configuration(expirationTime: .oneHour)))
+        await Harbor.setDefaultCacheType(.custom(HCache.Configuration(expirationTime: .oneHour)))
         
         let request = TestCacheableRequest() // Uses explicit cache configuration
         let cachedData = await request.cache()
@@ -43,12 +43,12 @@ final class HarborCacheTests: XCTestCase {
         XCTAssertNil(cachedData, "No cached data expected for new request")
         
         // Reset to disabled for other tests
-        await Harbor.setDefaultCachePolicy(.disabled)
+        await Harbor.setDefaultCacheType(.disabled)
     }
     
     func testCacheConfigurationDefaults() {
         let request = TestCacheableRequest()
-        guard case .custom(let config) = request.cachePolicy else {
+        guard case .custom(let config) = request.cacheType else {
             XCTFail("Cache policy should be custom for TestCacheableRequest")
             return
         }
@@ -71,7 +71,7 @@ final class HarborCacheTests: XCTestCase {
         let request = TestExplicitlyDisabledRequest()
         
         // Verify cache is explicitly disabled via policy
-        XCTAssertEqual(request.cachePolicy, .disabled, "Cache policy should be disabled")
+        XCTAssertEqual(request.cacheType, .disabled, "Cache policy should be disabled")
         
         // Make request
         let response = await request.request()
@@ -91,22 +91,25 @@ final class HarborCacheTests: XCTestCase {
     
     // MARK: - Cache Key Generation Tests
     
-    func testCacheKeyGeneration() {
+    func testCacheKeyGeneration() async {
         let request = TestCacheableRequest()
         let expectedKey = "https://cache.example.com/test"
-        XCTAssertEqual(request.cacheKey, expectedKey, "Cache key should match the URL")
+        let actualKey = await HURLBuilder.compositeURL(url: request.url, pathParameters: request.pathParameters, queryParameters: request.queryParameters)?.absoluteString
+        XCTAssertEqual(actualKey, expectedKey, "Cache key should match the URL")
     }
     
-    func testCacheKeyWithQueryParameters() {
+    func testCacheKeyWithQueryParameters() async {
         let request = TestCacheableGetRequest()
         let expectedKey = "https://cache.example.com/test?limit=10&page=1"
-        XCTAssertEqual(request.cacheKey, expectedKey, "Cache key should include sorted query parameters")
+        let actualKey = await HURLBuilder.compositeURL(url: request.url, pathParameters: request.pathParameters, queryParameters: request.queryParameters)?.absoluteString
+        XCTAssertEqual(actualKey, expectedKey, "Cache key should include sorted query parameters")
     }
     
-    func testCacheKeyWithPathParameters() {
+    func testCacheKeyWithPathParameters() async {
         let request = TestCacheablePathRequest()
         let expectedKey = "https://cache.example.com/users/123"
-        XCTAssertEqual(request.cacheKey, expectedKey, "Cache key should substitute path parameters")
+        let actualKey = await HURLBuilder.compositeURL(url: request.url, pathParameters: request.pathParameters, queryParameters: request.queryParameters)?.absoluteString
+        XCTAssertEqual(actualKey, expectedKey, "Cache key should substitute path parameters")
     }
     
     // MARK: - Cache Expiration Tests
@@ -123,7 +126,7 @@ final class HarborCacheTests: XCTestCase {
         await Harbor.register(mock: mock)
         
         let request = TestCustomExpirationRequest()
-        guard case .custom(let config) = request.cachePolicy else {
+        guard case .custom(let config) = request.cacheType else {
             XCTFail("Cache policy should be custom for TestCustomExpirationRequest")
             return
         }
@@ -182,7 +185,7 @@ final class HarborCacheTests: XCTestCase {
         await Harbor.register(mock: mock)
         
         let request = TestOneHourCacheRequest()
-        guard case .custom(let config) = request.cachePolicy else {
+        guard case .custom(let config) = request.cacheType else {
             XCTFail("Cache policy should be custom for TestOneHourCacheRequest")
             return
         }
@@ -553,7 +556,7 @@ private struct TestCacheableRequest: HGetRequestProtocol {
     typealias Model = TestCacheData
     
     let url: String = "https://cache.example.com/test"
-    let cachePolicy: HCache.Policy = .custom(HCache.Configuration())
+    let cacheType: HCache.CacheType? = .custom(HCache.Configuration())
 }
 
 private struct TestDefaultCacheableRequest: HGetRequestProtocol {
@@ -567,7 +570,7 @@ private struct TestCacheableGetRequest: HGetRequestProtocol {
     typealias Model = TestCacheData
     
     let url: String = "https://cache.example.com/test"
-    let cachePolicy: HCache.Policy = .custom(HCache.Configuration())
+    let cacheType: HCache.CacheType? = .custom(HCache.Configuration())
     let queryParameters: [String: String]? = ["page": "1", "limit": "10"]
 }
 
@@ -575,7 +578,7 @@ private struct TestCacheablePathRequest: HGetRequestProtocol {
     typealias Model = TestCacheData
     
     let url: String = "https://cache.example.com/users/{userId}"
-    let cachePolicy: HCache.Policy = .custom(HCache.Configuration())
+    let cacheType: HCache.CacheType? = .custom(HCache.Configuration())
     let pathParameters: [String: String]? = ["userId": "123"]
 }
 
@@ -583,40 +586,40 @@ private struct TestCustomExpirationRequest: HGetRequestProtocol {
     typealias Model = TestCacheData
     
     let url: String = "https://cache.example.com/custom-expiration"
-    let cachePolicy: HCache.Policy = .custom(HCache.Configuration(expirationTime: 60))
+    let cacheType: HCache.CacheType? = .custom(HCache.Configuration(expirationTime: 60))
 }
 
 private struct TestOneHourCacheRequest: HGetRequestProtocol {
     typealias Model = TestCacheData
     
     let url: String = "https://cache.example.com/one-hour"
-    let cachePolicy: HCache.Policy = .custom(HCache.Configuration(expirationTime: .oneHour))
+    let cacheType: HCache.CacheType? = .custom(HCache.Configuration(expirationTime: .oneHour))
 }
 
 private struct TestExplicitlyDisabledRequest: HGetRequestProtocol {
     typealias Model = TestCacheData
     
     let url: String = "https://cache.example.com/explicitly-disabled"
-    let cachePolicy: HCache.Policy = .disabled
+    let cacheType: HCache.CacheType? = .disabled
 }
 
 private struct TestVeryShortExpirationRequest: HGetRequestProtocol {
     typealias Model = TestCacheData
     
     let url: String = "https://cache.example.com/very-short-expiration"
-    let cachePolicy: HCache.Policy = .custom(HCache.Configuration(expirationTime: 0.01)) // 0.01 seconds
+    let cacheType: HCache.CacheType? = .custom(HCache.Configuration(expirationTime: 0.01)) // 0.01 seconds
 }
 
 private struct TestLongCacheRequest: HGetRequestProtocol {
     typealias Model = TestCacheData
     
     var url: String = "https://cache.example.com/long-test"
-    var cachePolicy: HCache.Policy = .custom(HCache.Configuration(expirationTime: .oneHour)) // 1 hour
+    var cacheType: HCache.CacheType? = .custom(HCache.Configuration(expirationTime: .oneHour)) // 1 hour
 }
 
 private struct TestNoCacheRequest: HGetRequestProtocol {
     typealias Model = TestCacheData
     
     let url: String = "https://cache.example.com/no-cache-test"
-    let cachePolicy: HCache.Policy = .disabled
+    let cacheType: HCache.CacheType? = .disabled
 }

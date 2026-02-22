@@ -53,6 +53,7 @@ Harbor is a library for making API requests in Swift in a simple way using async
       - [HJRPCRequestProtocol](#hjrpcrequestprotocol)
     - [Response](#response-1)
 - [Mocks](#mocks)
+- [AI Assistant Skill](#ai-assistant-skill)
 - [Contributing](#contributing)
 - [Author](#author)
 - [License](#license)
@@ -179,7 +180,7 @@ Use the `HGetRequestProtocol` protocol if you want to send a GET request.
 
 ##### Properties:
 - `queryParameters`: A dictionary of query parameters that will be added to the URL.
-- `cacheConfiguration`: Optional cache configuration for this specific request.
+- `cacheType`: Optional cache configuration for this specific request.
 
 ##### Associated Type:
 - `Model`: The type that the response will be decoded into.
@@ -270,20 +271,20 @@ You can set a global default cache configuration for all requests:
 
 ```swift
 // Enable cache globally with custom cache (1 week expiration)
-await Harbor.setDefaultCachePolicy(.custom(HCache.Configuration(expirationTime: .oneWeek)))
+await Harbor.setDefaultCacheType(.custom(HCache.Configuration(expirationTime: .oneWeek)))
 
 // Disable cache globally
-await Harbor.setDefaultCachePolicy(.disabled)
+await Harbor.setDefaultCacheType(.disabled)
 ```
 
 ##### Per-Request Cache
-You can override the default cache policy for specific GET requests by implementing `HGetRequestProtocol`:
+You can override the default cache type for specific GET requests by implementing `HGetRequestProtocol`:
 
 ```swift
 class MyGetRequest: HGetRequestProtocol {
     // ... other properties
     
-    var cachePolicy: HCache.Policy {
+    var cacheType: HCache.CacheType {
         return .custom(HCache.Configuration(expirationTime: .oneDay, maxObjectSizeInMBs: 20))
     }
 }
@@ -582,8 +583,14 @@ Task {
 }
 ```
 
+## AI Assistant Skill
+
+Harbor comes with a built-in skill for Claude and other AI coding assistants. If you are using an AI assistant (like Claude Code, Cursor, GitHub Copilot, or similar), it can automatically understand Harbor's architecture, protocols, and best practices by checking the `skill` directory. 
+
+To use it, just ask your AI assistant to "use the harbor skill" or simply mention that you are using the Harbor networking framework. The AI will read the documentation in `skill` and adhere to Harbor's conventions for creating requests, caching, authentication, and writing tests.
+
 ## Contributing
-If you run into any problems, please submit an [issue](https://github.com/javiermanzo/Harbor/issues). [Pull requests](https://github.com/javiermanzo/Harbor/pulls) are also welcome! 
+If you run into any problems, please submit an [issue](https://github.com/javiermanzo/Harbor/issues). [Pull requests](https://github.com/javiermanzo/Harbor/pulls) are also welcome!
 
 ## Author
 Harbor was created by [Javier Manzo](https://www.linkedin.com/in/javiermanzo/).

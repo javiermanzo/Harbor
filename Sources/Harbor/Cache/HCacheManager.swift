@@ -52,12 +52,12 @@ extension HCache {
         
         // MARK: - Public API
         
-        /// Retrieves cached data by key (for custom cache policy).
+        /// Retrieves cached data by key (for custom cache type).
         func getCachedData<T: HModel>(forKey key: String, type: T.Type, config: HCache.Configuration) async -> T? {
             return await getCachedData(for: key, type: type, maxAge: config.expirationTime)
         }
         
-        /// Stores data by key (for custom cache policy).
+        /// Stores data by key (for custom cache type).
         func storeData(_ data: Data, forKey key: String, config: HCache.Configuration, response: HTTPURLResponse?) async {
             let effectiveExpirationTime = calculateEffectiveExpirationTime(
                 fromResponse: response,

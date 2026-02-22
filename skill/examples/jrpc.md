@@ -429,7 +429,7 @@ func loadBlockchainData() async -> (String?, String?, String?) {
 struct CachedBlockNumberRequest: HGetRequestProtocol {
     typealias Model = String
     let url: String = "https://ethereum.publicnode.com"
-    let cacheConfiguration: HCache.Configuration? = .enabled(expirationTime: .fiveMinutes)
+    let cacheType: HCache.CacheType? = .custom(HCache.Configuration(expirationTime: .fiveMinutes))
     
     // Custom implementation to call JSON-RPC
     func request() async -> HResponseWithResult<String> {

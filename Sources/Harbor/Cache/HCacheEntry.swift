@@ -10,16 +10,18 @@ import Foundation
 // MARK: - Cache Entry Implementation
 
 extension HCache.Manager {
-    /// Cache entry wrapper containing data, timestamp, and expiration time.
+    /// Cache entry wrapper containing data, timestamp, expiration time and optional ETag.
     final class Entry: NSObject, Sendable {
         let data: Data
         let timestamp: Date
         let expirationTime: TimeInterval?
+        let etag: String?
 
-        init(data: Data, timestamp: Date, expirationTime: TimeInterval? = nil) {
+        init(data: Data, timestamp: Date, expirationTime: TimeInterval? = nil, etag: String? = nil) {
             self.data = data
             self.timestamp = timestamp
             self.expirationTime = expirationTime
+            self.etag = etag
             super.init()
         }
 

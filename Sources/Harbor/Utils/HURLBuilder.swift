@@ -52,6 +52,18 @@ struct HURLBuilder {
             urlRequest.allHTTPHeaderFields = mergeHeaderParameters(currentHeaders: urlRequest.allHTTPHeaderFields, newHeaders: requestHeaderParameters)
         }
 
+        // --- Custom Cache ETag Injection ---
+        // If this is a GET request using custom cache, inject If-None-Match if we have a stored ETag.
+        // This is safe to do synchronously because HURLBuilder and HCache.Manager share @HRequestManagerActor.
+        if let getRequest = request as? any HGetRequestProtocol {
+            let cacheType = getRequest.cacheType ?? HConfig.shared.defaultCacheType
+            if case .custom = cacheType,
+               let key = compositeURL(url: getRequest.url, pathParameters: getRequest.pathParameters, queryParameters: getRequest.queryParameters)?.absoluteString,
+               let etag = HCache.Manager.shared.getETagSync(forKey: key) {
+                urlRequest.setValue(etag, forHTTPHeaderField: "If-None-Match")
+            }
+        }
+
         return urlRequest
     }
 

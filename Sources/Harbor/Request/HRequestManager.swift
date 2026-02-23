@@ -136,6 +136,18 @@ extension HRequestManager {
                 logError(hError, request: request)
                 return .error(hError)
             }
+        case 304:
+            // Not Modified — return cached data from custom cache.
+            // (URLCache handles 304 transparently at URLSession level; this branch handles custom cache.)
+            if let getRequest = request as? any HGetRequestProtocol,
+               let cachedAny = await getRequest.cache(),
+               let cachedModel = cachedAny as? Model {
+                return .success(cachedModel)
+            } else {
+                let hError: HRequestError = .apiError(statusCode: statusCode, data: data)
+                logError(hError, request: request)
+                return .error(hError)
+            }
         case 401:
             if await !hasNewAuthorizationHeader(request: request) {
                 await HConfig.shared.authProvider?.authFailed()

@@ -59,6 +59,12 @@ public extension HGetRequestProtocol {
         }
     }
 
+    /// Returns the stored ETag for this request from the custom cache, if available.
+    func cachedETag() async -> String? {
+        guard let key = await cacheKey() else { return nil }
+        return await HCache.Manager.shared.getETag(forKey: key)
+    }
+
     /// Clears cached data for this specific request.
     /// Works with both URLCache and custom cache types.
     func clearCache() async {

@@ -75,10 +75,8 @@ public extension HGetRequestProtocol {
         switch cacheType {
         case .urlCache(let urlCache, _):
             // Remove from URLCache
-            guard let url = URL(string: cacheKey) else { return }
-            var request = URLRequest(url: url)
-            request.httpMethod = "GET"
-            urlCache.removeCachedResponse(for: request)
+            guard let urlRequest = await urlRequest() else { return }
+            urlCache.removeCachedResponse(for: urlRequest)
             
         case .custom:
             // Remove from custom cache

@@ -155,13 +155,13 @@ await Harbor.setAuthProvider(APIKeyProvider())
 
 #### Cache Strategy
 
-**Location**: `Sources/Harbor/Cache/HCache.swift`
+**Location**: `Sources/Harbor/Cache/HCacheType.swift`
 
 ```swift
-enum Configuration {
+enum CacheType {
+    case urlCache(urlCache: URLCache, requestCachePolicy: NSURLRequest.CachePolicy)
+    case custom(Configuration)
     case disabled
-    case enabled(expirationTime: TimeInterval)
-    case custom(expirationTime: TimeInterval, maxObjectSize: Int)
 }
 
 // Per-request cache strategy
@@ -208,9 +208,8 @@ struct EthBlockNumber: HJRPCRequestProtocol {
 struct HJRPCRequestWrapper<Request: HJRPCRequestProtocol>: HPostRequestProtocol {
     let originalRequest: Request
     
-    var bodyParameters: HBodyParameters? {
-        let jsonRpc = ["jsonrpc": "2.0", "method": originalRequest.method, ...]
-        return .json(jsonRpc)
+    var bodyParameters: [String: Any]? {
+        ["jsonrpc": "2.0", "method": originalRequest.method]
     }
 }
 ```
@@ -291,7 +290,7 @@ Request.request()
 ```
 Request.requestStream(source: .cacheAndRemote)
     │
-    ├─ Create AsyncThrowingStream<(Model, HRequestDataOrigin), Error>
+    ├─ Create AsyncThrowingStream<(Model, HOriginType), Error>
     │
     ├─ If source includes .cache
     │  ├─ Check cache
@@ -389,7 +388,9 @@ struct SimpleRequest: HGetRequestProtocol {
 struct AdvancedRequest: HPostRequestProtocol {
     typealias Model = User
     let url = "https://api.example.com/user"
-    let bodyParameters: HBodyParameters? = .json(["name": "John"])
+    var bodyParameters: [String: Any]? {
+        ["name": "John"]
+    }
     let headers = ["X-Custom": "Value"]
     let needsAuth = true
     let retries = 3

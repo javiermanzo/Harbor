@@ -14,17 +14,13 @@ struct UploadImageRequest: HPostRequestProtocol {
     let imageData: Data
     let filename: String
     
-    var bodyParameters: HBodyParameters? {
-        let multipartData = [
-            HMultipartData(
-                data: imageData,
-                name: "image",
-                fileName: filename,
-                mimeType: "image/jpeg"
-            )
+    var bodyParameters: [String: Any]? {
+        [
+            "image": imageData,
+            "filename": filename
         ]
-        return .multipart(multipartData)
     }
+    var bodyType: HRequestDataType { .multipart }
 }
 
 // Usage
@@ -52,37 +48,15 @@ struct UploadDocumentRequest: HPostRequestProtocol {
     let description: String
     let category: String
     
-    var bodyParameters: HBodyParameters? {
-        let multipartData = [
-            // File
-            HMultipartData(
-                data: fileData,
-                name: "document",
-                fileName: filename,
-                mimeType: "application/pdf"
-            ),
-            // Metadata fields
-            HMultipartData(
-                data: title.data(using: .utf8)!,
-                name: "title",
-                fileName: nil,
-                mimeType: "text/plain"
-            ),
-            HMultipartData(
-                data: description.data(using: .utf8)!,
-                name: "description",
-                fileName: nil,
-                mimeType: "text/plain"
-            ),
-            HMultipartData(
-                data: category.data(using: .utf8)!,
-                name: "category",
-                fileName: nil,
-                mimeType: "text/plain"
-            )
+    var bodyParameters: [String: Any]? {
+        [
+            "document": fileData,
+            "title": title,
+            "description": description,
+            "category": category
         ]
-        return .multipart(multipartData)
     }
+    var bodyType: HRequestDataType { .multipart }
 }
 ```
 
@@ -95,27 +69,15 @@ struct UploadMultipleImagesRequest: HPostRequestProtocol {
     
     let images: [(data: Data, filename: String)]
     
-    var bodyParameters: HBodyParameters? {
-        let multipartData = images.enumerated().map { index, image in
-            HMultipartData(
-                data: image.data,
-                name: "images[\(index)]",
-                fileName: image.filename,
-                mimeType: "image/jpeg"
-            )
+    var bodyParameters: [String: Any]? {
+        var params: [String: Any] = [:]
+        for (index, image) in images.enumerated() {
+            params["images[\(index)]"] = image.data
         }
-        return .multipart(multipartData)
+        return params
     }
+    var bodyType: HRequestDataType { .multipart }
 }
-
-// Usage
-let images = [
-    (data: image1Data, filename: "photo1.jpg"),
-    (data: image2Data, filename: "photo2.jpg"),
-    (data: image3Data, filename: "photo3.jpg")
-]
-
-let response = await UploadMultipleImagesRequest(images: images).request()
 ```
 
 ## Streaming Requests
@@ -284,17 +246,17 @@ final class OAuth2Manager: HAuthProviderProtocol, @unchecked Sendable {
         struct RefreshRequest: HPostRequestProtocol {
             typealias Model = TokenResponse
             let url: String
-            let bodyParameters: HBodyParameters?
+            var bodyParameters: [String: Any]?
         }
         
         let request = RefreshRequest(
             url: tokenEndpoint,
-            bodyParameters: .json([
+            bodyParameters: [
                 "grant_type": "refresh_token",
                 "refresh_token": refreshToken,
                 "client_id": clientId,
                 "client_secret": clientSecret
-            ])
+            ]
         )
         
         let response = await request.request()
@@ -318,18 +280,19 @@ final class OAuth2Manager: HAuthProviderProtocol, @unchecked Sendable {
         struct LoginRequest: HPostRequestProtocol {
             typealias Model = TokenResponse
             let url: String
-            let bodyParameters: HBodyParameters?
+            var bodyParameters: [String: Any]?
         }
         
         let request = LoginRequest(
             url: tokenEndpoint,
-            bodyParameters: .json([
+            bodyParameters: [
                 "grant_type": "password",
                 "username": username,
                 "password": password,
                 "client_id": clientId,
                 "client_secret": clientSecret
-            ])
+            ]
+        )
         )
         
         let response = await request.request()

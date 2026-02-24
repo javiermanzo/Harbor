@@ -130,16 +130,8 @@ struct GetUserRequest: HGetRequestProtocol {
 **Additional Properties:**
 ```swift
 protocol HPostRequestProtocol {
-    var bodyParameters: HBodyParameters? { get }
-}
-```
-
-**Body Parameter Types:**
-
-```swift
-enum HBodyParameters {
-    case json([String: Any])           // JSON body
-    case multipart([HMultipartData])   // Multipart form data
+    var bodyParameters: [String: Any]? { get }
+    var bodyType: HRequestDataType { get }
 }
 ```
 
@@ -148,11 +140,13 @@ enum HBodyParameters {
 struct CreateUserRequest: HPostRequestProtocol {
     typealias Model = User
     let url: String = "https://api.example.com/users"
-    let bodyParameters: HBodyParameters? = .json([
-        "name": "John Doe",
-        "email": "john@example.com",
-        "age": 30
-    ])
+    var bodyParameters: [String: Any]? {
+        [
+            "name": "John Doe",
+            "email": "john@example.com",
+            "age": 30
+        ]
+    }
 }
 ```
 
@@ -164,9 +158,8 @@ struct CreateUserRequest: HPostRequestProtocol {
     
     let user: UserInput
     
-    var bodyParameters: HBodyParameters? {
-        guard let dict = user.asDictionary() else { return nil }
-        return .json(dict)
+    var bodyParameters: [String: Any]? {
+        user.asDictionary()
     }
 }
 ```
@@ -180,23 +173,13 @@ struct UploadImageRequest: HPostRequestProtocol {
     let imageData: Data
     let description: String
     
-    var bodyParameters: HBodyParameters? {
-        let multipartData = [
-            HMultipartData(
-                data: imageData,
-                name: "image",
-                fileName: "photo.jpg",
-                mimeType: "image/jpeg"
-            ),
-            HMultipartData(
-                data: description.data(using: .utf8)!,
-                name: "description",
-                fileName: nil,
-                mimeType: "text/plain"
-            )
+    var bodyParameters: [String: Any]? {
+        [
+            "image": imageData,
+            "description": description
         ]
-        return .multipart(multipartData)
     }
+    var bodyType: HRequestDataType { .multipart }
 }
 ```
 
@@ -215,7 +198,8 @@ struct UploadImageRequest: HPostRequestProtocol {
 **Additional Properties:**
 ```swift
 protocol HPutRequestProtocol {
-    var bodyParameters: HBodyParameters? { get }
+    var bodyParameters: [String: Any]? { get }
+    var bodyType: HRequestDataType { get }
 }
 ```
 
@@ -224,11 +208,13 @@ protocol HPutRequestProtocol {
 struct UpdateUserRequest: HPutRequestProtocol {
     typealias Model = User
     let url: String = "https://api.example.com/users/1"
-    let bodyParameters: HBodyParameters? = .json([
-        "name": "Jane Doe",
-        "email": "jane@example.com",
-        "age": 28
-    ])
+    var bodyParameters: [String: Any]? {
+        [
+            "name": "Jane Doe",
+            "email": "jane@example.com",
+            "age": 28
+        ]
+    }
 }
 ```
 
@@ -246,7 +232,8 @@ struct UpdateUserRequest: HPutRequestProtocol {
 **Additional Properties:**
 ```swift
 protocol HPatchRequestProtocol {
-    var bodyParameters: HBodyParameters? { get }
+    var bodyParameters: [String: Any]? { get }
+    var bodyType: HRequestDataType { get }
 }
 ```
 
@@ -255,9 +242,11 @@ protocol HPatchRequestProtocol {
 struct UpdateUserEmailRequest: HPatchRequestProtocol {
     typealias Model = User
     let url: String = "https://api.example.com/users/1"
-    let bodyParameters: HBodyParameters? = .json([
-        "email": "newemail@example.com"
-    ])
+    var bodyParameters: [String: Any]? {
+        [
+            "email": "newemail@example.com"
+        ]
+    }
 }
 ```
 
@@ -478,7 +467,9 @@ struct LongRunningRequest: HPostRequestProtocol {
     typealias Model = Result
     let url = "https://api.example.com/process"
     let timeout: TimeInterval = 180  // 3 minutes
-    let bodyParameters: HBodyParameters? = .json(["data": "..."])
+    var bodyParameters: [String: Any]? {
+        ["data": "..."]
+    }
 }
 ```
 
@@ -617,14 +608,14 @@ enum UserAPI {
     struct Create: HPostRequestProtocol {
         typealias Model = User
         let url = "https://api.example.com/users"
-        let bodyParameters: HBodyParameters?
+        var bodyParameters: [String: Any]?
     }
     
     struct Update: HPutRequestProtocol {
         typealias Model = User
         let userId: String
         var url: String { "https://api.example.com/users/\(userId)" }
-        let bodyParameters: HBodyParameters?
+        var bodyParameters: [String: Any]?
     }
     
     struct Delete: HDeleteRequestProtocol, HRequestWithEmptyResponseProtocol {
@@ -632,10 +623,6 @@ enum UserAPI {
         var url: String { "https://api.example.com/users/\(userId)" }
     }
 }
-
-// Usage
-let user = await UserAPI.Get(userId: "123").request()
-await UserAPI.Delete(userId: "123").request()
 ```
 
 ### 4. Cache Appropriately

@@ -92,11 +92,11 @@ struct CreateUserRequest: HPostRequestProtocol {
     let name: String
     let email: String
     
-    var bodyParameters: HBodyParameters? {
-        return .json([
+    var bodyParameters: [String: Any]? {
+        [
             "name": name,
             "email": email
-        ])
+        ]
     }
 }
 
@@ -123,12 +123,12 @@ struct CreateUserRequest: HPostRequestProtocol {
     
     let userInput: UserInput
     
-    var bodyParameters: HBodyParameters? {
+    var bodyParameters: [String: Any]? {
         guard let data = try? JSONEncoder().encode(userInput),
               let dict = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             return nil
         }
-        return .json(dict)
+        return dict
     }
 }
 
@@ -152,11 +152,12 @@ struct LogEventRequest: HPostRequestProtocol, HRequestWithEmptyResponseProtocol 
     let eventType: String
     let timestamp: Date
     
-    var bodyParameters: HBodyParameters? {
-        return .json([
+    var bodyParameters: [String: Any]? {
+        [
             "event_type": eventType,
             "timestamp": timestamp.timeIntervalSince1970
-        ])
+        ]
+    }
     }
 }
 
@@ -188,12 +189,12 @@ struct UpdateUserRequest: HPutRequestProtocol {
     let email: String
     let age: Int
     
-    var bodyParameters: HBodyParameters? {
-        return .json([
+    var bodyParameters: [String: Any]? {
+        [
             "name": name,
             "email": email,
             "age": age
-        ])
+        ]
     }
 }
 
@@ -216,8 +217,8 @@ struct UpdateUserEmailRequest: HPatchRequestProtocol {
     
     let newEmail: String
     
-    var bodyParameters: HBodyParameters? {
-        return .json(["email": newEmail])
+    var bodyParameters: [String: Any]? {
+        ["email": newEmail]
     }
 }
 
@@ -491,14 +492,14 @@ enum UserAPI {
     struct Create: HPostRequestProtocol {
         typealias Model = User
         let url = "https://api.example.com/users"
-        let bodyParameters: HBodyParameters?
+        var bodyParameters: [String: Any]?
     }
     
     struct Update: HPutRequestProtocol {
         typealias Model = User
         let userId: String
         var url: String { "https://api.example.com/users/\(userId)" }
-        let bodyParameters: HBodyParameters?
+        var bodyParameters: [String: Any]?
     }
     
     struct Delete: HDeleteRequestProtocol, HRequestWithEmptyResponseProtocol {

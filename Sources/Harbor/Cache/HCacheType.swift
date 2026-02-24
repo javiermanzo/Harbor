@@ -1,5 +1,5 @@
 //
-//  HCachePolicy.swift
+//  HCacheType.swift
 //  Harbor
 //
 //  Created by Javier Manzo on 20/02/2026.

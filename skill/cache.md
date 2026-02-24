@@ -67,13 +67,23 @@ final class Manager {
 
 ### Cache Configuration Types
 
-**Location**: `Sources/Harbor/Cache/HCache.swift`
+**Location**: `Sources/Harbor/Cache/HCachePolicy.swift`
 
 ```swift
-enum Configuration {
+enum CacheType {
+    case urlCache(urlCache: URLCache, requestCachePolicy: NSURLRequest.CachePolicy)
+    case custom(Configuration)
     case disabled
-    case enabled(expirationTime: TimeInterval)
-    case custom(expirationTime: TimeInterval, maxObjectSize: Int)
+}
+```
+
+**Location**: `Sources/Harbor/Cache/HCacheConfiguration.swift`
+
+```swift
+struct Configuration: Sendable, Equatable {
+    let expirationTime: TimeInterval?
+    let maxObjectSizeInMBs: Int
+    let memoryCacheCapacityInMBs: Int
 }
 ```
 
@@ -101,7 +111,7 @@ let cacheType: HCache.CacheType? = .custom(HCache.Configuration(
 
 ### Predefined Expiration Times
 
-**Location**: `Sources/Harbor/Cache/HCache.swift`
+**Location**: `Sources/Harbor/Cache/TimeInterval+Cache.swift`
 
 ```swift
 extension TimeInterval {
@@ -343,7 +353,7 @@ enum HRequestSource {
 ### Data Origin
 
 ```swift
-enum HRequestDataOrigin {
+enum HOriginType {
     case cache   // Data came from cache
     case remote  // Data came from network
 }
@@ -353,7 +363,7 @@ enum HRequestDataOrigin {
 
 ```swift
 func requestStream(source: HRequestSource = .cacheAndRemote) 
-    -> AsyncThrowingStream<(Model, HRequestDataOrigin), Error>
+    -> AsyncThrowingStream<(Model, HOriginType), Error>
 ```
 
 ### Example: Cache Then Network
@@ -682,7 +692,9 @@ await Harbor.clearAllCache()
 
 **Cache Implementation:**
 - `Sources/Harbor/Cache/HCacheManager.swift` - Cache manager and storage
-- `Sources/Harbor/Cache/HCache.swift` - Configuration and types
+- `Sources/Harbor/Cache/HCachePolicy.swift` - Cache type definitions
+- `Sources/Harbor/Cache/HCacheConfiguration.swift` - Cache configuration
+- `Sources/Harbor/Cache/TimeInterval+Cache.swift` - Predefined expiration times
 - `Sources/Harbor/Request/HRequestProtocol.swift` - Streaming APIs
 
 **Examples:**

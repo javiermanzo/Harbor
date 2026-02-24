@@ -13,12 +13,7 @@ public extension HGetRequestProtocol {
     /// Works with both custom cache and URLCache types.
     /// - Returns: The cached model if found and valid, `nil` otherwise.
     func cache() async -> Model? {
-        let effectiveCacheType: HCache.CacheType
-        if let cacheType {
-            effectiveCacheType = cacheType
-        } else {
-            effectiveCacheType = await HConfig.shared.defaultCacheType
-        }
+        let effectiveCacheType = await effectiveCacheType()
         
         switch effectiveCacheType {
         case .custom(let config):
@@ -44,16 +39,7 @@ public extension HGetRequestProtocol {
     ///   - data: The response data to cache.
     ///   - response: The HTTP response containing cache headers (optional).
     func saveCache(_ data: Data, response: HTTPURLResponse?) async {
-        let requestCacheType = self.cacheType
-        
-        let effectiveCacheType: HCache.CacheType
-        if let requestCacheType = requestCacheType {
-            effectiveCacheType = requestCacheType
-        } else {
-            effectiveCacheType = await HConfig.shared.defaultCacheType
-        }
-
-        if case .custom(let config) = effectiveCacheType,
+        if case .custom(let config) = await effectiveCacheType(),
            let cacheKey = await cacheKey() {
             await HCache.Manager.shared.storeData(data, forKey: cacheKey, config: config, response: response)
         }
@@ -89,6 +75,19 @@ public extension HGetRequestProtocol {
 }
 
 private extension HGetRequestProtocol {
+
+    /// Resolves the effective cache type for this request.
+    /// Uses the request-specific cache type if set, otherwise falls back to the global default.
+    /// - Returns: The effective `HCache.CacheType` to use for this request.
+    func effectiveCacheType() async ->  HCache.CacheType {
+        let effectiveCacheType: HCache.CacheType
+        if let requestCacheType = self.cacheType {
+           return requestCacheType
+        } else {
+            return await HConfig.shared.defaultCacheType
+        }
+    }
+
     /// Builds and returns a URLRequest for this request.
     /// - Returns: The configured URLRequest, or nil if the request cannot be built.
     func urlRequest() async -> URLRequest? {

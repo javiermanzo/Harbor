@@ -29,11 +29,11 @@ final class HarborCacheTests: XCTestCase {
     
     func testCacheDefaultValue() {
         let request = TestDefaultCacheableRequest()
-        XCTAssertNil(request.cacheType, "Cache policy should be nil by default (uses config default)")
+        XCTAssertNil(request.cacheType, "Cache type should be nil by default (uses config default)")
     }
     
     func testCacheUsesDefaultFromConfig() async {
-        // Set default cache policy to custom with 1 hour expiration
+        // Set default cache type to custom with 1 hour expiration
         await Harbor.setDefaultCacheType(.custom(HCache.Configuration(expirationTime: .oneHour)))
         
         let request = TestCacheableRequest() // Uses explicit cache configuration
@@ -49,7 +49,7 @@ final class HarborCacheTests: XCTestCase {
     func testCacheConfigurationDefaults() {
         let request = TestCacheableRequest()
         guard case .custom(let config) = request.cacheType else {
-            XCTFail("Cache policy should be custom for TestCacheableRequest")
+            XCTFail("Cache type should be custom for TestCacheableRequest")
             return
         }
         // TestCacheableRequest uses HCache.Configuration() with default values
@@ -70,9 +70,9 @@ final class HarborCacheTests: XCTestCase {
         
         let request = TestExplicitlyDisabledRequest()
         
-        // Verify cache is explicitly disabled via policy
-        XCTAssertEqual(request.cacheType, .disabled, "Cache policy should be disabled")
-        
+        // Verify cache is explicitly disabled via type
+        XCTAssertEqual(request.cacheType, .disabled, "Cache type should be disabled")
+
         // Make request
         let response = await request.request()
         switch response {
@@ -127,7 +127,7 @@ final class HarborCacheTests: XCTestCase {
         
         let request = TestCustomExpirationRequest()
         guard case .custom(let config) = request.cacheType else {
-            XCTFail("Cache policy should be custom for TestCustomExpirationRequest")
+            XCTFail("Cache type should be custom for TestCustomExpirationRequest")
             return
         }
         XCTAssertEqual(config.expirationTime, 60, "Custom expiration time should be 60 seconds")
@@ -186,7 +186,7 @@ final class HarborCacheTests: XCTestCase {
         
         let request = TestOneHourCacheRequest()
         guard case .custom(let config) = request.cacheType else {
-            XCTFail("Cache policy should be custom for TestOneHourCacheRequest")
+            XCTFail("Cache type should be custom for TestOneHourCacheRequest")
             return
         }
         XCTAssertEqual(config.expirationTime, .oneHour, "Should use oneHour constant")

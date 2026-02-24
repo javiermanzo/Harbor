@@ -596,7 +596,7 @@ func testRequestStream() async throws {
     let request = GetUserRequest(userId: "1")
     
     // When
-    var emissions: [(User, HRequestDataOrigin)] = []
+    var emissions: [(User, HOriginType)] = []
     for try await (user, origin) in request.requestStream(source: .cacheAndRemote) {
         emissions.append((user, origin))
     }

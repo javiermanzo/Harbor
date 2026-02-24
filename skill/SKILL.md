@@ -89,7 +89,9 @@ let response = await GetUserRequest().request()
 struct CreateUserRequest: HPostRequestProtocol {
     typealias Model = User
     let url: String = "https://api.example.com/user"
-    let bodyParameters: HBodyParameters? = .json(["name": "John", "email": "john@example.com"])
+    var bodyParameters: [String: Any]? {
+        ["name": "John", "email": "john@example.com"]
+    }
 }
 ```
 
@@ -108,7 +110,7 @@ await Harbor.setSSlPinningKeys(["sha256hash1", "sha256hash2"])
 let mtls = HmTLS(p12FileUrl: certUrl, password: "password")
 await Harbor.setMTLS(mtls)
 
-// Set default cache policy
+// Set default cache type
 await Harbor.setDefaultCacheType(.custom(HCache.Configuration(expirationTime: .oneDay)))
 ```
 
@@ -173,7 +175,7 @@ let customURLCache = URLCache(
     memoryCapacity: 100 * 1024 * 1024,  // 100MB memory
     diskCapacity: 500 * 1024 * 1024     // 500MB disk
 ))
-let policy: HCache.CacheType = .urlCache(customURLCache)
+let cacheType: HCache.CacheType = .urlCache(customURLCache)
 
 // Custom cache configuration
 let config = HCache.Configuration(
@@ -181,7 +183,7 @@ let config = HCache.Configuration(
     maxObjectSizeInMBs: 10,           // Max object size (default: 10MB)
     memoryCacheCapacityInMBs: 100     // Memory cache size (default: 100MB)
 )
-let policy: HCache.CacheType = .custom(config)
+let cacheType: HCache.CacheType = .custom(config)
 ```
 
 ### Response Handling

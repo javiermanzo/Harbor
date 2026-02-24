@@ -2,7 +2,7 @@
 //  HarborETagTests.swift
 //  Harbor
 //
-//  Tests for ETag and cache policy functionality
+//  Tests for ETag and cache type functionality
 //
 
 import XCTest
@@ -24,13 +24,13 @@ final class HarborETagTests: XCTestCase {
     
     func testDefaultCachePolicyIsURLCache() async throws {
         let request = GetUsersRequest()
-        XCTAssertNil(request.cacheType, "Default cache policy should be nil (uses config default)")
+        XCTAssertNil(request.cacheType, "Default cache type should be nil (uses config default)")
     }
     
     func testCustomCachePolicy() async throws {
         let request = GetUsersWithCustomCacheRequest()
         guard case .custom(let config) = request.cacheType else {
-            XCTFail("Expected custom cache policy")
+            XCTFail("Expected custom cache type")
             return
         }
         XCTAssertEqual(config.expirationTime, .oneHour)
@@ -45,7 +45,7 @@ final class HarborETagTests: XCTestCase {
     
     func testURLCachePolicyIsCachingEnabled() async throws {
         let request = GetUsersRequest()
-        // Default cacheType is nil, but effective policy .urlCache() has caching enabled
+        // Default cacheType is nil, but effective type .urlCache() has caching enabled
         let effectivePolicy = request.cacheType ?? .urlCache()
         XCTAssertTrue(effectivePolicy.isCachingEnabled)
     }
@@ -55,16 +55,16 @@ final class HarborETagTests: XCTestCase {
     func testCacheMethodReturnsNilForURLCachePolicy() async throws {
         let request = GetUsersRequest()
         
-        // cache() should return nil for URLCache policy
+        // cache() should return nil for URLCache type
         let cached = await request.cache()
-        XCTAssertNil(cached, "cache() should return nil for URLCache policy")
+        XCTAssertNil(cached, "cache() should return nil for URLCache type")
     }
     
     func testCacheMethodReturnsNilForDisabledPolicy() async throws {
         let request = GetUsersNoCacheRequest()
         
         let cached = await request.cache()
-        XCTAssertNil(cached, "cache() should return nil for disabled policy")
+        XCTAssertNil(cached, "cache() should return nil for disabled type")
     }
     
     func testCacheMethodWorksForCustomPolicy() async throws {
@@ -82,7 +82,7 @@ final class HarborETagTests: XCTestCase {
         
         // Then - cache should be available via custom cache
         let cached = await request.cache()
-        XCTAssertNotNil(cached, "cache() should return data for custom cache policy")
+        XCTAssertNotNil(cached, "cache() should return data for custom cache type")
         XCTAssertEqual(cached?.id, 1)
     }
     
@@ -125,7 +125,7 @@ final class HarborETagTests: XCTestCase {
         let request = GetUsersCustomURLCacheRequest(urlCache: customCache)
         
         guard case .urlCache(let cache, _) = request.cacheType else {
-            XCTFail("Expected urlCache policy")
+            XCTFail("Expected urlCache type")
             return
         }
         XCTAssertEqual(cache.memoryCapacity, 100 * 1024 * 1024)

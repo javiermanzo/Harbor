@@ -6,6 +6,10 @@
 - Complete caching system with `HCacheManager`
 - `HURLBuilder` utility for centralized URL construction  
 - `AsyncThrowingStream` support with `requestStream()` for cache+remote data
+- `HCache.Policy` enum with `.urlCache`, `.custom`, and `.disabled` options
+- **URLCache is now the default** - provides automatic ETag/304 support via Apple's URLCache
+- Custom cache continues to provide manual TTL and size control
+- `clearCache()` support for both URLCache and custom cache policies
 - Comprehensive test suites
 
 ### Fixed

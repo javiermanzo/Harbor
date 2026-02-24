@@ -16,14 +16,12 @@ import Network
 }
 
 @HRequestManagerActor
-final class HRequestManager: Sendable {
-    static var config: HConfig = HConfig()
-}
+final class HRequestManager: Sendable {}
 
 // MARK: - Request With Result
 extension HRequestManager {
     static func request<Model: HModel>(model: Model.Type, request: any HRequestWithResultProtocol) async -> HResponseWithResult<Model> {
-        if let mock = HMocker.mock(request: request), config.mocksEnabled {
+        if let mock = HMocker.mock(request: request), HConfig.shared.mocksEnabled {
             if let delay = mock.delay {
                 let delayInNanoseconds = UInt64(delay * 1_000_000_000)
                 try? await Task.sleep(nanoseconds: delayInNanoseconds)
@@ -55,7 +53,7 @@ extension HRequestManager {
     }
 
     private static func requestHandler<Model: HModel>(model: Model.Type, request: any HRequestWithResultProtocol) async -> HResponseWithResult<Model> {
-        guard let urlRequest = self.buildUrlRequest(request: request) else {
+        guard let urlRequest = HURLBuilder.buildUrlRequest(request: request) else {
             let hError: HRequestError = .malformedRequestError
             logError(hError, request: request)
             return .error(hError)
@@ -66,7 +64,7 @@ extension HRequestManager {
         }
 
         do {
-            let session = getURLSession()
+            let session = getURLSession(for: request)
 
             let startTime = Date()
 
@@ -129,7 +127,7 @@ extension HRequestManager {
                 let parsedResponse = try request.parseData(data: data, model: model)
 
                 if let request = request as? any HGetRequestProtocol {
-                    await HCache.Manager.shared.storeData(data, for: request, response: httpResponse)
+                    await request.saveCache(data, response: httpResponse)
                 }
 
                 return .success(parsedResponse)
@@ -138,9 +136,21 @@ extension HRequestManager {
                 logError(hError, request: request)
                 return .error(hError)
             }
+        case 304:
+            // Not Modified — return cached data from custom cache.
+            // (URLCache handles 304 transparently at URLSession level; this branch handles custom cache.)
+            if let getRequest = request as? any HGetRequestProtocol,
+               let cachedAny = await getRequest.cache(),
+               let cachedModel = cachedAny as? Model {
+                return .success(cachedModel)
+            } else {
+                let hError: HRequestError = .apiError(statusCode: statusCode, data: data)
+                logError(hError, request: request)
+                return .error(hError)
+            }
         case 401:
             if await !hasNewAuthorizationHeader(request: request) {
-                await Self.config.authProvider?.authFailed()
+                await HConfig.shared.authProvider?.authFailed()
                 let hError: HRequestError = .authNeeded
                 logError(hError, request: request)
                 return .error(hError)
@@ -164,7 +174,7 @@ extension HRequestManager {
 // MARK: - Request Without Result
 extension HRequestManager {
     static func request(request: any HRequestWithEmptyResponseProtocol) async -> HResponse {
-        if let mock = HMocker.mock(request: request), config.mocksEnabled {
+        if let mock = HMocker.mock(request: request), HConfig.shared.mocksEnabled {
             if let delay = mock.delay {
                 let delayInNanoseconds = UInt64(delay * 1_000_000_000)
                 try? await Task.sleep(nanoseconds: delayInNanoseconds)
@@ -196,7 +206,7 @@ extension HRequestManager {
     }
 
     private static func requestHandler<P: HRequestWithEmptyResponseProtocol>(request: P) async -> HResponse {
-        guard let urlRequest = self.buildUrlRequest(request: request) else {
+        guard let urlRequest = HURLBuilder.buildUrlRequest(request: request) else {
             let hError: HRequestError = .malformedRequestError
             logError(hError, request: request)
             return .error(hError)
@@ -207,7 +217,7 @@ extension HRequestManager {
         }
 
         do {
-            let session = getURLSession()
+            let session = getURLSession(for: request)
 
             let startTime = Date()
 
@@ -265,7 +275,7 @@ extension HRequestManager {
             return .success
         case 401:
             if await !hasNewAuthorizationHeader(request: request) {
-                await Self.config.authProvider?.authFailed()
+                await HConfig.shared.authProvider?.authFailed()
                 let hError: HRequestError = .authNeeded
                 logError(hError, request: request)
                 return .error(hError)
@@ -288,100 +298,10 @@ extension HRequestManager {
 
 // MARK: - Request Builder Functions
 extension HRequestManager {
-    static func buildUrlRequest<P: HRequestBaseRequestProtocol>(request: P) -> URLRequest? {
-        let url: URL?
-
-        switch request.httpMethod {
-        case .get:
-            guard let request = request as? (any HGetRequestProtocol) else { return nil }
-            url = HURLBuilder.compositeURL(url: request.url, pathParameters: request.pathParameters, queryParameters: request.queryParameters)
-        case .post, .put, .patch, .delete:
-            url = HURLBuilder.compositeURL(url: request.url, pathParameters: request.pathParameters)
-        }
-
-        guard let url else { return nil }
-
-        var urlRequest = URLRequest(url: url)
-
-        urlRequest.httpMethod = request.httpMethod.rawValue
-        // TODO: Move to a config class
-        urlRequest.httpShouldHandleCookies = false
-
-        if let request = request as? HRequestWithBodyProtocol, let parameters = request.bodyParameters {
-            switch request.bodyType {
-            case .json:
-                urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
-                urlRequest.httpBody = dataBody(params: parameters, type: .json, boundary: nil)
-            case .multipart:
-                let boundary = "Boundary-\(UUID().uuidString)"
-                urlRequest.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
-                urlRequest.httpBody = dataBody(params: parameters, type: .multipart, boundary: boundary)
-            }
-        }
-
-        if let defaultHeaders = Self.config.defaultHeaderParameters {
-            urlRequest.allHTTPHeaderFields = mergeHeaderParameters(currentHeaders: urlRequest.allHTTPHeaderFields, newHeaders: defaultHeaders)
-        }
-
-        if let requestHeaderParameters = request.headerParameters {
-            urlRequest.allHTTPHeaderFields = mergeHeaderParameters(currentHeaders: urlRequest.allHTTPHeaderFields, newHeaders: requestHeaderParameters)
-        }
-
-        return urlRequest
-    }
-
-
-    static func dataBody(params: [String: Any], type: HRequestDataType, boundary: String? = nil) -> Data? {
-        if type == .multipart, let boundary {
-            return handleFormData(with: params, boundary: boundary)
-        }
-
-        do {
-            return try JSONSerialization.data(withJSONObject: params, options: .prettyPrinted)
-        } catch {
-            return nil
-        }
-    }
-
-    static func handleFormData(with params: [String: Any], boundary: String) -> Data? {
-        let httpBody = NSMutableData()
-        for (key, value) in params {
-            guard let value = value as? String else {
-                return nil
-            }
-
-            httpBody.appendString(convertFormField(named: key, value: value, using: boundary))
-        }
-
-        httpBody.appendString("--\(boundary)--")
-        return httpBody as Data
-    }
-
-    static func convertFormField(named name: String, value: String, using boundary: String) -> String {
-        var fieldString = "--\(boundary)\r\n"
-        fieldString += "Content-Disposition: form-data; name=\"\(name)\"\r\n"
-        fieldString += "\r\n"
-        fieldString += "\(value)\r\n"
-        return fieldString
-    }
-
-    static func mergeHeaderParameters(currentHeaders: [String: String]?, newHeaders: [String: String]) -> [String: String] {
-        if let currentHeaders {
-            var headers: [String: String] = currentHeaders
-
-            if !newHeaders.isEmpty {
-                headers.merge(newHeaders, uniquingKeysWith: { (_, new) in new })
-            }
-            return headers
-        } else {
-            return newHeaders
-        }
-    }
-
     static func addAuthCredentialsIfNeeded(_ request: any HRequestBaseRequestProtocol) async -> (any HRequestBaseRequestProtocol)? {
         if request.needsAuth {
             var modifiedRequest = request
-            if let authCredential = await Self.config.authProvider?.getAuthorizationHeader() {
+            if let authCredential = await HConfig.shared.authProvider?.getAuthorizationHeader() {
                 if modifiedRequest.headerParameters == nil {
                     modifiedRequest.headerParameters = [:]
                 }
@@ -396,9 +316,9 @@ extension HRequestManager {
 
     /// URLSession getter that handles mTLS and SSL pinning if needed
     /// Returns a cached session or creates a new optimized one
-    static func getURLSession() -> URLSession {
+    static func getURLSession(for request: any HRequestBaseRequestProtocol) -> URLSession {
         // Return cached session if available and configuration hasn't changed
-        if let currentURLSession = config.currentURLSession {
+        if let currentURLSession = HConfig.shared.currentURLSession {
             return currentURLSession
         }
 
@@ -406,18 +326,30 @@ extension HRequestManager {
         // TODO: Implement request config timeout
         configuration.timeoutIntervalForRequest = 15
         configuration.timeoutIntervalForResource = 30
+        
+        // Resolve effective cache type: request-specific takes precedence over global default
+        // Only HGetRequestProtocol has cache
+        if let getRequest = request as? any HGetRequestProtocol {
+            let cacheType: HCache.CacheType = getRequest.cacheType ?? HConfig.shared.defaultCacheType
+
+            if case .urlCache(let cache, let requestPolicy) = cacheType {
+                configuration.urlCache = cache
+                configuration.requestCachePolicy = requestPolicy
+            }
+        }
 
         // If mTLS or SSL pinning is configured, create a new URLSession with delegate
-        if config.mTLSIdentity != nil || config.sslPinningKeys != nil {
-            let sessionDelegate = HURLSessionDelegate(mTLSIdentity: config.mTLSIdentity, sslPinningKeys: config.sslPinningKeys)
+        if HConfig.shared.mTLSIdentity != nil || HConfig.shared.sslPinningKeys != nil {
+            let sessionDelegate = HURLSessionDelegate(mTLSIdentity: HConfig.shared.mTLSIdentity,
+                                                      sslPinningKeys: HConfig.shared.sslPinningKeys)
             let newSession = URLSession(configuration: configuration, delegate: sessionDelegate, delegateQueue: nil)
-            config.currentURLSession = newSession
+            HConfig.shared.currentURLSession = newSession
             return newSession
         }
 
         // Create session without delegate for standard requests
         let newSession = URLSession(configuration: configuration)
-        config.currentURLSession = newSession
+        HConfig.shared.currentURLSession = newSession
         return newSession
     }
 
@@ -433,7 +365,7 @@ private extension HRequestManager {
     // This method checks that the used authorization headers is an old one
     static func hasNewAuthorizationHeader(request: HRequestBaseRequestProtocol) async -> Bool {
         guard let headerParameters = request.headerParameters,
-              let currentAuthorizationHeader = await Self.config.authProvider?.getAuthorizationHeader(),
+              let currentAuthorizationHeader = await HConfig.shared.authProvider?.getAuthorizationHeader(),
               let usedAuthorization = headerParameters[currentAuthorizationHeader.key]
         else { return false }
 

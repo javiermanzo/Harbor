@@ -127,7 +127,7 @@ struct GetUserRequest: HGetRequestProtocol {
     typealias Model = User
     let userId: String
     var url: String { "https://api.example.com/users/\(userId)" }
-    let cacheConfiguration: HCache.Configuration? = .enabled(expirationTime: .oneHour)
+    let cacheType: HCache.CacheType? = .custom(HCache.Configuration(expirationTime: .oneHour))
 }
 
 // Stream will emit twice: first from cache (if exists), then from network
@@ -557,7 +557,7 @@ struct MonitoredRequest<T: HGetRequestProtocol>: HGetRequestProtocol {
     var queryParameters: [String: Any]? { wrappedRequest.queryParameters }
     var headers: [String: String]? { wrappedRequest.headers }
     var needsAuth: Bool { wrappedRequest.needsAuth }
-    var cacheConfiguration: HCache.Configuration? { wrappedRequest.cacheConfiguration }
+    var cacheType: HCache.CacheType? { wrappedRequest.cacheType }
     
     func request() async -> HResponseWithResult<Model> {
         let startTime = Date()

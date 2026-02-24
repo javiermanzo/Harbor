@@ -48,7 +48,7 @@ protocol HRequestBaseRequestProtocol {
 extension HRequestBaseRequestProtocol {
     var headers: [String: String]? { return nil }
     var needsAuth: Bool { return false }
-    var cacheConfiguration: HCache.Configuration? { return nil }
+    var cacheType: HCache.CacheType? { return nil }
 }
 ```
 
@@ -166,7 +166,7 @@ enum Configuration {
 
 // Per-request cache strategy
 struct GetUserRequest: HGetRequestProtocol {
-    let cacheConfiguration: HCache.Configuration? = .enabled(expirationTime: .oneHour)
+    let cacheType: HCache.CacheType? = .custom(HCache.Configuration(expirationTime: .oneHour))
 }
 ```
 
@@ -237,7 +237,7 @@ This adapter allows JSON-RPC requests to use Harbor's infrastructure transparent
 │  │  • defaultHeaders: [String: String]                │   │
 │  │  • mtls: HmTLS?                                    │   │
 │  │  • sslPinningKeys: [String]                        │   │
-│  │  • cacheConfiguration: HCache.Configuration        │   │
+│  │  • cacheType: HCache.CacheType        │   │
 │  └─────────────────────────────────────────────────────┘   │
 └──────┬────────────────┬──────────────────┬──────────────────┘
        │                │                  │
@@ -264,7 +264,7 @@ Request.request()
     ├─ Check HMocker for registered mock (DEBUG mode)
     │  └─ If found, return mock response immediately
     │
-    ├─ Check cache (if cacheConfiguration is set)
+    ├─ Check cache (if cacheType is set)
     │  └─ If valid cache found, return cached response
     │
     ├─ Build URLRequest
@@ -281,7 +281,7 @@ Request.request()
     │  ├─ Handle 401 (auth refresh + retry)
     │  └─ Decode JSON to Model type
     │
-    ├─ Store in cache (if cacheConfiguration is set)
+    ├─ Store in cache (if cacheType is set)
     │
     └─ Return HResponse or HResponseWithResult<Model>
 ```
@@ -393,7 +393,7 @@ struct AdvancedRequest: HPostRequestProtocol {
     let headers = ["X-Custom": "Value"]
     let needsAuth = true
     let retries = 3
-    let cacheConfiguration: HCache.Configuration? = .enabled(expirationTime: .oneHour)
+    let cacheType: HCache.CacheType? = .custom(HCache.Configuration(expirationTime: .oneHour))
 }
 ```
 
@@ -441,7 +441,7 @@ Important behaviors require explicit opt-in:
 let needsAuth: Bool = true
 
 // Must explicitly configure cache
-let cacheConfiguration = HCache.Configuration.enabled(expirationTime: .oneHour)
+let cacheType = HCache.CacheType.custom(HCache.Configuration(expirationTime: .oneHour))
 ```
 
 ## Performance Considerations

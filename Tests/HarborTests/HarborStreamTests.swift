@@ -16,7 +16,7 @@ final class HarborStreamTests: XCTestCase {
         await Harbor.removeAllMocks()
         await Harbor.setMocksOnlyInDebug(false)
         // Set default cache to disabled (original behavior)
-        await Harbor.setDefaultCacheConfiguration(.disabled)
+        await Harbor.setDefaultCacheType(.disabled)
     }
     
     override func tearDown() async throws {
@@ -119,13 +119,14 @@ final class HarborStreamTests: XCTestCase {
         
         let request = TestStreamRequest()
         
-        // First populate cache
+        // Populate cache before testing stream
         _ = await request.request()
         
         // Test cache-and-remote stream
         var results: [(TestStreamData, HOriginType)] = []
         do {
-            for try await (response, origin) in request.requestStream(source: .cacheAndRemote) {
+            let stream = request.requestStream(source: .cacheAndRemote)
+            for try await (response, origin) in stream {
                 results.append((response, origin))
             }
         } catch {
@@ -265,5 +266,5 @@ private struct TestStreamRequest: HGetRequestProtocol {
     typealias Model = TestStreamData
     
     let url: String = "https://stream.example.com/test"
-    let cacheConfiguration: HCache.Configuration? = .enabled()
+    let cacheType: HCache.CacheType? = .custom(HCache.Configuration())
 }

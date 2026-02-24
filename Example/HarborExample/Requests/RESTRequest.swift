@@ -11,5 +11,4 @@ import Harbor
 struct RESTRequest: HGetRequestProtocol {
     typealias Model = KanyeQuote
     let url: String = "https://api.kanye.rest/"
-    let cacheConfiguration: HCache.Configuration? = .enabled(expirationTime: .oneHour)
 }

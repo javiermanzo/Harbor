@@ -70,7 +70,7 @@ struct GetUserProfileRequest: HGetRequestProtocol {
     typealias Model = UserProfile
     let userId: String
     var url: String { "https://api.example.com/users/\(userId)/profile" }
-    let cacheConfiguration: HCache.Configuration? = .enabled(expirationTime: .oneHour)
+    let cacheType: HCache.CacheType? = .custom(HCache.Configuration(expirationTime: .oneHour))
 }
 
 // First call - fetches from network and caches
@@ -433,7 +433,7 @@ struct AnyRequest: HGetRequestProtocol {
 
 ```swift
 // In AppDelegate or app initialization
-await Harbor.setDefaultCacheConfiguration(.enabled(expirationTime: .oneHour))
+await Harbor.setDefaultCacheType(.custom(HCache.Configuration(expirationTime: .oneHour)))
 
 // All requests without explicit cache config will use this
 ```
@@ -550,8 +550,8 @@ struct GetDataRequest: HGetRequestProtocol {
     let url: String = "https://api.example.com/data"
     let useCache: Bool
     
-    var cacheConfiguration: HCache.Configuration? {
-        return useCache ? .enabled(expirationTime: .oneHour) : .disabled
+    var cacheType: HCache.CacheType? {
+        return useCache ? .custom(HCache.Configuration(expirationTime: .oneHour)) : .disabled
     }
 }
 

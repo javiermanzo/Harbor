@@ -8,41 +8,41 @@
 import Foundation
 
 public extension HCache {
-    /// Configuration for request caching behavior.
-    enum Configuration: Sendable {
-        /// Caching is disabled for this request.
-        case disabled
-        /// Caching is enabled with optional custom expiration time and max object size in MB (default 10MB).
-        case enabled(expirationTime: TimeInterval? = .oneWeek, maxObjectSizeInMBs: Int = 10)
-
-        /// Whether caching is enabled for this configuration.
-        var isEnabled: Bool {
-            switch self {
-            case .disabled:
-                return false
-            case .enabled:
-                return true
-            }
+    /// Configuration for custom cache behavior.
+    /// Used with `.custom(Configuration)` cacheType.
+    struct Configuration: Sendable, Equatable {
+        /// Cache expiration time in seconds. Nil means no expiration.
+        public let expirationTime: TimeInterval?
+        
+        /// Maximum object size in megabytes. Objects larger than this won't be cached.
+        public let maxObjectSizeInMBs: Int
+        
+        /// Memory cache capacity in megabytes for L1 cache.
+        public let memoryCacheCapacityInMBs: Int
+        
+        /// Creates a cache configuration.
+        /// - Parameters:
+        ///   - expirationTime: Time in seconds before cache expires. Default: 1 week.
+        ///   - maxObjectSizeInMBs: Maximum object size in MB. Default: 10 MB.
+        ///   - memoryCacheCapacityInMBs: Memory cache capacity in MB. Default: 100 MB.
+        public init(
+            expirationTime: TimeInterval? = .oneWeek,
+            maxObjectSizeInMBs: Int = 10,
+            memoryCacheCapacityInMBs: Int = 100
+        ) {
+            self.expirationTime = expirationTime
+            self.maxObjectSizeInMBs = maxObjectSizeInMBs
+            self.memoryCacheCapacityInMBs = memoryCacheCapacityInMBs
         }
-
-        /// Gets the expiration time, nil means use default in cache manager.
-        var expirationTime: TimeInterval? {
-            switch self {
-            case .disabled:
-                return nil
-            case .enabled(let expirationTime, _):
-                return expirationTime
-            }
-        }
-
-        /// Gets the max object size in bytes. Returns 0 if disabled.
+        
+        /// Maximum object size in bytes.
         var maxObjectSizeInBytes: Int {
-            switch self {
-            case .disabled:
-                return 0
-            case .enabled(_, let maxObjectSizeInMBs):
-                return maxObjectSizeInMBs * 1024 * 1024
-            }
+            return maxObjectSizeInMBs * 1024 * 1024
+        }
+        
+        /// Memory cache capacity in bytes.
+        var memoryCacheCapacityInBytes: Int {
+            return memoryCacheCapacityInMBs * 1024 * 1024
         }
     }
 }

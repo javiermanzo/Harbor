@@ -12,7 +12,7 @@ Harbor is a protocol-oriented networking library for Swift that provides a moder
 
 Harbor supports:
 - REST and JSON-RPC 2.0 requests
-- Two-level caching system (NSCache + FileSystem)
+- **Dual caching system**: URLCache (automatic ETags) + Custom cache (manual control)
 - Authentication with custom providers
 - Security features (mTLS, SSL Pinning)
 - Mock system for testing
@@ -34,9 +34,10 @@ Harbor supports:
 - **Thread-safe**: Actor-isolated configuration
 
 ### Cache System
-- **Location**: `Sources/Harbor/Cache/HCacheManager.swift`
-- **Architecture**: Two-level cache (memory + disk)
-- **Features**: Configurable expiration, HTTP header respect
+- **Location**: `Sources/Harbor/Cache/`
+- **URLCache** (default): Automatic ETags, 304 responses, zero configuration
+- **Custom Cache**: Two-level (memory + disk), manual TTL, size limits
+- **Policy-based**: Choose per request via `cacheType`
 
 ### Security
 - **mTLS**: `Sources/Harbor/Request/HmTLS.swift`
@@ -55,7 +56,7 @@ Harbor supports:
 ```
 Sources/Harbor/
 ├── Auth/          # Authentication providers
-├── Cache/         # Cache system
+├── Cache/         # Cache system (URLCache + Custom)
 ├── Config/        # Global configuration
 ├── Debug/         # Debug and logging
 ├── Mock/          # Testing mocks
@@ -72,12 +73,12 @@ Sources/Harbor/
 
 ## Quick Reference
 
-### Basic GET Request
+### Basic GET Request (Default: URLCache with ETags)
 ```swift
 struct GetUserRequest: HGetRequestProtocol {
     typealias Model = User
     let url: String = "https://api.example.com/user"
-    let cacheConfiguration: HCache.Configuration? = .enabled(expirationTime: .oneHour)
+    // cacheType = .urlCache by default (automatic ETags)
 }
 
 let response = await GetUserRequest().request()
@@ -107,8 +108,80 @@ await Harbor.setSSlPinningKeys(["sha256hash1", "sha256hash2"])
 let mtls = HmTLS(p12FileUrl: certUrl, password: "password")
 await Harbor.setMTLS(mtls)
 
-// Set default cache
-await Harbor.setDefaultCacheConfiguration(.enabled(expirationTime: .oneDay))
+// Set default cache policy
+await Harbor.setDefaultCacheType(.custom(HCache.Configuration(expirationTime: .oneDay)))
+```
+
+### Cache Policies (NEW)
+```swift
+// Option 1: URLCache (default) - Automatic ETags, 304 responses
+struct GetUsersRequest: HGetRequestProtocol {
+    typealias Model = [User]
+    let url = "https://api.example.com/users"
+    // cacheType = .urlCache by default
+}
+
+// Option 2: Custom cache - Manual TTL and size control
+struct GetUsersRequest: HGetRequestProtocol {
+    typealias Model = [User]
+    let url = "https://api.example.com/users"
+    let cacheType: HCache.CacheType = .custom(HCache.Configuration(
+        expirationTime: .oneHour,
+        maxObjectSizeInMBs: 10,
+        memoryCacheCapacityInMBs: 100
+    ))
+}
+
+// Option 3: Custom URLCache with specific limits
+struct GetUsersRequest: HGetRequestProtocol {
+    typealias Model = [User]
+    let url = "https://api.example.com/users"
+    let cacheType: HCache.CacheType = .urlCache(URLCache(
+        memoryCapacity: 100 * 1024 * 1024,
+        diskCapacity: 500 * 1024 * 1024
+    ))
+}
+
+// Option 4: No caching
+struct GetUsersRequest: HGetRequestProtocol {
+    typealias Model = [User]
+    let url = "https://api.example.com/users"
+    let cacheType: HCache.CacheType = .disabled
+}
+```
+
+## Cache System
+
+Harbor provides two caching strategies:
+
+### URLCache (Default)
+- Automatic ETags and 304 responses
+- Respects Cache-Control headers
+- Zero configuration required (50MB memory, 200MB disk)
+- Custom URLCache can be passed for specific limits
+- Recommended for most use cases
+
+### Custom Cache
+- Two-level cache (NSCache L1 + Disk L2)
+- Manual TTL control
+- Size limits per object
+- Use when you need fine-grained control
+
+```swift
+// URLCache configuration
+let customURLCache = URLCache(
+    memoryCapacity: 100 * 1024 * 1024,  // 100MB memory
+    diskCapacity: 500 * 1024 * 1024     // 500MB disk
+))
+let policy: HCache.CacheType = .urlCache(customURLCache)
+
+// Custom cache configuration
+let config = HCache.Configuration(
+    expirationTime: .oneHour,        // Cache TTL
+    maxObjectSizeInMBs: 10,           // Max object size (default: 10MB)
+    memoryCacheCapacityInMBs: 100     // Memory cache size (default: 100MB)
+)
+let policy: HCache.CacheType = .custom(config)
 ```
 
 ### Response Handling

@@ -103,7 +103,7 @@ final class HarborSecurityTests: XCTestCase {
         Harbor.setMTLS(mTLS)
         
         // Then
-        let identity = HRequestManager.config.mTLSIdentity
+        let identity = HConfig.shared.mTLSIdentity
         XCTAssertNotNil(identity)
     }
     
@@ -119,7 +119,7 @@ final class HarborSecurityTests: XCTestCase {
         
         // Then
         // mTLS should be disabled
-        let identity = HRequestManager.config.mTLSIdentity
+        let identity = HConfig.shared.mTLSIdentity
         XCTAssertNil(identity)
     }
     

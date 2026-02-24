@@ -39,9 +39,8 @@ extension HCache {
             // 2. Create directory
             try? FileManager.default.createDirectory(at: cacheDirectory, withIntermediateDirectories: true)
             
-            // 3. Configure NSCache limits
-            let memoryMB = HRequestManager.config.defaultMemoryCacheCapacity
-            memoryCache.totalCostLimit = memoryMB * 1024 * 1024
+            // 3. Configure NSCache limits (default 100MB, will be updated per-request)
+            memoryCache.totalCostLimit = 100 * 1024 * 1024
             memoryCache.countLimit = 500
             
             // 4. Perform background cleanup
@@ -53,25 +52,63 @@ extension HCache {
         
         // MARK: - Public API
         
-        /// Retrieves cached data for a request.
-        func getCachedData<Request: HGetRequestProtocol>(for request: Request) async -> Request.Model? {
-            let config = request.cacheConfiguration ?? HRequestManager.config.defaultCacheConfiguration
-            guard config.isEnabled, let key = request.cacheKey else { return nil }
-            
-            return await getCachedData(for: key, type: Request.Model.self, maxAge: config.expirationTime)
+        /// Retrieves cached data by key (for custom cache type).
+        func getCachedData<T: HModel>(forKey key: String, type: T.Type, config: HCache.Configuration) async -> T? {
+            return await getCachedData(for: key, type: type, maxAge: config.expirationTime)
         }
         
-        /// Stores data for a request.
-        func storeData(_ data: Data, for request: any HGetRequestProtocol, response: HTTPURLResponse?) async {
-            let config = request.cacheConfiguration ?? HRequestManager.config.defaultCacheConfiguration
-            guard config.isEnabled, let key = request.cacheKey else { return }
-            
+        /// Stores data by key (for custom cache type), including ETag if present.
+        func storeData(_ data: Data, forKey key: String, config: HCache.Configuration, response: HTTPURLResponse?) async {
             let effectiveExpirationTime = calculateEffectiveExpirationTime(
                 fromResponse: response,
                 fallbackTime: config.expirationTime
             )
-            
-            await storeData(data, for: key, expirationTime: effectiveExpirationTime, maxObjectSize: config.maxObjectSizeInBytes)
+            let etag = response?.value(forHTTPHeaderField: "ETag")
+                ?? response?.value(forHTTPHeaderField: "Etag")
+                ?? response?.value(forHTTPHeaderField: "etag")
+
+            await storeData(data, for: key, expirationTime: effectiveExpirationTime, maxObjectSize: config.maxObjectSizeInBytes, etag: etag)
+        }
+
+        /// Returns the stored ETag for the given cache key, if available (async, checks L1 + L2).
+        func getETag(forKey key: String) async -> String? {
+            let nsKey = NSString(string: key)
+
+            // L1: Memory cache
+            if let entry = memoryCache.object(forKey: nsKey) {
+                return entry.etag
+            }
+
+            // L2: Disk cache
+            return await withCheckedContinuation { continuation in
+                let dir = self.cacheDirectory
+                diskQueue.async { [key] in
+                    let fileURL = FileStorage.url(for: key, in: dir)
+                    guard let fileData = try? Data(contentsOf: fileURL),
+                          let diskEntry = try? JSONDecoder().decode(DiskEntry.self, from: fileData) else {
+                        continuation.resume(returning: nil)
+                        return
+                    }
+                    continuation.resume(returning: diskEntry.etag)
+                }
+            }
+        }
+
+        /// Returns the stored ETag synchronously (L1 memory first, then L2 disk).
+        /// Suitable for use within synchronous actor-isolated contexts (e.g. HURLBuilder).
+        func getETagSync(forKey key: String) -> String? {
+            // L1: Memory cache
+            if let entry = memoryCache.object(forKey: NSString(string: key)) {
+                return entry.etag
+            }
+
+            // L2: Disk cache (sync read — safe within the actor's serial context)
+            let fileURL = FileStorage.url(for: key, in: cacheDirectory)
+            guard let fileData = try? Data(contentsOf: fileURL),
+                  let diskEntry = try? JSONDecoder().decode(DiskEntry.self, from: fileData) else {
+                return nil
+            }
+            return diskEntry.etag
         }
         
         /// Clears all cached data.
@@ -137,14 +174,14 @@ extension HCache {
                     // Decode Model
                     do {
                         let model = try JSONDecoder().decode(type, from: diskEntry.data)
-                        
-                        // Promote to Memory Cache
-                        let entry = Entry(data: diskEntry.data, timestamp: diskEntry.timestamp, expirationTime: diskEntry.expirationTime)
+
+                        // Promote to Memory Cache (preserving ETag)
+                        let entry = Entry(data: diskEntry.data, timestamp: diskEntry.timestamp, expirationTime: diskEntry.expirationTime, etag: diskEntry.etag)
 
                         Task { @HRequestManagerActor [weak self] in
                             self?.memoryCache.setObject(entry, forKey: NSString(string: key), cost: diskEntry.data.count)
                         }
-                        
+
                         continuation.resume(returning: model)
                     } catch {
                         continuation.resume(returning: nil)
@@ -153,31 +190,34 @@ extension HCache {
             }
         }
         
-        private func storeData(_ data: Data, for key: String, expirationTime: TimeInterval?, maxObjectSize: Int) async {
+        private func storeData(_ data: Data, for key: String, expirationTime: TimeInterval?, maxObjectSize: Int, etag: String? = nil) async {
             guard data.count < maxObjectSize else { return }
-            
-            let entry = Entry(data: data, timestamp: Date(), expirationTime: expirationTime)
+
+            let entry = Entry(data: data, timestamp: Date(), expirationTime: expirationTime, etag: etag)
             let nsKey = NSString(string: key)
-            
+
             // Update Memory
             memoryCache.setObject(entry, forKey: nsKey, cost: data.count)
-            
+
             // Persist to Disk
-            let dir = self.cacheDirectory
-            diskQueue.async {
-                let fileURL = FileStorage.url(for: key, in: dir)
-                let diskEntry = DiskEntry(data: data, timestamp: entry.timestamp, expirationTime: entry.expirationTime)
-                
-                do {
-                    let encodedEntry = try JSONEncoder().encode(diskEntry)
-                    try encodedEntry.write(to: fileURL)
-                    
-                    // Cleanup legacy files just in case they exist for this key
-                    let legacyURLs = FileStorage.legacyUrls(for: key, in: dir)
-                    try? FileManager.default.removeItem(at: legacyURLs.0) // data
-                    try? FileManager.default.removeItem(at: legacyURLs.1) // .meta
-                } catch {
-                    try? FileManager.default.removeItem(at: fileURL)
+            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                let dir = self.cacheDirectory
+                diskQueue.async {
+                    let fileURL = FileStorage.url(for: key, in: dir)
+                    let diskEntry = DiskEntry(data: data, timestamp: entry.timestamp, expirationTime: entry.expirationTime, etag: etag)
+
+                    do {
+                        let encodedEntry = try JSONEncoder().encode(diskEntry)
+                        try encodedEntry.write(to: fileURL)
+
+                        // Cleanup legacy files just in case they exist for this key
+                        let legacyURLs = FileStorage.legacyUrls(for: key, in: dir)
+                        try? FileManager.default.removeItem(at: legacyURLs.0) // data
+                        try? FileManager.default.removeItem(at: legacyURLs.1) // .meta
+                    } catch {
+                        try? FileManager.default.removeItem(at: fileURL)
+                    }
+                    continuation.resume()
                 }
             }
         }
@@ -307,7 +347,16 @@ private struct DiskEntry: Codable {
     let data: Data
     let timestamp: Date
     let expirationTime: TimeInterval?
-    
+    /// ETag header value stored for future If-None-Match requests.
+    let etag: String?
+
+    init(data: Data, timestamp: Date, expirationTime: TimeInterval?, etag: String? = nil) {
+        self.data = data
+        self.timestamp = timestamp
+        self.expirationTime = expirationTime
+        self.etag = etag
+    }
+
     func isExpired(maxAge: TimeInterval?) -> Bool {
         let effectiveMaxAge = expirationTime ?? maxAge
         guard let maxAge = effectiveMaxAge else { return false }

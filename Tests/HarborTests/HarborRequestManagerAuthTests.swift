@@ -47,7 +47,7 @@ final class HarborRequestManagerAuthTests: XCTestCase {
     func testAddAuthCredentialsIfNeededWithAuthSuccess() async throws {
         // Given
         let mockAuthProvider = MockAuthProvider()
-        HRequestManager.config = HConfig(authProvider: mockAuthProvider)
+        HConfig.shared.authProvider = mockAuthProvider
 
         let mockRequest = MockGetRequest<String>(needsAuth: true, url: "https://example.com/mock_endpoint")
 
@@ -62,7 +62,7 @@ final class HarborRequestManagerAuthTests: XCTestCase {
     func testAddAuthCredentialsIfNeededWithoutAuth() async throws {
         // Given
         let mockAuthProvider = MockAuthProvider()
-        HRequestManager.config = HConfig(authProvider: mockAuthProvider)
+        HConfig.shared.authProvider = mockAuthProvider
 
         let mockRequest = MockGetRequest<String>(needsAuth: false, url: "https://example.com/mock_endpoint")
 

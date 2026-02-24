@@ -8,9 +8,10 @@
 import XCTest
 @testable import Harbor
 
+@HRequestManagerActor
 final class HURLBuilderTests: XCTestCase {
 
-    func testPathParameterEncoding() {
+    func testPathParameterEncoding() async {
         let baseUrl = "https://api.example.com/users/{id}/details"
         // '?' should be encoded to prevent query injection
         // '/' is allowed in urlPathAllowed so it might remain depending on the implementation details,
@@ -23,7 +24,7 @@ final class HURLBuilderTests: XCTestCase {
         XCTAssertEqual(url?.absoluteString, "https://api.example.com/users/user%3Fname=test/details")
     }
 
-    func testPathParameterSimple() {
+    func testPathParameterSimple() async {
         let baseUrl = "https://api.example.com/users/{id}"
         let pathParameters = ["id": "123"]
         

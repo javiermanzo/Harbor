@@ -238,7 +238,7 @@ final class HarborTests: XCTestCase {
         await Harbor.clearAllCache()
         await Harbor.setMocksOnlyInDebug(false)
         await Harbor.setAuthProvider(nil)
-        await Harbor.setDefaultCacheConfiguration(.disabled)
+        await Harbor.setDefaultCacheType(.disabled)
     }
     
     override func tearDown() async throws {
@@ -512,7 +512,7 @@ func testCacheHit() async throws {
 ```swift
 func testCacheExpiration() async throws {
     // Given
-    await Harbor.setDefaultCacheConfiguration(.enabled(expirationTime: 1.0))
+    await Harbor.setDefaultCacheType(.custom(HCache.Configuration(expirationTime: 1.0)))
     
     let mockJSON = """
     {

@@ -1,21 +1,33 @@
 # Changelog
 
-## 3.1.0 - Complete caching system and URL utilities
+## 3.1.0 - Complete caching system and URL utilities (2025-XX-XX)
 
 ### Added
-- Complete caching system with `HCacheManager`
-- `HURLBuilder` utility for centralized URL construction  
-- `AsyncThrowingStream` support with `requestStream()` for cache+remote data
-- `HCache.Policy` enum with `.urlCache`, `.custom`, and `.disabled` options
-- **URLCache is now the default** - provides automatic ETag/304 support via Apple's URLCache
-- Custom cache continues to provide manual TTL and size control
-- `clearCache()` support for both URLCache and custom cache policies
-- Comprehensive test suites
+- Complete caching system with `HCacheManager` (L1 memory + L2 disk cache)
+- `HCache.CacheType` enum with `.urlCache`, `.custom`, and `.disabled` options
+- **URLCache is now the default** - automatic ETag/304 support
+- Custom cache with manual TTL and size control
+- `HURLBuilder` utility for centralized URL construction
+- `AsyncThrowingStream` via `requestStream()` for cache+remote data
+- `HRequestSource` enum (`remoteOnly`, `cacheOnly`, `cacheAndRemote`)
+- `HOriginType` enum (`cache`, `remote`) to identify data source
+- Multiple SSL pinning keys support for key rotation
+- `Harbor.setDefaultCacheType()`, `Harbor.setLoggingEnabled()`, `Harbor.clearAllCache()`
+
+### Changed
+- `Harbor.setSSlPinningSHA256(_:)` renamed to `Harbor.setSSlPinningKeys(_:)` - now accepts array for key rotation
+- Network monitoring migrated from SystemConfiguration to NWPathMonitor
+- SHA256 migrated from CommonCrypto to CryptoKit
 
 ### Fixed
-- Updated `SecTrustEvaluate` to `SecTrustEvaluateWithError` (iOS 13+ compatibility)
-- Improved SSL pinning security with exact hash comparison
-- Enhanced error logging for SSL trust evaluation and pinning failures
+- clearCache now uses proper URLRequest for URLCache
+- 304 Not Modified cache handling
+- SSL pinning security with exact hash comparison
+- SSL trust evaluation error logging
+- RequestStream throws error if remote fails even with cache available
+
+### ⚠️ Breaking Changes
+- SSL pinning: `setSSlPinningSHA256(String?)` → `setSSlPinningKeys([String]?)`
 
 ## 3.0.0 - Response cases, Logging (2023-12-25)
 

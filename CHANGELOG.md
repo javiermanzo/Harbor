@@ -30,6 +30,7 @@
 
 ### ⚠️ Breaking Changes
 - SSL pinning: `setSSlPinningSHA256(String?)` → `setSSlPinningKeys([String]?)`
+- Error cases renamed: `apiError` → `api`, `codableError` → `codable`, `noConnectionError` → `noConnection`, `malformedRequestError` → `malformedRequest`, `timeoutError` → `timeout`, `sslError` → `certificate`
 
 ## 3.0.0 - Response cases, Logging (2023-12-25)
 

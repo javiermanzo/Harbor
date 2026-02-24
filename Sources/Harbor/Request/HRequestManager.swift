@@ -37,7 +37,7 @@ extension HRequestManager {
         }
 
         if !self.isConnectedToNetwork() {
-            let hError: HRequestError = .noConnectionError
+            let hError: HRequestError = .noConnection
             logError(hError, request: request)
             return .error(hError)
         }
@@ -54,7 +54,7 @@ extension HRequestManager {
 
     private static func requestHandler<Model: HModel>(model: Model.Type, request: any HRequestWithResultProtocol) async -> HResponseWithResult<Model> {
         guard let urlRequest = HURLBuilder.buildUrlRequest(request: request) else {
-            let hError: HRequestError = .malformedRequestError
+            let hError: HRequestError = .malformedRequest
             logError(hError, request: request)
             return .error(hError)
         }
@@ -94,25 +94,7 @@ extension HRequestManager {
                                          data: data,
                                          httpResponse: httpResponse)
         } catch let error as URLError {
-            let hError: HRequestError
-            switch error.code {
-            case .cancelled:
-                hError = .cancelled
-            case .badURL:
-                hError = .malformedRequestError
-            case .cannotConnectToHost, .serverCertificateUntrusted:
-                hError = .cannotFindHost
-            case .timedOut:
-                hError = .timeoutError
-            case .notConnectedToInternet, .networkConnectionLost:
-                hError = .noConnectionError
-            case .cannotFindHost:
-                hError = .cannotFindHost
-            default:
-                hError = .invalidHttpResponse
-            }
-            logError(hError, request: request)
-            return .error(hError)
+            return .error(HRequestError.mapURLError(error))
         } catch {
             let hError: HRequestError = .invalidRequest
             logError(hError, request: request)
@@ -132,7 +114,7 @@ extension HRequestManager {
 
                 return .success(parsedResponse)
             } catch let parseError {
-                let hError: HRequestError = .codableError(modelName: "\(model.self)", error: parseError)
+                let hError: HRequestError = .codable(modelName: "\(model.self)", error: parseError)
                 logError(hError, request: request)
                 return .error(hError)
             }
@@ -144,7 +126,7 @@ extension HRequestManager {
                let cachedModel = cachedAny as? Model {
                 return .success(cachedModel)
             } else {
-                let hError: HRequestError = .apiError(statusCode: statusCode, data: data)
+                let hError: HRequestError = .api(statusCode: statusCode, data: data)
                 logError(hError, request: request)
                 return .error(hError)
             }
@@ -163,7 +145,7 @@ extension HRequestManager {
                 mutableRequest.retries = retries - 1
                 return await self.request(model: model, request: mutableRequest)
             } else {
-                let hError: HRequestError = .apiError(statusCode: statusCode, data: data)
+                let hError: HRequestError = .api(statusCode: statusCode, data: data)
                 logError(hError, request: request)
                 return .error(hError)
             }
@@ -190,7 +172,7 @@ extension HRequestManager {
         }
 
         if !self.isConnectedToNetwork() {
-            let hError: HRequestError = .noConnectionError
+            let hError: HRequestError = .noConnection
             logError(hError, request: request)
             return .error(hError)
         }
@@ -207,7 +189,7 @@ extension HRequestManager {
 
     private static func requestHandler<P: HRequestWithEmptyResponseProtocol>(request: P) async -> HResponse {
         guard let urlRequest = HURLBuilder.buildUrlRequest(request: request) else {
-            let hError: HRequestError = .malformedRequestError
+            let hError: HRequestError = .malformedRequest
             logError(hError, request: request)
             return .error(hError)
         }
@@ -243,25 +225,7 @@ extension HRequestManager {
 
             return await processResponse(request: request, statusCode: httpResponse.statusCode, data: data)
         } catch let error as URLError {
-            let hError: HRequestError
-            switch error.code {
-            case .cancelled:
-                hError = .cancelled
-            case .badURL:
-                hError = .malformedRequestError
-            case .cannotConnectToHost, .serverCertificateUntrusted:
-                hError = .cannotFindHost
-            case .timedOut:
-                hError = .timeoutError
-            case .notConnectedToInternet, .networkConnectionLost:
-                hError = .noConnectionError
-            case .cannotFindHost:
-                hError = .cannotFindHost
-            default:
-                hError = .invalidHttpResponse
-            }
-            logError(hError, request: request)
-            return .error(hError)
+            return .error(HRequestError.mapURLError(error))
         } catch {
             let hError: HRequestError = .invalidRequest
             logError(hError, request: request)
@@ -288,7 +252,7 @@ extension HRequestManager {
                 mutableRequest.retries = retries - 1
                 return await self.request(request: mutableRequest)
             } else {
-                let hError: HRequestError = .apiError(statusCode: statusCode, data: data)
+                let hError: HRequestError = .api(statusCode: statusCode, data: data)
                 logError(hError, request: request)
                 return .error(hError)
             }

@@ -18,6 +18,8 @@
 - `Harbor.setSSlPinningSHA256(_:)` renamed to `Harbor.setSSlPinningKeys(_:)` - now accepts array for key rotation
 - Network monitoring migrated from SystemConfiguration to NWPathMonitor
 - SHA256 migrated from CommonCrypto to CryptoKit
+- Renamed error cases for consistency: `apiError` → `api`, `codableError` → `codable`, `noConnectionError` → `noConnection`, `malformedRequestError` → `malformedRequest`, `timeoutError` → `timeout`, `sslError` → `certificate`
+- Added `HRequestError.mapURLError(_:)` static method for URL error mapping
 
 ### Fixed
 - clearCache now uses proper URLRequest for URLCache

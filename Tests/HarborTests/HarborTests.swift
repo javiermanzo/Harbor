@@ -181,7 +181,7 @@ final class HarborTests: XCTestCase {
     
     func testNetworkErrorHandling() async throws {
         // Given
-        let mock = await HMock(request: GetUserRequest.self, statusCode: 500, error: .noConnectionError)
+        let mock = await HMock(request: GetUserRequest.self, statusCode: 500, error: .noConnection)
         await Harbor.register(mock: mock)
         
         // When
@@ -194,10 +194,10 @@ final class HarborTests: XCTestCase {
             XCTFail("Expected network error")
         case .error(let error):
             switch error {
-            case .noConnectionError:
+            case .noConnection:
                 XCTAssertTrue(true) // Expected network error
             default:
-                XCTFail("Expected noConnectionError but got: \(error)")
+                XCTFail("Expected noConnection but got: \(error)")
             }
         }
     }
@@ -236,7 +236,7 @@ final class HarborTests: XCTestCase {
         case .error(let error):
             // Should be a codable/parsing error
             switch error {
-            case .codableError:
+            case .codable:
                 XCTAssertTrue(true)
             default:
                 XCTFail("Expected codable error but got: \(error)")
@@ -272,7 +272,7 @@ final class HarborTests: XCTestCase {
     
     func testRequestTimeout() async throws {
         // Given
-        let mock = await HMock(request: TimeoutRequest.self, statusCode: 408, error: .timeoutError)
+        let mock = await HMock(request: TimeoutRequest.self, statusCode: 408, error: .timeout)
         await Harbor.register(mock: mock)
         
         // When
@@ -285,7 +285,7 @@ final class HarborTests: XCTestCase {
             XCTFail("Expected timeout error")
         case .error(let error):
             switch error {
-            case .timeoutError:
+            case .timeout:
                 XCTAssertTrue(true) // Expected timeout error
             default:
                 XCTFail("Expected timeout error but got: \(error)")
@@ -295,7 +295,7 @@ final class HarborTests: XCTestCase {
     
     func testConnectionFailure() async throws {
         // Given
-        let mock = await HMock(request: ConnectionFailureRequest.self, statusCode: 0, error: .noConnectionError)
+        let mock = await HMock(request: ConnectionFailureRequest.self, statusCode: 0, error: .noConnection)
         await Harbor.register(mock: mock)
         
         // When
@@ -308,7 +308,7 @@ final class HarborTests: XCTestCase {
             XCTFail("Expected connection error")
         case .error(let error):
             switch error {
-            case .noConnectionError:
+            case .noConnection:
                 XCTAssertTrue(true) // Expected connection error
             default:
                 XCTFail("Expected connection error but got: \(error)")
@@ -341,7 +341,7 @@ final class HarborTests: XCTestCase {
     
     func testMalformedRequest() async throws {
         // Given
-        let mock = await HMock(request: MalformedRequest.self, statusCode: 400, error: .malformedRequestError)
+        let mock = await HMock(request: MalformedRequest.self, statusCode: 400, error: .malformedRequest)
         await Harbor.register(mock: mock)
         
         // When
@@ -354,7 +354,7 @@ final class HarborTests: XCTestCase {
             XCTFail("Expected malformed request error")
         case .error(let error):
             switch error {
-            case .malformedRequestError:
+            case .malformedRequest:
                 XCTAssertTrue(true) // Expected malformed request error
             default:
                 XCTFail("Expected malformed request error but got: \(error)")
@@ -699,7 +699,7 @@ private struct CancellableRequest: HGetRequestProtocol {
 private extension HRequestError {
     var isApiError: Bool {
         switch self {
-        case .apiError:
+        case .api:
             return true
         default:
             return false

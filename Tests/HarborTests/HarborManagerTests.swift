@@ -87,7 +87,7 @@ final class HarborManagerTests: XCTestCase {
         case .error(let error):
             // Should be API error after retries exhausted
             switch error {
-            case .apiError(statusCode: let code, data: _):
+            case .api(statusCode: let code, data: _):
                 XCTAssertEqual(code, 500)
             default:
                 XCTFail("Expected API error but got: \(error)")

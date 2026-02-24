@@ -11,7 +11,7 @@ import Harbor
 /// Errors that can occur during JSON-RPC requests.
 public enum HJRPCRequestError: Error, Sendable {
     /// API returned an error with status code and response data.
-    case apiError(statusCode: Int, data: Data)
+    case api(statusCode: Int, data: Data)
     /// JSON-RPC specific error returned by the server.
     case jrpcError(error: HJRPCError)
     /// Base URL is required but not set.
@@ -25,17 +25,17 @@ public enum HJRPCRequestError: Error, Sendable {
     /// Authentication is required for this request.
     case authNeeded
     /// Error occurred while encoding/decoding the model.
-    case codableError(modelName: String, error: Error)
+    case codable(modelName: String, error: Error)
     /// No internet connection available.
-    case noConnectionError
+    case noConnection
     /// The request is malformed and cannot be processed.
-    case malformedRequestError
+    case malformedRequest
     /// Request timed out.
-    case timeoutError
+    case timeout
     /// Cannot find the specified host.
     case cannotFindHost
     /// SSL/TLS certificate validation failed.
-    case sslError
+    case certificate
     /// Request was cancelled.
     case cancelled
 }
@@ -43,8 +43,8 @@ public enum HJRPCRequestError: Error, Sendable {
 extension HJRPCRequestError {
     static func getError(hRequestError: HRequestError) -> HJRPCRequestError {
         switch hRequestError {
-        case .apiError(let statusCode, let data):
-            return .apiError(statusCode: statusCode, data: data)
+        case .api(let statusCode, let data):
+            return .api(statusCode: statusCode, data: data)
         case .invalidHttpResponse:
             return .invalidHttpResponse
         case .invalidRequest:
@@ -53,20 +53,20 @@ extension HJRPCRequestError {
             return .authProviderNeeded
         case .authNeeded:
             return .authNeeded
-        case .codableError(let modelName, let error):
-            return .codableError(modelName: modelName, error: error)
-        case .noConnectionError:
-            return .noConnectionError
-        case .malformedRequestError:
-            return .malformedRequestError
-        case .timeoutError:
-            return .timeoutError
+        case .codable(let modelName, let error):
+            return .codable(modelName: modelName, error: error)
+        case .noConnection:
+            return .noConnection
+        case .malformedRequest:
+            return .malformedRequest
+        case .timeout:
+            return .timeout
         case .cannotFindHost:
             return .cannotFindHost
         case .cancelled:
             return .cancelled
-        case .sslError:
-            return .sslError
+        case .certificate:
+            return .certificate
         case .noCachedDataFound:
             return .invalidRequest
         }

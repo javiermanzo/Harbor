@@ -465,7 +465,7 @@ func fetchDataWithErrorRecovery<T: HGetRequestProtocol>(
                 }
                 return nil
                 
-            case .noConnectionError:
+            case .noConnection:
                 // Wait and retry
                 if attempt < maxRetries {
                     let delay = UInt64(pow(2.0, Double(attempt)) * 1_000_000_000) // Exponential backoff

@@ -530,7 +530,7 @@ case .error(let error):
 ```swift
 enum HRequestError: Error {
     case authNeeded
-    case noConnectionError
+    case noConnection
     case invalidURL
     case invalidResponse
     case decodingError(Error)
@@ -551,7 +551,7 @@ case .error(let error):
     switch error {
     case .authNeeded:
         // Re-authenticate user
-    case .noConnectionError:
+    case .noConnection:
         // Show offline message
     case .decodingError(let decodingError):
         // Log decoding issue

@@ -287,14 +287,13 @@ extension HRequestManager {
         }
 
         let configuration = URLSessionConfiguration.default
-        // TODO: Implement request config timeout
-        configuration.timeoutIntervalForRequest = 15
-        configuration.timeoutIntervalForResource = 30
+        configuration.timeoutIntervalForRequest = request.timeoutInterval ?? HConfig.shared.timeoutInterval
+        configuration.timeoutIntervalForResource = request.timeoutInterval ?? HConfig.shared.timeoutInterval
         
         // Resolve effective cache type: request-specific takes precedence over global default
         // Only HGetRequestProtocol has cache
         if let getRequest = request as? any HGetRequestProtocol {
-            let cacheType: HCache.CacheType = getRequest.cacheType ?? HConfig.shared.defaultCacheType
+            let cacheType: HCache.CacheType = getRequest.cacheType ?? HConfig.shared.cacheType
 
             if case .urlCache(let cache, let requestPolicy) = cacheType {
                 configuration.urlCache = cache

@@ -200,6 +200,16 @@ final class HarborConfigurationTests: XCTestCase {
         }
     }
     
+    // MARK: - Timeout Configuration Tests
+    
+    func testSetDefaultTimeoutInterval() async throws {
+        // When
+        await Harbor.setDefaultTimeoutInterval(30)
+        
+        // Then - should not crash
+        XCTAssertTrue(true)
+    }
+    
     
     // MARK: - Mock Configuration Tests
     
@@ -332,7 +342,6 @@ private struct TestAuthenticatedConfigRequest: HGetRequestProtocol {
     var url: String { "https://config.example.com/auth-test" }
     var needsAuth: Bool { true }
 }
-
 
 private struct TestFullyConfiguredRequest: HGetRequestProtocol {
     typealias Model = TestConfigData

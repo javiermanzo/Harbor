@@ -23,7 +23,8 @@ protocol HRequestBaseRequestProtocol {
     var headerParameters: [String: String]? { get set }
     var needsAuth: Bool { get }
     var cacheType: HCache.CacheType? { get }
-    var retries: Int? { get set }
+    var retries: Int { get }
+    var timeoutInterval: TimeInterval? { get }
 }
 ```
 
@@ -33,8 +34,9 @@ protocol HRequestBaseRequestProtocol {
 **Optional Properties (with defaults):**
 - `headerParameters`: Custom headers for this request (default: `nil`)
 - `needsAuth`: Whether authentication is required (default: `false`)
-- `cacheType`: Cache settings (default: `nil` - no caching)
+- `cacheType`: Cache settings (default: `nil` - uses global default)
 - `retries`: Number of retry attempts (default: `nil`)
+- `timeoutInterval`: Request timeout in seconds (default: `nil` - uses global config, default global is 15s)
 
 ### HRequestWithResultProtocol
 

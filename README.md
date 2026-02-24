@@ -23,8 +23,10 @@ Harbor is a library for making API requests in Swift in a simple way using async
     - [Default Headers](#default-headers)
     - [Auth Provider](#auth-provider)
     - [Custom URLSession](#custom-urlsession)
+    - [Timeout Configuration](#timeout-configuration)
     - [mTLS Support](#mtls-support)
     - [SSL Pinning](#ssl-pinning)
+    - [Retry Configuration](#retry-configuration)
   - [Request Protocols](#request-protocols)
     - [HGetRequestProtocol](#hgetrequestprotocol)
     - [HPostRequestProtocol](#hpostrequestprotocol)
@@ -39,10 +41,19 @@ Harbor is a library for making API requests in Swift in a simple way using async
   - [Cancel Request](#cancel-request)
   - [Caching](#caching)
     - [Cache Configuration](#cache-configuration)
+      - [Global Default Cache](#global-default-cache)
+      - [Per-Request Cache](#per-request-cache)
+      - [Available Expiration Times](#available-expiration-times)
+      - [Max Object Size](#max-object-size)
+    - [HCache Performance](#hcache-performance)
     - [Cache Usage](#cache-usage)
+      - [Get Cached Data](#get-cached-data)
+      - [Clear Specific Cache](#clear-specific-cache)
+      - [Clear All Cache](#clear-all-cache)
   - [Streaming Requests](#streaming-requests)
     - [AsyncThrowingStream Support](#asyncthrowingstream-support)
     - [Data Sources](#data-sources)
+    - [Stream Usage Examples](#stream-usage-examples)
   - [Debug](#debug)
   - [JSON RPC](#json-rpc)
     - [Installation](#installation-1)
@@ -53,6 +64,14 @@ Harbor is a library for making API requests in Swift in a simple way using async
       - [HJRPCRequestProtocol](#hjrpcrequestprotocol)
     - [Response](#response-1)
 - [Mocks](#mocks)
+  - [HMock](#hmock)
+  - [Register a Mock](#register-a-mock)
+  - [Registering a Success Mock](#registering-a-success-mock)
+  - [Registering an Error Mock](#registering-an-error-mock)
+  - [Using Mocks Only in Debug Mode](#using-mocks-only-in-debug-mode)
+  - [Removing a Specific Mock](#removing-a-specific-mock)
+  - [Removing All Mocks](#removing-all-mocks)
+  - [Complete Example](#complete-example)
 - [AI Assistant Skill](#ai-assistant-skill)
 - [Contributing](#contributing)
 - [Author](#author)
@@ -152,6 +171,25 @@ let customSession = URLSession(configuration: .default)
 await Harbor.setCustomURLSession(customSession)
 ```
 
+#### Timeout Configuration
+Harbor allows you to configure the timeout interval for requests. By default, the timeout is 15 seconds.
+
+To set a global default timeout:
+
+```swift
+// Set default timeout to 30 seconds
+await Harbor.setDefaultTimeoutInterval(30)
+```
+
+You can also override the timeout for individual requests:
+
+```swift
+struct MyRequest: HGetRequestProtocol {
+    let url = "https://api.example.com/data"
+    var timeoutInterval: TimeInterval? = 10  // Override global timeout
+}
+```
+
 #### mTLS Support
 Harbor supports mutual TLS (mTLS) for enhanced security in API requests. This feature allows clients to present certificates to the server, ensuring both the client and server authenticate each other.
 
@@ -165,12 +203,24 @@ await Harbor.setMTLS(mTLS)
 #### SSL Pinning
 Harbor supports SSL Pinning to enhance the security of your API requests. SSL Pinning ensures that the client checks the server's certificate against a known pinned certificate, adding an additional layer of security.
 
-To configure SSL Pinning, use the `setSSlPinningSHA256` method:
+To configure SSL Pinning, use the `setSSlPinningKeys` method. You can provide multiple keys to support key rotation:
 
 ```swift
-let sslPinningSHA256 = "yourSHA256CertificateHash"
-await Harbor.setSSlPinningSHA256(sslPinningSHA256)
+let sslPinningKeys = ["yourSHA256CertificateHash1", "yourSHA256CertificateHash2"]
+await Harbor.setSSlPinningKeys(sslPinningKeys)
 ```
+
+#### Retry Configuration
+Harbor supports automatic retry for failed requests. You can configure the number of retry attempts per request:
+
+```swift
+struct MyRequest: HGetRequestProtocol {
+    let url = "https://api.example.com/data"
+    var retries: Int? = 3  // Will retry up to 3 times on failure
+}
+```
+
+The default value is `nil` (no retries). When set, Harbor will automatically retry the request on transient failures like network timeouts or server errors.
 
 ### Request Protocols
 To make a request using Harbor, you need to create a class that implements one of the following protocols.

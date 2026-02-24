@@ -48,7 +48,13 @@ public extension Harbor {
     /// Sets default cache type for requests without explicit cache settings.
     /// Default is .urlCache.
     static func setDefaultCacheType(_ cacheType: HCache.CacheType) {
-        HConfig.shared.defaultCacheType = cacheType
+        HConfig.shared.cacheType = cacheType
+    }
+
+    /// Sets default timeout interval for requests.
+    /// Default is 15 seconds.
+    static func setDefaultTimeoutInterval(_ timeout: TimeInterval) {
+        HConfig.shared.timeoutInterval = timeout
     }
 
     /// Configures whether mocks are only active in DEBUG builds.

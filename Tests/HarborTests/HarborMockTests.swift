@@ -79,7 +79,7 @@ final class HarborMockTests: XCTestCase {
         await Harbor.remove(mock: successMock)
 
         // Register a different mock to verify removal worked
-        let errorMock = await HMock(request: MockGetRequest<MockModel>.self, statusCode: 500, error: .noConnectionError)
+        let errorMock = await HMock(request: MockGetRequest<MockModel>.self, statusCode: 500, error: .noConnection)
         await Harbor.register(mock: errorMock)
 
         // Request should now get the error mock (proving first mock was removed)
@@ -91,11 +91,11 @@ final class HarborMockTests: XCTestCase {
             XCTFail("Expected error from new mock after removal")
         case .error(let error):
             switch error {
-            case .noConnectionError:
+            case .noConnection:
                 // This proves the first mock was removed and second mock is active
                 XCTAssertTrue(true)
             default:
-                XCTFail("Expected noConnectionError but got: \(error)")
+                XCTFail("Expected noConnection but got: \(error)")
             }
         }
     }

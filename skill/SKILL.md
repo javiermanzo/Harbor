@@ -196,7 +196,7 @@ case .error(let error):
     switch error {
     case .authNeeded:
         // Handle authentication
-    case .noConnectionError:
+    case .noConnection:
         // Handle connection error
     default:
         print("Error: \(error)")

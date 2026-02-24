@@ -307,7 +307,7 @@ case .error(let error):
         // Redirect to login
         showLoginScreen()
         
-    case .noConnectionError:
+    case .noConnection:
         // Show offline message
         showOfflineAlert()
         
@@ -601,7 +601,7 @@ func fetchUserWithRetry(userId: String, maxAttempts: Int = 3) async -> User? {
                 return nil
             }
             
-            if case .noConnectionError = error {
+            if case .noConnection = error {
                 // Wait before retry
                 try? await Task.sleep(nanoseconds: UInt64(attempt) * 1_000_000_000)
             } else {

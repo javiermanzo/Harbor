@@ -248,7 +248,7 @@ final class HarborDebugTests: XCTestCase {
     
     func testPrintErrorResponseWithError() async {
         let request = TestDebugRequest(debugType: .requestAndResponse)
-        let error = HRequestError.noConnectionError
+        let error = HRequestError.noConnection
         
         await XCTAssertNoThrowAsync(await request.logErrorResponse(error: error))
     }

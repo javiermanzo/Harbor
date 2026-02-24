@@ -23,17 +23,17 @@ extension HRequestError: Equatable {
         switch (lhs, rhs) {
         case (.authProviderNeeded, .authProviderNeeded):
             return true
-        case (.noConnectionError, .noConnectionError):
+        case (.noConnection, .noConnection):
             return true
-        case (.malformedRequestError, .malformedRequestError):
+        case (.malformedRequest, .malformedRequest):
             return true
-        case (.timeoutError, .timeoutError):
+        case (.timeout, .timeout):
             return true
         case (.invalidHttpResponse, .invalidHttpResponse):
             return true
-        case (.codableError(let lhsModel, _), .codableError(let rhsModel, _)):
+        case (.codable(let lhsModel, _), .codable(let rhsModel, _)):
             return lhsModel == rhsModel
-        case (.apiError(let lhsStatusCode, _), .apiError(let rhsStatusCode, _)):
+        case (.api(let lhsStatusCode, _), .api(let rhsStatusCode, _)):
             return lhsStatusCode == rhsStatusCode
         default:
             return false

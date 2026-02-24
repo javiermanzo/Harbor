@@ -103,7 +103,7 @@ await Harbor.register(mock: mock)
 // Simulate network error
 let mock = await HMock(
     request: GetUserRequest.self,
-    error: .noConnectionError
+    error: .noConnection
 )
 
 await Harbor.register(mock: mock)
@@ -362,7 +362,7 @@ func testNetworkError() async throws {
     // Given
     let mock = await HMock(
         request: GetUserRequest.self,
-        error: .noConnectionError
+        error: .noConnection
     )
     await Harbor.register(mock: mock)
     
@@ -374,7 +374,7 @@ func testNetworkError() async throws {
     case .success:
         XCTFail("Expected error but got success")
     case .error(let error):
-        XCTAssertEqual(error, .noConnectionError)
+        XCTAssertEqual(error, .noConnection)
     }
 }
 ```

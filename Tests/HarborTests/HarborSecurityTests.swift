@@ -163,7 +163,7 @@ final class HarborSecurityTests: XCTestCase {
         Harbor.setSSlPinningKeys([testSHA256])
         
         // Mock a SSL-related failure (using existing error types)
-        let mock = HMock(request: SecureGetRequest.self, statusCode: 500, error: .noConnectionError)
+        let mock = HMock(request: SecureGetRequest.self, statusCode: 500, error: .noConnection)
         Harbor.register(mock: mock)
         
         // When
@@ -176,7 +176,7 @@ final class HarborSecurityTests: XCTestCase {
             XCTFail("Expected SSL-related failure")
         case .error(let error):
             switch error {
-            case .noConnectionError:
+            case .noConnection:
                 XCTAssertTrue(true) // Expected connection error (SSL-related)
             default:
                 XCTFail("Expected connection error but got: \(error)")
@@ -205,7 +205,7 @@ final class HarborSecurityTests: XCTestCase {
             XCTFail("Expected certificate-related error")
         case .error(let error):
             switch error {
-            case .apiError(statusCode: let code, data: _):
+            case .api(statusCode: let code, data: _):
                 XCTAssertEqual(code, 403) // Expected 403 Forbidden (certificate issue)
             default:
                 XCTFail("Expected API error with 403 status but got: \(error)")

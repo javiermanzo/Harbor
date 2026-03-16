@@ -1,0 +1,22 @@
+[
+  {"query": "I'm building an iOS app and need to make HTTP requests to my REST API. How do I set up Harbor in Swift?", "should_trigger": true},
+  {"query": "Need to implement caching for my API calls using Harbor's URLCache with ETags support", "should_trigger": true},
+  {"query": "How do I configure mTLS with client certificates in Harbor for secure API communication?", "should_trigger": true},
+  {"query": "I want to write unit tests for my network layer using Harbor's mock system", "should_trigger": true},
+  {"query": "What's the best way to handle OAuth2 authentication with Harbor?", "should_trigger": true},
+  {"query": "Need to implement SSL pinning in my iOS app using Harbor framework", "should_trigger": true},
+  {"query": "How to make JSON-RPC requests to an Ethereum node using HarborJRPC?", "should_trigger": true},
+  {"query": "I'm getting a timeout error when making requests, how do I handle that in Harbor?", "should_trigger": true},
+  {"query": "Set up custom cache with memory and disk storage using Harbor", "should_trigger": true},
+  {"query": "How do I use async/await with Harbor for concurrent API requests?", "should_trigger": true},
+  {"query": "Write a Python script to parse JSON from an API response", "should_trigger": false},
+  {"query": "How do I install Node.js packages for my project?", "should_trigger": false},
+  {"query": "I need to make HTTP requests in JavaScript using fetch", "should_trigger": false},
+  {"query": "What's the best way to handle errors in SwiftUI views?", "should_trigger": false},
+  {"query": "How do I set up CocoaPods in my iOS project?", "should_trigger": false},
+  {"query": "Need to create a REST API backend using Express.js", "should_trigger": false},
+  {"query": "How to implement WebSocket connections in my mobile app?", "should_trigger": false},
+  {"query": "What's the difference between GET and POST HTTP methods?", "should_trigger": false},
+  {"query": "I need to authenticate users with JWT tokens in my React app", "should_trigger": false},
+  {"query": "How do I configure SSL certificates in Nginx?", "should_trigger": false}
+]

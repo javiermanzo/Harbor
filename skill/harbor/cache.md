@@ -105,7 +105,7 @@ let cacheType: HCache.CacheType? = .custom(HCache.Configuration(expirationTime: 
 ```swift
 let cacheType: HCache.CacheType? = .custom(HCache.Configuration(
     expirationTime: .oneDay,
-    maxObjectSize: 5_000_000  // 5MB max per object
+    maxObjectSizeInMBs: 5  // 5MB max per object
 ))
 ```
 
@@ -115,20 +115,39 @@ let cacheType: HCache.CacheType? = .custom(HCache.Configuration(
 
 ```swift
 extension TimeInterval {
-    static let fiveMinutes: TimeInterval = 300
-    static let tenMinutes: TimeInterval = 600
-    static let oneHour: TimeInterval = 3600
-    static let oneDay: TimeInterval = 86400
-    static let oneWeek: TimeInterval = 604800
+    static var oneMinute: TimeInterval { 60 }
+    static var fiveMinutes: TimeInterval { 300 }
+    static var fifteenMinutes: TimeInterval { 900 }
+    static var thirtyMinutes: TimeInterval { 1800 }
+    static var oneHour: TimeInterval { 3600 }
+    static var sixHours: TimeInterval { 21600 }
+    static var twelveHours: TimeInterval { 43200 }
+    static var oneDay: TimeInterval { 86400 }
+    static var threeDays: TimeInterval { 259200 }
+    static var oneWeek: TimeInterval { 604800 }
+    static var oneMonth: TimeInterval { 2592000 }   // 30 days
+    static var threeMonths: TimeInterval { 7776000 } // 90 days
+    static var sixMonths: TimeInterval { 15552000 }  // 180 days
+    static var oneYear: TimeInterval { 31536000 }    // 365 days
 }
 ```
 
 **Usage:**
 ```swift
+.custom(HCache.Configuration(expirationTime: .oneMinute))
 .custom(HCache.Configuration(expirationTime: .fiveMinutes))
+.custom(HCache.Configuration(expirationTime: .fifteenMinutes))
+.custom(HCache.Configuration(expirationTime: .thirtyMinutes))
 .custom(HCache.Configuration(expirationTime: .oneHour))
+.custom(HCache.Configuration(expirationTime: .sixHours))
+.custom(HCache.Configuration(expirationTime: .twelveHours))
 .custom(HCache.Configuration(expirationTime: .oneDay))
+.custom(HCache.Configuration(expirationTime: .threeDays))
 .custom(HCache.Configuration(expirationTime: .oneWeek))
+.custom(HCache.Configuration(expirationTime: .oneMonth))
+.custom(HCache.Configuration(expirationTime: .threeMonths))
+.custom(HCache.Configuration(expirationTime: .sixMonths))
+.custom(HCache.Configuration(expirationTime: .oneYear))
 ```
 
 ## Global vs Per-Request Configuration
@@ -282,13 +301,13 @@ These directives prevent caching regardless of request configuration.
 // Limit cache objects to 5MB
 let cacheType: HCache.CacheType? = .custom(HCache.Configuration(
     expirationTime: .oneHour,
-    maxObjectSize: 5_000_000
+    maxObjectSizeInMBs: 5
 ))
 
 // Larger images might need bigger limits
 let cacheType: HCache.CacheType? = .custom(HCache.Configuration(
     expirationTime: .oneDay,
-    maxObjectSize: 20_000_000  // 20MB
+    maxObjectSizeInMBs: 20  // 20MB
 ))
 ```
 
@@ -569,8 +588,8 @@ struct GetImageRequest: HGetRequestProtocol {
     typealias Model = Data
     let url: String
     let cacheType: HCache.CacheType? = .custom(HCache.Configuration(
-    expirationTime: .oneWeek,
-        maxObjectSize: 10_000_000  // 10MB
+        expirationTime: .oneWeek,
+        maxObjectSizeInMBs: 10  // 10MB
     ))
 }
 ```
@@ -583,11 +602,12 @@ Don't override server cache directives. If the server says `no-cache`, Harbor re
 
 | Data Type | Recommended Expiration |
 |-----------|------------------------|
-| Static reference data | 1 week |
+| Static reference data | 1 week - 1 month |
 | User profile | 1 hour - 1 day |
-| Content lists | 5-10 minutes |
+| Content lists | 5-15 minutes |
 | Real-time data | No cache |
-| Large media files | 1 week |
+| Large media files | 1 week - 1 month |
+| Session data | 30 minutes - 12 hours |
 
 ## Performance Considerations
 
@@ -603,14 +623,14 @@ Don't override server cache directives. If the server says `no-cache`, Harbor re
 // Large objects should have size limits
 let cacheType: HCache.CacheType? = .custom(HCache.Configuration(
     expirationTime: .oneDay,
-    maxObjectSize: 5_000_000  // Limit to 5MB
+    maxObjectSizeInMBs: 5  // Limit to 5MB
 ))
 ```
 
 ### Disk Usage
 
 **Disk cache is persistent but limited:**
-- Respects `maxObjectSize` setting
+- Respects `maxObjectSizeInMBs` setting
 - Expired entries cleaned up periodically
 - Manual cleanup with `clearAllCache()`
 
@@ -680,7 +700,7 @@ let response = await request.request()
 **Set size limits:**
 ```swift
 .custom(HCache.Configuration(
-    expirationTime: .oneDay, maxObjectSize: 2_000_000)
+    expirationTime: .oneDay, maxObjectSizeInMBs: 2)
 ```
 
 **Periodic cleanup:**

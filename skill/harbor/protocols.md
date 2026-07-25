@@ -18,13 +18,12 @@ The foundation protocol that all requests must conform to.
 protocol HRequestBaseRequestProtocol {
     // Required
     var url: String { get }
-    
+
     // Optional with defaults
-    var headers: [String: String]? { get }
+    var headerParameters: [String: String]? { get set }
     var needsAuth: Bool { get }
     var cacheType: HCache.CacheType? { get }
-    var retries: Int { get }
-    var timeout: TimeInterval { get }
+    var retries: Int? { get set }
 }
 ```
 
@@ -32,11 +31,10 @@ protocol HRequestBaseRequestProtocol {
 - `url`: The endpoint URL (can include path parameters)
 
 **Optional Properties (with defaults):**
-- `headers`: Custom headers for this request (default: `nil`)
+- `headerParameters`: Custom headers for this request (default: `nil`)
 - `needsAuth`: Whether authentication is required (default: `false`)
 - `cacheType`: Cache settings (default: `nil` - no caching)
-- `retries`: Number of retry attempts (default: `0`)
-- `timeout`: Request timeout in seconds (default: `60`)
+- `retries`: Number of retry attempts (default: `nil`)
 
 ### HRequestWithResultProtocol
 
@@ -386,7 +384,7 @@ protocol MyAPIRequest: HGetRequestProtocol {
 extension MyAPIRequest {
     var url: String { "https://api.myapp.com/\(endpoint)" }
     var needsAuth: Bool { true }
-    var headers: [String: String]? { ["X-API-Version": "2.0"] }
+    var headerParameters: [String: String]? { get { ["X-API-Version": "2.0"] } set { } }
 }
 
 // Usage
@@ -456,21 +454,22 @@ struct SearchRequest: HGetRequestProtocol {
 struct ReliableRequest: HGetRequestProtocol {
     typealias Model = Data
     let url = "https://api.example.com/data"
-    let retries: Int = 3  // Will retry up to 3 times on failure
+    var retries: Int? { get { 3 } set { } }  // Will retry up to 3 times on failure
 }
 ```
 
 ### Custom Timeout
 
+Timeout is configured through the URLSession configuration, not per-request:
+
 ```swift
-struct LongRunningRequest: HPostRequestProtocol {
-    typealias Model = Result
-    let url = "https://api.example.com/process"
-    let timeout: TimeInterval = 180  // 3 minutes
-    var bodyParameters: [String: Any]? {
-        ["data": "..."]
-    }
-}
+// Configure custom URLSession with timeout
+let configuration = URLSessionConfiguration.default
+configuration.timeoutIntervalForRequest = 180  // 3 minutes
+configuration.timeoutIntervalForResource = 300  // 5 minutes
+
+let customSession = URLSession(configuration: configuration)
+await Harbor.setCustomURLSession(customSession)
 ```
 
 ### Request Authentication

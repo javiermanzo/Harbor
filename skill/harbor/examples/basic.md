@@ -310,7 +310,7 @@ case .error(let error):
         // Show offline message
         showOfflineAlert()
         
-    case .serverError(let statusCode, let data):
+    case .api(let statusCode, let data):
         if statusCode == 404 {
             showNotFoundAlert()
         } else if statusCode >= 500 {
@@ -385,10 +385,13 @@ struct UserView: View {
 struct GetDataRequest: HGetRequestProtocol {
     typealias Model = Data
     let url: String = "https://api.example.com/data"
-    let headers: [String: String]? = [
-        "X-API-Version": "2.0",
-        "X-Client-Platform": "iOS"
-    ]
+    var headerParameters: [String: String]? {
+        get { return [
+            "X-API-Version": "2.0",
+            "X-Client-Platform": "iOS"
+        ] }
+        set { }
+    }
 }
 ```
 
@@ -401,12 +404,15 @@ struct GetUserRequest: HGetRequestProtocol {
     var url: String { "https://api.example.com/users/\(userId)" }
     
     let sessionId: String
-    
-    var headers: [String: String]? {
-        return [
-            "X-Session-ID": sessionId,
-            "X-Request-Time": ISO8601DateFormatter().string(from: Date())
-        ]
+
+    var headerParameters: [String: String]? {
+        get {
+            return [
+                "X-Session-ID": sessionId,
+                "X-Request-Time": ISO8601DateFormatter().string(from: Date())
+            ]
+        }
+        set { }
     }
 }
 ```
@@ -523,8 +529,9 @@ protocol APIRequest: HGetRequestProtocol {
 extension APIRequest {
     var url: String { "https://api.example.com/\(endpoint)" }
     var needsAuth: Bool { true }
-    var headers: [String: String]? {
-        return ["X-API-Version": "2.0"]
+    var headerParameters: [String: String]? {
+        get { return ["X-API-Version": "2.0"] }
+        set { }
     }
 }
 
@@ -566,19 +573,20 @@ let fresh = await GetDataRequest(useCache: false).request()
 struct ReliableRequest: HGetRequestProtocol {
     typealias Model = Data
     let url: String = "https://api.example.com/data"
-    let retries: Int = 3  // Will retry up to 3 times on failure
-    let timeout: TimeInterval = 60  // 60 seconds timeout
+    var retries: Int? { get { 3 } set { } }  // Will retry up to 3 times on failure
 }
 ```
 
-### Request with Timeout
+### Request with Custom URLSession (for timeout control)
+
+Timeout is configured via URLSession configuration:
 
 ```swift
-struct QuickRequest: HGetRequestProtocol {
-    typealias Model = Data
-    let url: String = "https://api.example.com/data"
-    let timeout: TimeInterval = 10  // 10 seconds timeout
-}
+let configuration = URLSessionConfiguration.default
+configuration.timeoutIntervalForRequest = 30  // 30 seconds timeout
+
+let customSession = URLSession(configuration: configuration)
+await Harbor.setCustomURLSession(customSession)
 ```
 
 ## Error Recovery

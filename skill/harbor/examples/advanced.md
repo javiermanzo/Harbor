@@ -473,7 +473,7 @@ func fetchDataWithErrorRecovery<T: HGetRequestProtocol>(
                 }
                 return nil
                 
-            case .serverError(let statusCode, _):
+            case .api(let statusCode, _):
                 if statusCode >= 500 && attempt < maxRetries {
                     // Retry server errors
                     try? await Task.sleep(nanoseconds: 2_000_000_000)
@@ -517,7 +517,10 @@ struct MonitoredRequest<T: HGetRequestProtocol>: HGetRequestProtocol {
     
     var url: String { wrappedRequest.url }
     var queryParameters: [String: Any]? { wrappedRequest.queryParameters }
-    var headers: [String: String]? { wrappedRequest.headers }
+    var headerParameters: [String: String]? {
+        get { wrappedRequest.headerParameters }
+        set { }
+    }
     var needsAuth: Bool { wrappedRequest.needsAuth }
     var cacheType: HCache.CacheType? { wrappedRequest.cacheType }
     

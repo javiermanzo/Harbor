@@ -188,7 +188,7 @@ func updateClientCertificate(newCertUrl: URL, password: String) async {
 // Handle certificate errors gracefully
 let response = await request.request()
 switch response {
-case .error(.serverError(let code, _)) where code == 403:
+case .error(.api(let code, _)) where code == 403:
     // Certificate might be expired or invalid
     await promptCertificateRenewal()
 default:
@@ -284,7 +284,7 @@ Compare Hash with Pinned Keys
     ├─ Match Found → Connection Allowed
     │
     └─ No Match → Connection Rejected
-                 → Error: .serverError(statusCode: -1)
+                 → Error: .api(statusCode: -1, data: Data())
 ```
 
 **Implementation**: `Sources/Harbor/Request/HURLSessionDelegate.swift`

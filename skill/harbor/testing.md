@@ -406,10 +406,10 @@ func testHTTPError() async throws {
     case .success:
         XCTFail("Expected error but got success")
     case .error(let error):
-        if case .serverError(let statusCode, _) = error {
+        if case .api(let statusCode, _) = error {
             XCTAssertEqual(statusCode, 404)
         } else {
-            XCTFail("Expected serverError but got \(error)")
+            XCTFail("Expected api error but got \(error)")
         }
     }
 }
@@ -439,7 +439,7 @@ func testAuthenticationError() async throws {
     case .success:
         XCTFail("Expected auth error")
     case .error(let error):
-        if case .serverError(let statusCode, _) = error {
+        if case .api(let statusCode, _) = error {
             XCTAssertEqual(statusCode, 401)
         } else {
             XCTFail("Expected 401 error")
@@ -815,7 +815,7 @@ func testGetUserNetworkError() async throws {
 
 ```swift
 // Good: Type-safe error checking
-if case .serverError(let statusCode, _) = error {
+if case .api(let statusCode, _) = error {
     XCTAssertEqual(statusCode, 404)
 }
 

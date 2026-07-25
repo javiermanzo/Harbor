@@ -445,7 +445,7 @@ struct CachedBlockNumberRequest: HGetRequestProtocol {
         case .success(let blockNumber):
             return .success(result: blockNumber)
         case .error(let code, let message):
-            return .error(.serverError(statusCode: code, data: message.data(using: .utf8)))
+            return .error(.api(statusCode: code, data: message.data(using: .utf8)))
         }
     }
 }

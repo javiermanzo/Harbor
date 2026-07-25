@@ -38,13 +38,13 @@ Harbor provides default implementations for common functionality:
 // Base protocol defines the contract
 protocol HRequestBaseRequestProtocol {
     var url: String { get }
-    var headers: [String: String]? { get }
+    var headerParameters: [String: String]? { get set }
     // ... more properties
 }
 
 // Extension provides default implementations
 extension HRequestBaseRequestProtocol {
-    var headers: [String: String]? { return nil }
+    var headerParameters: [String: String]? { get { nil } set { } }
     var needsAuth: Bool { return false }
     var cacheType: HCache.CacheType? { return nil }
 }
@@ -389,9 +389,9 @@ struct AdvancedRequest: HPostRequestProtocol {
     var bodyParameters: [String: Any]? {
         ["name": "John"]
     }
-    let headers = ["X-Custom": "Value"]
+    var headerParameters: [String: String]? { get { ["X-Custom": "Value"] } set { } }
     let needsAuth = true
-    let retries = 3
+    var retries: Int? { get { 3 } set { } }
     let cacheType: HCache.CacheType? = .custom(HCache.Configuration(expirationTime: .oneHour))
 }
 ```
@@ -425,10 +425,9 @@ Sensible defaults minimize configuration:
 
 ```swift
 // These all have defaults:
-var headers: [String: String]? { nil }
+var headerParameters: [String: String]? { get { nil } set { } }
 var needsAuth: Bool { false }
-var retries: Int { 0 }
-var timeout: TimeInterval { 60 }
+var retries: Int? { get { nil } set { } }
 ```
 
 ### 5. Explicit Over Implicit

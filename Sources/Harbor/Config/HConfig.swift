@@ -27,7 +27,9 @@ struct HConfig: Sendable {
     /// Whether logging is enabled for debug purposes. Default is false.
     var isLoggingEnabled: Bool = false
     /// Default cache type for requests without explicit cache settings. Default is `.urlCache`.
-    var defaultCacheType: HCache.CacheType = .urlCache()
+    var cacheType: HCache.CacheType = .urlCache()
+    /// Default timeout interval for requests. Default is 15 seconds.
+    var timeoutInterval: TimeInterval = 15
 
     /// Whether mocks are currently enabled based on build configuration and `mocksOnlyInDebug`.
     var mocksEnabled: Bool {

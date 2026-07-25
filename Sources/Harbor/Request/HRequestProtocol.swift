@@ -55,6 +55,8 @@ public protocol HRequestBaseRequestProtocol: Sendable {
     var pathParameters: [String: String]? { get }
     /// Additional HTTP headers to include in the request. Default: `nil`.
     var headerParameters: [String: String]? { get set }
+    /// Timeout interval for this request. Default: `nil` (uses global config).
+    var timeoutInterval: TimeInterval? { get }
 }
 
 /// Default implementations for `HRequestBaseRequestProtocol`.
@@ -63,6 +65,7 @@ public extension HRequestBaseRequestProtocol {
     var retries: Int? { get { nil } set { } }
     var pathParameters: [String: String]? { nil }
     var headerParameters: [String: String]? { get { nil } set { } }
+    var timeoutInterval: TimeInterval? { nil }
 }
 
 // MARK: - Request with Empty Result Protocol

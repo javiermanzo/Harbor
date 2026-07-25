@@ -427,7 +427,8 @@ Sensible defaults minimize configuration:
 // These all have defaults:
 var headerParameters: [String: String]? { get { nil } set { } }
 var needsAuth: Bool { false }
-var retries: Int? { get { nil } set { } }
+var retries: Int? { nil }
+var timeoutInterval: TimeInterval? { nil }  // Uses global config (default 15s)
 ```
 
 ### 5. Explicit Over Implicit

@@ -6,7 +6,6 @@
 //
 
 import Foundation
-import Network
 
 /// Global actor to manage shared mutable state in a thread-safe way.
 /// This actor ensures that Harbor's internal state is accessed safely across concurrent contexts.
@@ -16,7 +15,11 @@ import Network
 }
 
 @HRequestManagerActor
-final class HRequestManager: Sendable {}
+final class HRequestManager: Sendable {
+    /// Connectivity monitor used as a pre-check before executing requests.
+    /// Owned here (typed as the protocol) so tests can substitute a fake.
+    static var connectivityMonitor: any HRequestManagerMonitorProtocol = HRequestManagerMonitor()
+}
 
 // MARK: - Request With Result
 extension HRequestManager {
@@ -36,7 +39,7 @@ extension HRequestManager {
             return await HRequestManager.processResponse(model: model, request: request, statusCode: mock.statusCode, data: data)
         }
 
-        if !self.isConnectedToNetwork() {
+        if !connectivityMonitor.isConnectedToNetwork() {
             let hError: HRequestError = .noConnection
             logError(hError, request: request)
             return .error(hError)
@@ -171,7 +174,7 @@ extension HRequestManager {
             return await HRequestManager.processResponse(request: request, statusCode: mock.statusCode, data: data)
         }
 
-        if !self.isConnectedToNetwork() {
+        if !connectivityMonitor.isConnectedToNetwork() {
             let hError: HRequestError = .noConnection
             logError(hError, request: request)
             return .error(hError)
@@ -339,31 +342,5 @@ private extension HRequestManager {
         }
 
         return false
-    }
-}
-
-// MARK: - Connectivity Functions
-private extension HRequestManager {
-    private static let monitor = NWPathMonitor()
-    private static let monitorQueue = DispatchQueue(label: "com.harbor.networkMonitor")
-    private static var isMonitorStarted = false
-
-    /// Enhanced network connectivity check using NWPathMonitor
-    static func isConnectedToNetwork() -> Bool {
-        if !isMonitorStarted {
-            monitor.start(queue: monitorQueue)
-            isMonitorStarted = true
-        }
-
-        if monitor.currentPath.status == .satisfied {
-            return true
-        }
-
-        // Fallback for debug/simulator environments
-        #if DEBUG || targetEnvironment(simulator)
-        return true
-        #else
-        return false
-        #endif
     }
 }

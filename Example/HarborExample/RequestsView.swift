@@ -13,6 +13,7 @@ import LogBird
 struct RequestsView: View {
     @State private var results: [String] = []
     @State private var isLoading: Bool = false
+    @State private var isSettingsPresented: Bool = false
 
     // Static logger using LogBird
     private static let logger = LogBird(subsystem: "com.harbor.example", category: "RequestsView")
@@ -56,173 +57,154 @@ struct RequestsView: View {
 
     var body: some View {
         NavigationView {
-            ScrollView {
-                VStack(spacing: 20) {
-                    // MARK: - Basic Requests Section
-                    Section {
-                        SectionHeader(title: "Basic GET Requests")
-
-                        ExampleButton(title: "GET - Simple Request", icon: "arrow.down.circle", action: { performBasicGet() })
-                        
-
-                        ExampleButton(title: "GET - With Path Parameter", icon: "arrow.right.circle", action: { performGetWithPathParameter() })
-                        
-
-                        ExampleButton(title: "GET - With Query Params", icon: "magnifyingglass", action: { performGetWithQueryParams() })
-                        
-                    }
-
-                    // MARK: - POST Requests
-                    Section {
-                        SectionHeader(title: "POST Requests")
-
-                        ExampleButton(title: "POST - Create Resource", icon: "plus.circle", action: { performPostRequest() })
-
-                        ExampleButton(title: "POST - Multipart Upload", icon: "paperclip", action: { performMultipartPost() })
-                    }
-
-                    // MARK: - PUT & PATCH
-                    Section {
-                        SectionHeader(title: "PUT & PATCH")
-
-                        ExampleButton(title: "PUT - Full Update", icon: "arrow.triangle.2.circlepath", action: { performPutRequest() })
-
-                        ExampleButton(title: "PATCH - Partial Update", icon: "pencil", action: { performPatchRequest() })
-                    }
-
-                    // MARK: - DELETE
-                    Section {
-                        SectionHeader(title: "DELETE")
-
-                        ExampleButton(title: "DELETE - Remove Resource", icon: "trash", action: { performDeleteRequest() })
-                    }
-
-                    // MARK: - Caching
-                    Section {
-                        SectionHeader(title: "Caching")
-
-                        ExampleButton(title: "GET - With Custom Cache", icon: "externaldrive", action: { performCachedRequest() })
-
-                        ExampleButton(title: "GET - With URLCache (ETags)", icon: "network", action: { performURLCacheRequest() })
-
-                        ExampleButton(title: "GET - Cache Only", icon: "internaldrive", action: { performCacheOnlyRequest() })
-
-                        ExampleButton(title: "GET - Remote Only", icon: "antenna.radiowaves.left.and.right", action: { performRemoteOnlyRequest() })
-
-                        ExampleButton(title: "Clear All Cache", icon: "xmark.circle", isDestructive: true, action: { clearAllCache() })
-                    }
-
-                    // MARK: - Streaming
-                    Section {
-                        SectionHeader(title: "Streaming")
-
-                        ExampleButton(title: "Stream - Cache + Remote", icon: "arrow.triangle.2.circlepath.circle", action: { performStreamRequest() })
-                    }
-
-                    // MARK: - Pagination
-                    Section {
-                        SectionHeader(title: "Pagination")
-
-                        ExampleButton(title: "GET - Paginated", icon: "number", action: { performPaginatedRequest() })
-                    }
-
-                    // MARK: - Authentication
-                    Section {
-                        SectionHeader(title: "Authentication")
-
-                        ExampleButton(title: "GET - With Auth", icon: "lock.shield", action: { performAuthenticatedRequest() })
-
-                        ExampleButton(title: "GET - Auth with Token Refresh", icon: "lock.rotation", action: { performAuthWithRefresh() })
-                    }
-
-                    // MARK: - Headers
-                    Section {
-                        SectionHeader(title: "Custom Headers")
-
-                        ExampleButton(title: "GET - Custom Headers", icon: "header", action: { performRequestWithHeaders() })
-                    }
-
-                    // MARK: - Retry
-                    Section {
-                        SectionHeader(title: "Retry Logic")
-
-                        ExampleButton(title: "GET - With Retry (3x)", icon: "arrow.clockwise.circle", action: { performRequestWithRetry() })
-                    }
-
-                    // MARK: - Error Handling
-                    Section {
-                        SectionHeader(title: "Error Handling")
-
-                        ExampleButton(title: "Handle Errors", icon: "exclamationmark.triangle", action: { performErrorHandling() })
-                    }
-
-                    // MARK: - JSON-RPC
-                    Section {
-                        SectionHeader(title: "JSON-RPC (Ethereum)")
-
-                        ExampleButton(title: "JRPC - Block Number", icon: "bitcoinsign.circle", action: { performJRPCRequest() })
-
-                        ExampleButton(title: "JRPC - Get Balance", icon: "dollarsign.circle", action: { performJRPCBalanceRequest() })
-                    }
-
-                    // MARK: - mTLS
-                    Section {
-                        SectionHeader(title: "Security (mTLS)")
-
-                        ExampleButton(title: "GET - With mTLS", icon: "lock.icloud", action: { performMTLSRequest() })
-
-                        ExampleButton(title: "Configure SSL Pinning", icon: "checkmark.shield", action: { configureSSLPinning() })
-                    }
-
-                    // MARK: - Debug
-                    Section {
-                        SectionHeader(title: "Debug Mode")
-
-                        ExampleButton(title: "GET - Debug Mode", icon: "antenna.radiowaves.left.and.right", action: { performDebugRequest() })
-                    }
-
-                    // MARK: - Results Display
-                    if !results.isEmpty {
+            VStack(spacing: 0) {
+                ScrollView {
+                    VStack(spacing: 20) {
+                        // MARK: - Basic Requests Section
                         Section {
-                            SectionHeader(title: "Results")
+                            SectionHeader(title: "Basic GET Requests")
 
-                            VStack(alignment: .leading, spacing: 8) {
-                                ForEach(Array(results.enumerated()), id: \.offset) { index, result in
-                                    HStack(alignment: .top) {
-                                        Text("\(index + 1).")
-                                            .font(.caption)
-                                            .foregroundColor(.secondary)
-                                        Text(result)
-                                            .font(.caption)
-                                            .multilineTextAlignment(.leading)
-                                    }
-                                }
-                            }
-                            .padding()
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(Color.gray.opacity(0.1))
-                            .cornerRadius(8)
+                            ExampleButton(title: "GET - Simple Request", icon: "arrow.down.circle", action: { performBasicGet() })
+                            
 
-                            Button("Clear Results") {
-                                results.removeAll()
-                            }
-                            .buttonStyle(.bordered)
+                            ExampleButton(title: "GET - With Path Parameter", icon: "arrow.right.circle", action: { performGetWithPathParameter() })
+                            
+
+                            ExampleButton(title: "GET - With Query Params", icon: "magnifyingglass", action: { performGetWithQueryParams() })
+                            
                         }
-                    }
 
-                    Spacer(minLength: 40)
+                        // MARK: - POST Requests
+                        Section {
+                            SectionHeader(title: "POST Requests")
+
+                            ExampleButton(title: "POST - Create Resource", icon: "plus.circle", action: { performPostRequest() })
+
+                            ExampleButton(title: "POST - Multipart Upload", icon: "paperclip", action: { performMultipartPost() })
+                        }
+
+                        // MARK: - PUT & PATCH
+                        Section {
+                            SectionHeader(title: "PUT & PATCH")
+
+                            ExampleButton(title: "PUT - Full Update", icon: "arrow.triangle.2.circlepath", action: { performPutRequest() })
+
+                            ExampleButton(title: "PATCH - Partial Update", icon: "pencil", action: { performPatchRequest() })
+                        }
+
+                        // MARK: - DELETE
+                        Section {
+                            SectionHeader(title: "DELETE")
+
+                            ExampleButton(title: "DELETE - Remove Resource", icon: "trash", action: { performDeleteRequest() })
+                        }
+
+                        // MARK: - Caching
+                        Section {
+                            SectionHeader(title: "Caching")
+
+                            ExampleButton(title: "GET - With Custom Cache", icon: "externaldrive", action: { performCachedRequest() })
+
+                            ExampleButton(title: "GET - With URLCache (ETags)", icon: "network", action: { performURLCacheRequest() })
+
+                            ExampleButton(title: "GET - Cache Only", icon: "internaldrive", action: { performCacheOnlyRequest() })
+
+                            ExampleButton(title: "GET - Remote Only", icon: "antenna.radiowaves.left.and.right", action: { performRemoteOnlyRequest() })
+
+                            ExampleButton(title: "Clear All Cache", icon: "xmark.circle", isDestructive: true, action: { clearAllCache() })
+                        }
+
+                        // MARK: - Streaming
+                        Section {
+                            SectionHeader(title: "Streaming")
+
+                            ExampleButton(title: "Stream - Cache + Remote", icon: "arrow.triangle.2.circlepath.circle", action: { performStreamRequest() })
+                        }
+
+                        // MARK: - Pagination
+                        Section {
+                            SectionHeader(title: "Pagination")
+
+                            ExampleButton(title: "GET - Paginated", icon: "number", action: { performPaginatedRequest() })
+                        }
+
+                        // MARK: - Authentication
+                        Section {
+                            SectionHeader(title: "Authentication")
+
+                            ExampleButton(title: "GET - With Auth", icon: "lock.shield", action: { performAuthenticatedRequest() })
+
+                            ExampleButton(title: "GET - Auth with Token Refresh", icon: "lock.rotation", action: { performAuthWithRefresh() })
+                        }
+
+                        // MARK: - Headers
+                        Section {
+                            SectionHeader(title: "Custom Headers")
+
+                            ExampleButton(title: "GET - Custom Headers", icon: "header", action: { performRequestWithHeaders() })
+                        }
+
+                        // MARK: - Retry
+                        Section {
+                            SectionHeader(title: "Retry Logic")
+
+                            ExampleButton(title: "GET - With Retry (3x)", icon: "arrow.clockwise.circle", action: { performRequestWithRetry() })
+                        }
+
+                        // MARK: - Error Handling
+                        Section {
+                            SectionHeader(title: "Error Handling")
+
+                            ExampleButton(title: "Handle Errors", icon: "exclamationmark.triangle", action: { performErrorHandling() })
+                        }
+
+                        // MARK: - JSON-RPC
+                        Section {
+                            SectionHeader(title: "JSON-RPC (Ethereum)")
+
+                            ExampleButton(title: "JRPC - Block Number", icon: "bitcoinsign.circle", action: { performJRPCRequest() })
+
+                            ExampleButton(title: "JRPC - Get Balance", icon: "dollarsign.circle", action: { performJRPCBalanceRequest() })
+                        }
+
+                        // MARK: - mTLS
+                        Section {
+                            SectionHeader(title: "Security (mTLS)")
+
+                            ExampleButton(title: "GET - With mTLS", icon: "lock.icloud", action: { performMTLSRequest() })
+
+                            ExampleButton(title: "Configure SSL Pinning", icon: "checkmark.shield", action: { configureSSLPinning() })
+                        }
+
+                        // MARK: - Debug
+                        Section {
+                            SectionHeader(title: "Debug Mode")
+
+                            ExampleButton(title: "GET - Debug Mode", icon: "antenna.radiowaves.left.and.right", action: { performDebugRequest() })
+                        }
+
+                        Spacer(minLength: 40)
+                    }
+                    .padding()
                 }
-                .padding()
+
+                // MARK: - Sticky Results Console
+                ResultsConsoleView(results: results) {
+                    results.removeAll()
+                }
             }
             .onAppear {
                 setupOnAppear()
             }
             .navigationTitle("Harbor Examples")
             .navigationBarItems(trailing:
-                Button(action: { showSettings() }) {
+                Button(action: { isSettingsPresented = true }) {
                     Image(systemName: "gear")
                 }
             )
+            .sheet(isPresented: $isSettingsPresented) {
+                SettingsView()
+            }
         }
         .overlay {
             if isLoading {
@@ -240,7 +222,7 @@ struct RequestsView: View {
     func performBasicGet() {
         Self.logger.log("performBasicGet called", level: .info)
         addResult("=== GET - Basic Request ===")
-        Task {
+        performWithLoading {
             let response = await GetUsersRequest().request()
             await MainActor.run {
                 switch response {
@@ -258,7 +240,7 @@ struct RequestsView: View {
 
     func performGetWithPathParameter() {
         addResult("=== GET - Path Parameter ===")
-        Task {
+        performWithLoading {
             let response = await GetUserRequest(userId: 1).request()
             await MainActor.run {
                 switch response {
@@ -274,7 +256,7 @@ struct RequestsView: View {
 
     func performGetWithQueryParams() {
         addResult("=== GET - Query Parameters ===")
-        Task {
+        performWithLoading {
             let response = await SearchUsersRequest(query: "Bret").request()
             await MainActor.run {
                 switch response {
@@ -291,7 +273,7 @@ struct RequestsView: View {
 
     func performPostRequest() {
         addResult("=== POST - Create Resource ===")
-        Task {
+        performWithLoading {
             let response = await CreatePostRequest(
                 title: "My New Post",
                 body: "This is the body of my post",
@@ -311,7 +293,7 @@ struct RequestsView: View {
 
     func performMultipartPost() {
         addResult("=== POST - Multipart ===")
-        Task {
+        performWithLoading {
             let imageData = "fake image data".data(using: .utf8)
             let response = await UploadPostRequest(
                 title: "Post with Image",
@@ -335,7 +317,7 @@ struct RequestsView: View {
 
     func performPutRequest() {
         addResult("=== PUT - Full Update ===")
-        Task {
+        performWithLoading {
             let response = await UpdatePostRequest(
                 postId: 1,
                 title: "Updated Title",
@@ -356,7 +338,7 @@ struct RequestsView: View {
 
     func performPatchRequest() {
         addResult("=== PATCH - Partial Update ===")
-        Task {
+        performWithLoading {
             let response = await PatchPostRequest(
                 postId: 1,
                 title: "Just the Title"
@@ -377,7 +359,7 @@ struct RequestsView: View {
 
     func performDeleteRequest() {
         addResult("=== DELETE - Remove Resource ===")
-        Task {
+        performWithLoading {
             let response = await DeletePostRequest(postId: 1).request()
 
             await MainActor.run {
@@ -395,7 +377,7 @@ struct RequestsView: View {
 
     func performCachedRequest() {
         addResult("=== GET - Custom Cache ===")
-        Task {
+        performWithLoading {
             let response = await GetUserProfileRequest(userId: 1).request()
 
             await MainActor.run {
@@ -411,7 +393,7 @@ struct RequestsView: View {
 
     func performURLCacheRequest() {
         addResult("=== GET - URLCache ===")
-        Task {
+        performWithLoading {
             let response = await GetPostsRequest().request()
 
             await MainActor.run {
@@ -427,7 +409,7 @@ struct RequestsView: View {
 
     func performCacheOnlyRequest() {
         addResult("=== GET - Cache Only ===")
-        Task {
+        performWithLoading {
             // First, populate cache
             _ = await GetUserRequest(userId: 1).request()
 
@@ -445,7 +427,7 @@ struct RequestsView: View {
 
     func performRemoteOnlyRequest() {
         addResult("=== GET - Remote Only ===")
-        Task {
+        performWithLoading {
             let response = await RemoteOnlyUsersRequest().request()
 
             await MainActor.run {
@@ -461,7 +443,7 @@ struct RequestsView: View {
 
     func clearAllCache() {
         addResult("=== Clearing Cache ===")
-        Task {
+        performWithLoading {
             await Harbor.clearAllCache()
             await MainActor.run {
                 addResult("All cache cleared!")
@@ -473,7 +455,7 @@ struct RequestsView: View {
 
     func performStreamRequest() {
         addResult("=== Stream - Cache + Remote ===")
-        Task {
+        performWithLoading {
             do {
                 // First populate cache
                 _ = await GetUserRequest(userId: 1).request()
@@ -497,7 +479,7 @@ struct RequestsView: View {
 
     func performPaginatedRequest() {
         addResult("=== GET - Paginated ===")
-        Task {
+        performWithLoading {
             let response = await GetPaginatedPostsRequest(page: 1, limit: 5).request()
 
             await MainActor.run {
@@ -515,7 +497,7 @@ struct RequestsView: View {
 
     func performAuthenticatedRequest() {
         addResult("=== GET - Authenticated ===")
-        Task {
+        performWithLoading {
             // Set auth provider
             authProvider.setToken("demo_token_123", expiresIn: 3600)
             await Harbor.setAuthProvider(authProvider)
@@ -535,7 +517,7 @@ struct RequestsView: View {
 
     func performAuthWithRefresh() {
         addResult("=== Auth with Token Refresh ===")
-        Task {
+        performWithLoading {
             // This would trigger authFailed() in the provider
             // which could refresh the token
             await Harbor.setAuthProvider(authProvider)
@@ -557,7 +539,7 @@ struct RequestsView: View {
 
     func performRequestWithHeaders() {
         addResult("=== GET - Custom Headers ===")
-        Task {
+        performWithLoading {
             let response = await GetDataWithHeadersRequest().request()
 
             await MainActor.run {
@@ -575,7 +557,7 @@ struct RequestsView: View {
 
     func performRequestWithRetry() {
         addResult("=== GET - With Retry ===")
-        Task {
+        performWithLoading {
             let response = await GetUnreliableDataRequest().request()
 
             await MainActor.run {
@@ -593,7 +575,7 @@ struct RequestsView: View {
 
     func performErrorHandling() {
         addResult("=== Error Handling Examples ===")
-        Task {
+        performWithLoading {
             let response = await ErrorProneRequest().request()
 
             await MainActor.run {
@@ -612,7 +594,7 @@ struct RequestsView: View {
 
     func performJRPCRequest() {
         addResult("=== JRPC - eth_blockNumber ===")
-        Task {
+        performWithLoading {
             let response = await JRPCRequest().request()
 
             await MainActor.run {
@@ -628,7 +610,7 @@ struct RequestsView: View {
 
     func performJRPCBalanceRequest() {
         addResult("=== JRPC - eth_getBalance ===")
-        Task {
+        performWithLoading {
             struct GetBalanceRequest: HJRPCRequestProtocol {
                 typealias Model = String
                 let method: String = "eth_getBalance"
@@ -657,7 +639,7 @@ struct RequestsView: View {
 
     func performMTLSRequest() {
         addResult("=== mTLS Request ===")
-        Task {
+        performWithLoading {
             let response = await MTLSRequest().request()
 
             await MainActor.run {
@@ -691,7 +673,7 @@ struct RequestsView: View {
 
     func performDebugRequest() {
         addResult("=== Debug Request ===")
-        Task {
+        performWithLoading {
             await Harbor.setLoggingEnabled(true)
             let response = await DebugGetUsersRequest().request()
 
@@ -706,20 +688,16 @@ struct RequestsView: View {
         }
     }
 
-    // MARK: - Settings
+    // MARK: - Helpers
 
-    func showSettings() {
-        addResult("=== Current Configuration ===")
+    /// Runs an async operation toggling the loading overlay.
+    private func performWithLoading(_ operation: @escaping () async -> Void) {
+        isLoading = true
         Task {
-            await MainActor.run {
-                addResult("Cache: URLCache (default)")
-                addResult("Logging: Enabled")
-                addResult("Default Headers: X-Client-Version, X-Client-Platform")
-            }
+            await operation()
+            await MainActor.run { isLoading = false }
         }
     }
-
-    // MARK: - Helpers
 
     func addResult(_ text: String) {
         results.append(text)
@@ -779,6 +757,88 @@ struct ExampleButton: View {
             RoundedRectangle(cornerRadius: 10)
                 .stroke(Color.accentColor, lineWidth: isDestructive ? 0 : 1)
         )
+    }
+}
+
+/// Simple read-only summary of the Harbor configuration used by the example.
+struct SettingsView: View {
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationView {
+            List {
+                Section(header: Text("Network")) {
+                    Label("Cache: URLCache (default)", systemImage: "externaldrive")
+                    Label("Timeout: 15s (default)", systemImage: "clock")
+                    Label("JRPC: ethereum.publicnode.com", systemImage: "link")
+                }
+
+                Section(header: Text("Default Headers")) {
+                    Label("X-Client-Version: 1.0.0", systemImage: "list.bullet.rectangle")
+                    Label("X-Client-Platform: iOS", systemImage: "list.bullet.rectangle")
+                }
+
+                Section(header: Text("Debug")) {
+                    Label("Logging: Enabled", systemImage: "antenna.radiowaves.left.and.right")
+                }
+            }
+            .navigationTitle("Settings")
+            .navigationBarItems(trailing: Button("Done") { dismiss() })
+        }
+    }
+}
+
+/// Console-style output panel pinned to the bottom of the screen.
+/// Shows example outputs and auto-scrolls to the newest entry.
+struct ResultsConsoleView: View {
+    let results: [String]
+    let onClear: () -> Void
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Divider()
+
+            HStack {
+                Text("Output")
+                    .font(.headline)
+                Spacer()
+                if !results.isEmpty {
+                    Button("Clear", action: onClear)
+                        .font(.caption)
+                }
+            }
+            .padding(.horizontal)
+            .padding(.vertical, 8)
+
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 4) {
+                        if results.isEmpty {
+                            Text("Tap an example to see its output here")
+                                .foregroundColor(.secondary)
+                        } else {
+                            ForEach(Array(results.enumerated()), id: \.offset) { index, result in
+                                Text(result)
+                                    .id(index)
+                            }
+                        }
+                    }
+                    .font(.caption)
+                    .multilineTextAlignment(.leading)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal)
+                }
+                .onChange(of: results.count) { _ in
+                    if let lastIndex = results.indices.last {
+                        withAnimation {
+                            proxy.scrollTo(lastIndex, anchor: .bottom)
+                        }
+                    }
+                }
+            }
+            .frame(height: 160)
+            .background(Color.gray.opacity(0.1))
+        }
     }
 }
 

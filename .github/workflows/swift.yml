@@ -22,13 +22,13 @@ jobs:
       run: swift test -v --enable-code-coverage
 
     # 2. Run Example App Tests (Integration via xcodebuild)
-    # Using iPhone 16e on macos-26
+    # Using iPhone 17 on macos-26 (available on the latest simulator runtime)
     - name: Run Example App Tests
       run: |
         xcodebuild test \
           -project Example/HarborExample.xcodeproj \
           -scheme HarborExample \
-          -destination 'platform=iOS Simulator,name=iPhone 16e' \
+          -destination 'platform=iOS Simulator,name=iPhone 17' \
           -resultBundlePath TestResults \
           CODE_SIGN_IDENTITY="" \
           CODE_SIGNING_REQUIRED=NO \

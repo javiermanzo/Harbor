@@ -6,6 +6,7 @@
 //
 
 import XCTest
+import Security
 @testable import Harbor
 
 @HRequestManagerActor
@@ -211,6 +212,145 @@ final class HarborSecurityTests: XCTestCase {
                 XCTFail("Expected API error with 403 status but got: \(error)")
             }
         }
+    }
+
+    // MARK: - SPKI Pinning Tests
+
+    func testSPKIPinMatchesOpenSSLOutput() async throws {
+        // Given
+        let unwrappedP12URL = try XCTUnwrap(testP12URL, "certificate.p12 not found")
+        let mTLS = HmTLS(p12FileUrl: unwrappedP12URL, password: testPassword)
+        let identity = try XCTUnwrap(mTLS.extractIdentity())
+        let certificate = try XCTUnwrap(identity.certificateChain?.first)
+
+        // When
+        let pin = Harbor.computePin(for: certificate)
+
+        // Then
+        // Expected value generated from Tests/HarborTests/certificate.p12 with:
+        // openssl pkcs12 -in certificate.p12 -nokeys -passin pass:notapassword | \
+        //   openssl x509 -pubkey -noout | \
+        //   openssl pkey -pubin -outform der | \
+        //   openssl dgst -sha256 -binary | \
+        //   openssl base64
+        XCTAssertEqual(pin, "X39uJq4Gmf5YvT9e7Q/Cc1DMepSL8aYi7hBI5l6qgO4=")
+    }
+
+    func testSPKIPinMatchesOpenSSLOutputEC256() async throws {
+        // Given
+        let certificate = try loadDERCertificate(named: "certificate-ec256.der")
+
+        // When
+        let pin = Harbor.computePin(for: certificate)
+
+        // Then
+        // Expected value generated from Tests/HarborTests/certificate-ec256.der with:
+        // openssl x509 -inform DER -in certificate-ec256.der -pubkey -noout | \
+        //   openssl pkey -pubin -outform der | \
+        //   openssl dgst -sha256 -binary | \
+        //   openssl base64
+        XCTAssertEqual(pin, "w2fnV22DZKdxvDvT5Oj7K3LHDl0E2gRrIIhHK2L0F/E=")
+    }
+
+    func testSPKIPinMatchesOpenSSLOutputRSA4096() async throws {
+        // Given
+        let certificate = try loadDERCertificate(named: "certificate-rsa4096.der")
+
+        // When
+        let pin = Harbor.computePin(for: certificate)
+
+        // Then
+        // Expected value generated from Tests/HarborTests/certificate-rsa4096.der with:
+        // openssl x509 -inform DER -in certificate-rsa4096.der -pubkey -noout | \
+        //   openssl pkey -pubin -outform der | \
+        //   openssl dgst -sha256 -binary | \
+        //   openssl base64
+        XCTAssertEqual(pin, "8tTpKUiR9q0MRHDOcFD1qGCUeliu9b+wQeGMT16qm7Y=")
+    }
+
+    private func loadDERCertificate(named fileName: String) throws -> SecCertificate {
+        let thisFileURL = URL(fileURLWithPath: #filePath)
+        let certURL = thisFileURL.deletingLastPathComponent().appendingPathComponent(fileName)
+        let certData = try Data(contentsOf: certURL)
+        return try XCTUnwrap(SecCertificateCreateWithData(nil, certData as CFData), "\(fileName) is not a valid DER certificate")
+    }
+
+    func testSPKIPinDiffersFromLegacyRawKeyHash() async throws {
+        // Given
+        let unwrappedP12URL = try XCTUnwrap(testP12URL, "certificate.p12 not found")
+        let mTLS = HmTLS(p12FileUrl: unwrappedP12URL, password: testPassword)
+        let identity = try XCTUnwrap(mTLS.extractIdentity())
+        let certificate = try XCTUnwrap(identity.certificateChain?.first)
+
+        // When
+        let pin = try XCTUnwrap(Harbor.computePin(for: certificate))
+        let publicKey = try XCTUnwrap(SecCertificateCopyKey(certificate))
+        let rawKeyData = try XCTUnwrap(SecKeyCopyExternalRepresentation(publicKey, nil) as Data?)
+        let legacyRawKeyHash = SHA256.sha256(data: rawKeyData)
+
+        // Then
+        // The SPKI pin must not match the legacy format (SHA-256 of the raw public key bytes)
+        XCTAssertNotEqual(pin, legacyRawKeyHash)
+    }
+
+    // MARK: - Pin Validation Tests
+
+    func testIsValidPin() async {
+        // 44 chars with padding
+        XCTAssertTrue(HSPKI.isValidPin("X39uJq4Gmf5YvT9e7Q/Cc1DMepSL8aYi7hBI5l6qgO4="))
+        // 43 chars without padding
+        XCTAssertTrue(HSPKI.isValidPin("X39uJq4Gmf5YvT9e7Q/Cc1DMepSL8aYi7hBI5l6qgO4"))
+        // Not base64
+        XCTAssertFalse(HSPKI.isValidPin("INVALID_HASH"))
+        // Hex-encoded SHA-256 (decodes to more than 32 bytes as base64)
+        XCTAssertFalse(HSPKI.isValidPin("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"))
+        // Empty
+        XCTAssertFalse(HSPKI.isValidPin(""))
+        // Valid base64 but wrong length (16 bytes)
+        XCTAssertFalse(HSPKI.isValidPin("AQIDBAUGBwgJCgsMDQ4PEA=="))
+    }
+
+    func testSetSSLPinningKeysWithMalformedPinDoesNotCrash() async {
+        // Given / When: malformed pins should only log a warning, not crash
+        Harbor.setSSlPinningKeys(["INVALID_HASH", "X39uJq4Gmf5YvT9e7Q/Cc1DMepSL8aYi7hBI5l6qgO4="])
+
+        // Then
+        XCTAssertEqual(HConfig.shared.sslPinningKeys?.count, 2)
+    }
+
+    func testNormalizePin() async {
+        // Padding must not affect matching: 44-char and 43-char forms normalize equal
+        XCTAssertEqual(HSPKI.normalizePin("X39uJq4Gmf5YvT9e7Q/Cc1DMepSL8aYi7hBI5l6qgO4="),
+                       HSPKI.normalizePin("X39uJq4Gmf5YvT9e7Q/Cc1DMepSL8aYi7hBI5l6qgO4"))
+    }
+
+    // MARK: - PKCS12 Certificate Chain Tests
+
+    func testPKCS12ExtractsCertificateChain() async throws {
+        // Given
+        let unwrappedP12URL = try XCTUnwrap(testP12URL, "certificate.p12 not found")
+        let p12Data = try Data(contentsOf: unwrappedP12URL)
+
+        // When
+        let pkcs12 = PKCS12(p12Data: p12Data, password: testPassword)
+
+        // Then
+        XCTAssertNotNil(pkcs12.identity)
+        let certChain = try XCTUnwrap(pkcs12.certChain, "certChain should be extracted as [SecCertificate]")
+        XCTAssertFalse(certChain.isEmpty)
+    }
+
+    func testMTLSIdentityIncludesCertificateChain() async throws {
+        // Given
+        let unwrappedP12URL = try XCTUnwrap(testP12URL, "certificate.p12 not found")
+        let mTLS = HmTLS(p12FileUrl: unwrappedP12URL, password: testPassword)
+
+        // When
+        let identity = try XCTUnwrap(mTLS.extractIdentity())
+
+        // Then
+        let certChain = try XCTUnwrap(identity.certificateChain)
+        XCTAssertFalse(certChain.isEmpty)
     }
 }
 

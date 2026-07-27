@@ -42,6 +42,45 @@ final class HURLSessionDelegateTests: XCTestCase {
         
         wait(for: [expectation], timeout: 1.0)
     }
+
+    func testMTLSChallengeSendsCertificateChain() throws {
+        // Given
+        let p12URL = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .appendingPathComponent("certificate.p12")
+        let mTLS = HmTLS(p12FileUrl: p12URL, password: "notapassword")
+        let identity = try XCTUnwrap(mTLS.extractIdentity(), "Failed to extract identity from certificate.p12")
+        let expectedChainCount = try XCTUnwrap(identity.certificateChain, "Identity should include the certificate chain").count
+        XCTAssertGreaterThan(expectedChainCount, 0)
+
+        let delegate = HURLSessionDelegate(mTLSIdentity: identity, sslPinningKeys: nil)
+
+        let protectionSpace = URLProtectionSpace(host: "example.com",
+                                                 port: 443,
+                                                 protocol: "https",
+                                                 realm: nil,
+                                                 authenticationMethod: NSURLAuthenticationMethodClientCertificate)
+
+        let challenge = URLAuthenticationChallenge(protectionSpace: protectionSpace,
+                                                   proposedCredential: nil,
+                                                   previousFailureCount: 0,
+                                                   failureResponse: nil,
+                                                   error: nil,
+                                                   sender: MockURLSessionSender())
+
+        let expectation = XCTestExpectation(description: "Challenge with identity and chain")
+
+        // When
+        delegate.urlSession(URLSession.shared, didReceive: challenge) { disposition, credential in
+            // Then
+            XCTAssertEqual(disposition, .useCredential)
+            XCTAssertEqual(credential?.identity, identity.identity)
+            XCTAssertEqual(credential?.certificates.count, expectedChainCount)
+            expectation.fulfill()
+        }
+
+        wait(for: [expectation], timeout: 1.0)
+    }
     
     // MARK: - SSL Pinning Tests
     

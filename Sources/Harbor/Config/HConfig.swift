@@ -6,11 +6,15 @@
 //
 
 import Foundation
+import LogBird
 
 @HRequestManagerActor
 struct HConfig: Sendable {
     /// Shared singleton instance of the configuration.
     static var shared = HConfig()
+
+    /// Logger instance for configuration related events
+    private static let logger = LogBird(subsystem: "com.harbor", category: "config")
     
     /// Authentication provider for adding credentials to requests.
     var authProvider: HAuthProviderProtocol?
@@ -19,7 +23,15 @@ struct HConfig: Sendable {
     /// mTLS identity for client certificate authentication.
     var mTLSIdentity: HMTLSIdentity?
     /// SSL pinning public key hashes for certificate validation.
-    var sslPinningKeys: [String]?
+    /// Malformed pins (not base64 SHA-256 hashes) log a warning when set and are ignored during validation.
+    var sslPinningKeys: [String]? {
+        didSet {
+            guard let sslPinningKeys else { return }
+            for key in sslPinningKeys where !HSPKI.isValidPin(key) {
+                Self.logger.log("SSL pinning key \"\(key)\" is not a valid base64 SHA-256 hash and will never match. Pins must be base64(SHA256(SPKI)).", level: .warning)
+            }
+        }
+    }
     /// Custom URLSession to use for all requests.
     var currentURLSession: URLSession?
     /// Whether mocks should only be enabled in DEBUG builds. Default is true.

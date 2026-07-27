@@ -6,7 +6,6 @@
 //
 
 import Foundation
-import LogBird
 import Security
 
 /**
@@ -15,11 +14,7 @@ import Security
  Features: Caching, Authentication, SSL/TLS Security, Mocking, Async/Await, Retry Logic
  */
 @HRequestManagerActor
-public enum Harbor {
-
-    /// Logger instance for configuration related events
-    private static let logger = LogBird(subsystem: "com.harbor", category: "config")
-}
+public enum Harbor {}
 
 // MARK: - Configuration
 
@@ -44,11 +39,6 @@ public extension Harbor {
     /// base64 encoded. Provide multiple keys to support key rotation (backup pins).
     /// Use `Harbor.computePin(for:)` to generate pins from a certificate.
     static func setSSlPinningKeys(_ sslPinningKeys: [String]?) {
-        if let sslPinningKeys {
-            for key in sslPinningKeys where !HSPKI.isValidPin(key) {
-                logger.log("SSL pinning key \"\(key)\" is not a valid base64 SHA-256 hash and will never match. Pins must be base64(SHA256(SPKI)).", level: .warning)
-            }
-        }
         HConfig.shared.sslPinningKeys = sslPinningKeys
     }
 

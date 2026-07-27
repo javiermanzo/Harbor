@@ -15,7 +15,7 @@ final class PKCS12 {
     var label: String?
     var keyID: NSData?
     var trust: SecTrust?
-    var certChain: [SecTrust]?
+    var certChain: [SecCertificate]?
     var identity: SecIdentity?
     var loggingEnabled: Bool
 

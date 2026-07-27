@@ -6,6 +6,8 @@
 //
 
 import Foundation
+import LogBird
+import Security
 
 /**
  Harbor - Protocol-oriented networking framework for Swift.
@@ -13,7 +15,11 @@ import Foundation
  Features: Caching, Authentication, SSL/TLS Security, Mocking, Async/Await, Retry Logic
  */
 @HRequestManagerActor
-public enum Harbor {}
+public enum Harbor {
+
+    /// Logger instance for configuration related events
+    private static let logger = LogBird(subsystem: "com.harbor", category: "config")
+}
 
 // MARK: - Configuration
 
@@ -34,10 +40,25 @@ public extension Harbor {
         HConfig.shared.mTLSIdentity = mTLS?.extractIdentity(loggingEnabled: HConfig.shared.isLoggingEnabled)
     }
 
-    /// Enables SSL pinning with SHA256 public key hashes.
-    /// Provide multiple keys to support key rotation (backup pins).
+    /// Enables SSL pinning with SHA256 hashes of the certificate's SubjectPublicKeyInfo (SPKI),
+    /// base64 encoded. Provide multiple keys to support key rotation (backup pins).
+    /// Use `Harbor.computePin(for:)` to generate pins from a certificate.
     static func setSSlPinningKeys(_ sslPinningKeys: [String]?) {
+        if let sslPinningKeys {
+            for key in sslPinningKeys where !HSPKI.isValidPin(key) {
+                logger.log("SSL pinning key \"\(key)\" is not a valid base64 SHA-256 hash and will never match. Pins must be base64(SHA256(SPKI)).", level: .warning)
+            }
+        }
         HConfig.shared.sslPinningKeys = sslPinningKeys
+    }
+
+    /// Computes the SSL pin for a certificate: `base64(SHA256(SPKI))`.
+    /// This matches the output of:
+    /// `openssl x509 -in cert.pem -pubkey -noout | openssl pkey -pubin -outform der | openssl dgst -sha256 -binary | openssl base64`
+    /// - Parameter certificate: The certificate to pin.
+    /// - Returns: The pin string, or `nil` if the certificate's key type is unsupported.
+    static func computePin(for certificate: SecCertificate) -> String? {
+        HSPKI.pin(for: certificate)
     }
 
     /// Sets custom URLSession for all Harbor requests.
@@ -66,6 +87,13 @@ public extension Harbor {
     /// - Parameter enabled: If true, logs will be printed (subject to #if DEBUG). If false, no logs will be printed.
     static func setLoggingEnabled(_ enabled: Bool) {
         HConfig.shared.isLoggingEnabled = enabled
+    }
+
+    /// Configures whether sensitive header values (Authorization, Cookie, Set-Cookie, X-API-Key,
+    /// Proxy-Authorization) are printed in debug logs and generated cURL commands.
+    /// - Parameter enabled: If true, real values are printed. If false (default), values are redacted as `<redacted>`.
+    static func setLogSensitiveHeaders(_ enabled: Bool) {
+        HConfig.shared.logSensitiveHeaders = enabled
     }
 }
 

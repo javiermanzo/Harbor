@@ -59,7 +59,7 @@ final class HURLSessionDelegate: NSObject, URLSessionDelegate, @unchecked Sendab
         }
         
         let credential = URLCredential(identity: mTLSIdentity.identity,
-                                       certificates: nil,
+                                       certificates: mTLSIdentity.certificateChain,
                                        persistence: .none)
         return HChallengeResult(disposition: .useCredential, credential: credential)
     }
@@ -79,28 +79,27 @@ final class HURLSessionDelegate: NSObject, URLSessionDelegate, @unchecked Sendab
             return (disposition: .cancelAuthenticationChallenge, credential: nil)
         }
         
+        // Ignore malformed pins so they can never produce accidental matches
+        let validPins = Set(sslPinningKeys.filter { HSPKI.isValidPin($0) }.map { HSPKI.normalizePin($0) })
+        guard !validPins.isEmpty else {
+            Self.logger.log("SSL Pinning Failed: no valid pins configured", level: .error)
+            return (disposition: .cancelAuthenticationChallenge, credential: nil)
+        }
+
         // Check if any certificate in the chain matches one of the pinned keys
         guard let certificateChain = SecTrustCopyCertificateChain(serverTrust) as? [SecCertificate] else {
             Self.logger.log("Failed to retrieve certificate chain", level: .error)
             return (disposition: .cancelAuthenticationChallenge, credential: nil)
         }
-        
+
         for certificate in certificateChain {
-            guard let publicKey = SecCertificateCopyKey(certificate) else {
+            guard let publicKeyHash = HSPKI.pin(for: certificate) else {
+                // Unsupported key type/size (e.g. RSA-1024 or P-521 in the chain) — skip it
+                Self.logger.log("Skipping certificate with unsupported key type for SSL pinning", level: .warning)
                 continue
             }
-            
-            var keyError: Unmanaged<CFError>?
-            guard let publicKeyData = SecKeyCopyExternalRepresentation(publicKey, &keyError) as Data? else {
-                if let error = keyError?.takeRetainedValue() {
-                    Self.logger.log("Failed to extract public key data: \(error)", level: .error)
-                }
-                continue
-            }
-            
-            let publicKeyHash = SHA256.sha256(data: publicKeyData)
-            
-            if sslPinningKeys.contains(publicKeyHash) {
+
+            if validPins.contains(HSPKI.normalizePin(publicKeyHash)) {
                 let credential = URLCredential(trust: serverTrust)
                 return HChallengeResult(.useCredential, credential)
             }

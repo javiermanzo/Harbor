@@ -26,6 +26,10 @@ struct HConfig: Sendable {
     var mocksOnlyInDebug: Bool = true
     /// Whether logging is enabled for debug purposes. Default is false.
     var isLoggingEnabled: Bool = false
+    /// Whether sensitive header values are printed in debug logs and generated cURL commands. Default is false (redacted).
+    var logSensitiveHeaders: Bool = false
+    /// Header names treated as sensitive (lowercased) and redacted from debug output unless `logSensitiveHeaders` is true.
+    static let sensitiveHeaders: Set<String> = ["authorization", "cookie", "set-cookie", "x-api-key", "proxy-authorization"]
     /// Default cache type for requests without explicit cache settings. Default is `.urlCache`.
     var cacheType: HCache.CacheType = .urlCache()
     /// Default timeout interval for requests. Default is 15 seconds.

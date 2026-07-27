@@ -1,44 +1,47 @@
 # Changelog
 
-## 3.1.0 - Complete caching system and URL utilities (2025-XX-XX)
+## [UNRELEASED]
 
 ### Added
-- Complete caching system with `HCacheManager` (L1 memory + L2 disk cache)
-- `HCache.CacheType` enum with `.urlCache`, `.custom`, and `.disabled` options
-- **URLCache is now the default** - automatic ETag/304 support
-- Custom cache with manual TTL and size control
-- `HURLBuilder` utility for centralized URL construction
-- `AsyncThrowingStream` via `requestStream()` for cache+remote data
-- `HRequestSource` enum (`remoteOnly`, `cacheOnly`, `cacheAndRemote`)
-- `HOriginType` enum (`cache`, `remote`) to identify data source
-- Multiple SSL pinning keys support for key rotation
-- `Harbor.setDefaultCacheType()`, `Harbor.setLoggingEnabled()`, `Harbor.clearAllCache()`
+- Cache system `HCache` with memory (L1) + disk (L2) storage (#39, #42)
+- `HCache.CacheType`: `.urlCache` (default, automatic ETag/304), `.custom` (manual TTL and size control), `.disabled` (#52)
+- Per-request `cacheType` override on GET requests (#52)
+- `requestStream()` returning `AsyncThrowingStream`, with `HRequestSource` (`.remoteOnly`, `.cacheOnly`, `.cacheAndRemote`) and `HOriginType` (`.cache`, `.remote`) (#40)
+- `Harbor.setDefaultCacheType()` and `Harbor.clearAllCache()` (#39, #52)
+- SSL pinning with multiple keys for rotation: `Harbor.setSSlPinningKeys([String]?)` (#42)
+- mTLS identity extraction via `HMTLSIdentity` (#45)
+- Configurable timeout: `Harbor.setDefaultTimeoutInterval()` (default 15s) (#54)
+- `Harbor.setLoggingEnabled()` (#50)
+- New error cases `certificate` and `noCachedDataFound`, plus `HRequestError.mapURLError(_:)` (#53)
+- Default implementations for request protocol properties (`needsAuth`, `retries`, `pathParameters`, `headerParameters`, `queryParameters`, `bodyType`) (#38)
+- Claude AI skill documentation (#51)
 
 ### Changed
-- `Harbor.setSSlPinningSHA256(_:)` renamed to `Harbor.setSSlPinningKeys(_:)` - now accepts array for key rotation
-- Network monitoring migrated from SystemConfiguration to NWPathMonitor
-- SHA256 migrated from CommonCrypto to CryptoKit
-- Renamed error cases for consistency: `apiError` → `api`, `codableError` → `codable`, `noConnectionError` → `noConnection`, `malformedRequestError` → `malformedRequest`, `timeoutError` → `timeout`, `sslError` → `certificate`
-- Added `HRequestError.mapURLError(_:)` static method for URL error mapping
+- Network monitoring migrated from SystemConfiguration to NWPathMonitor (#49)
+- SHA256 migrated from CommonCrypto to CryptoKit (#47)
+- Cache cleanup now runs in background (#48)
+- Logging disabled by default in Release builds (#50)
+- `requestStream` throws if the remote request fails even when cache is available (#46)
+- Documentation updates (#37, #41)
 
 ### Fixed
-- clearCache now uses proper URLRequest for URLCache
-- 304 Not Modified cache handling
-- SSL pinning security with exact hash comparison
-- SSL trust evaluation error logging
-- RequestStream throws error if remote fails even with cache available
+- URL injection vulnerability: path and query parameters are now percent-encoded (#46)
+- `clearCache` uses the proper URLRequest for URLCache (#52)
+- 304 Not Modified handling (#52)
+- SSL pinning exact hash comparison and trust evaluation logging (#42, #45)
+- False `.noConnection` on the first request in Release (#55)
 
 ### ⚠️ Breaking Changes
-- SSL pinning: `setSSlPinningSHA256(String?)` → `setSSlPinningKeys([String]?)`
-- Error cases renamed: `apiError` → `api`, `codableError` → `codable`, `noConnectionError` → `noConnection`, `malformedRequestError` → `malformedRequest`, `timeoutError` → `timeout`, `sslError` → `certificate`
+- `Harbor.setSSlPinningSHA256(String?)` → `Harbor.setSSlPinningKeys([String]?)` (#42)
+- Error cases renamed: `apiError` → `api`, `codableError` → `codable`, `noConnectionError` → `noConnection`, `malformedRequestError` → `malformedRequest`, `timeoutError` → `timeout` (#53)
 
-## 3.0.0 - Response cases, Logging (2023-12-25)
+## 3.0.0 - Response cases, Logging (2024-12-25)
 
 ### Changed
-- Moved canceled response case to an error case
+- Moved canceled response case to an error case (#34)
 
 ### Added
-- Implemented LogBird for logging
+- Implemented LogBird for logging (#35)
 
 ## 2.0.0 - Swift 6 compatibility, mock requests, URL Session configuration (2024-11-13)
 

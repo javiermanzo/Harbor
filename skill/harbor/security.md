@@ -82,7 +82,7 @@ Harbor internally handles:
 1. Loading PKCS12 data from file
 2. Extracting identity (certificate + private key)
 3. Extracting certificate chain
-4. Creating URLCredential with client identity
+4. Creating URLCredential with client identity **and the full certificate chain** (intermediates are sent during the TLS handshake)
 
 **Error Handling:**
 ```swift
@@ -210,11 +210,20 @@ SSL Pinning validates that the server's SSL certificate matches a known public k
 
 **Location**: `Sources/Harbor/Request/HURLSessionDelegate.swift`
 
-SSL Pinning uses SHA256 hashes of server public keys.
+SSL Pinning uses SHA256 hashes of the certificate's **SubjectPublicKeyInfo (SPKI)**, base64 encoded: `base64(SHA256(SPKI))`. Supported key types: RSA 2048/4096, EC P-256/P-384.
 
 ### Getting Public Key Hash
 
-#### Method 1: Using OpenSSL
+#### Method 1: Using Harbor
+
+```swift
+// Compute the pin from any SecCertificate (e.g. extracted from a P12 or a server trust)
+if let pin = await Harbor.computePin(for: certificate) {
+    await Harbor.setSSlPinningKeys([pin])
+}
+```
+
+#### Method 2: Using OpenSSL
 
 ```bash
 # Get certificate from server
@@ -224,18 +233,20 @@ openssl s_client -connect api.example.com:443 -showcerts < /dev/null | \
 # Extract public key
 openssl x509 -inform DER -in certificate.der -pubkey -noout > publickey.pem
 
-# Generate SHA256 hash
+# Generate SHA256 hash of the SPKI
 openssl pkey -pubin -in publickey.pem -outform DER | \
   openssl dgst -sha256 -binary | \
   base64
 ```
 
-#### Method 2: Using Browser
+#### Method 3: Using Browser
 
 1. Visit the site in a browser (Chrome, Safari)
 2. View certificate details
 3. Export certificate
 4. Use OpenSSL commands above
+
+> **Note**: Pins must be valid base64-encoded SHA-256 hashes (32 bytes, 44 chars with `=` padding or 43 without). Malformed pins log a warning when calling `setSSlPinningKeys` and are ignored during validation.
 
 ### Setting Up SSL Pinning
 
@@ -276,7 +287,7 @@ Extract Server Certificate
 Extract Public Key from Certificate
     │
     ▼
-Generate SHA256 Hash
+Rebuild SPKI (SubjectPublicKeyInfo) and Generate SHA256 Hash
     │
     ▼
 Compare Hash with Pinned Keys
@@ -414,6 +425,15 @@ Error: serverError(statusCode: -1)
 // Log actual server certificate hash
 // Compare with pinned hashes
 // Update pinned keys if certificate legitimately changed
+```
+
+## Sensitive Data in Debug Logs
+
+Debug logs (`HDebugRequestProtocol`) redact sensitive headers — `Authorization`, `Cookie`, `Set-Cookie`, `X-API-Key`, `Proxy-Authorization` — both in the generated cURL command and in the structured request log (`headerParameters`), printing `<redacted>` instead of the real value. Cookies are redacted as well.
+
+```swift
+// Print real values (only for advanced debugging, never in production)
+await Harbor.setLogSensitiveHeaders(true)
 ```
 
 ## Authentication
@@ -791,6 +811,7 @@ func testAuthentication() async {
 - `Sources/Harbor/Request/HURLSessionDelegate.swift` - SSL Pinning
 - `Sources/Harbor/Auth/HAuthProviderProtocol.swift` - Authentication
 - `Sources/Harbor/Utils/PKCS12.swift` - Certificate loading
+- `Sources/Harbor/Utils/HSPKI.swift` - SPKI extraction and pin computation/validation
 - `Sources/Harbor/Utils/SHA256.swift` - Hash utilities
 
 **Examples:**

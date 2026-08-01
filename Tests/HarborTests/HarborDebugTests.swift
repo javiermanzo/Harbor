@@ -22,10 +22,14 @@ final class HarborDebugTests: XCTestCase {
     override func setUp() async throws {
         await Harbor.removeAllMocks()
         await Harbor.setMocksOnlyInDebug(false)
+        await Harbor.setLogSensitiveHeaders(false)
+        await Harbor.setCustomURLSession(URLSession.shared)
     }
-    
+
     override func tearDown() async throws {
         await Harbor.removeAllMocks()
+        await Harbor.setLogSensitiveHeaders(false)
+        await Harbor.setCustomURLSession(URLSession.shared)
     }
     
     // MARK: - Debug Type Tests
@@ -80,11 +84,12 @@ final class HarborDebugTests: XCTestCase {
         var urlRequest = URLRequest(url: URL(string: "https://api.example.com/test")!)
         urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
         urlRequest.setValue("Bearer token123", forHTTPHeaderField: "Authorization")
-        
+
         let curl = await request.generateCurl(urlRequest: urlRequest)
-        
+
         XCTAssertTrue(curl.contains("-H \"Content-Type: application/json\""))
-        XCTAssertTrue(curl.contains("-H \"Authorization: Bearer token123\""))
+        XCTAssertTrue(curl.contains("-H \"Authorization: <redacted>\""))
+        XCTAssertFalse(curl.contains("Bearer token123"))
     }
     
     func testGenerateCurlWithBody() async {
@@ -139,10 +144,166 @@ final class HarborDebugTests: XCTestCase {
         XCTAssertTrue(curl.contains("$ curl -v"))
         XCTAssertTrue(curl.contains("-X PATCH"))
         XCTAssertTrue(curl.contains("-H \"Content-Type: application/json\""))
-        XCTAssertTrue(curl.contains("-H \"Authorization: Bearer abc123\""))
+        XCTAssertTrue(curl.contains("-H \"Authorization: <redacted>\""))
+        XCTAssertFalse(curl.contains("Bearer abc123"))
         XCTAssertTrue(curl.contains("-H \"Accept-Encoding: gzip, deflate\""))
         XCTAssertTrue(curl.contains("-d \"{\\\"name\\\":\\\"John Doe\\\",\\\"age\\\":30}\""))
         XCTAssertTrue(curl.contains("https://api.example.com/users/123?include=profile"))
+    }
+
+    // MARK: - Sensitive Data Redaction Tests
+
+    func testGenerateCurlRedactsSensitiveHeadersByDefault() async {
+        let request = TestDebugRequest(debugType: .request)
+        var urlRequest = URLRequest(url: URL(string: "https://api.example.com/test")!)
+        urlRequest.setValue("Bearer secret-token", forHTTPHeaderField: "Authorization")
+        urlRequest.setValue("api-key-secret", forHTTPHeaderField: "X-API-Key")
+        urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        let curl = await request.generateCurl(urlRequest: urlRequest)
+
+        XCTAssertTrue(curl.contains("-H \"Authorization: <redacted>\""))
+        XCTAssertTrue(curl.contains("-H \"X-API-Key: <redacted>\""))
+        XCTAssertTrue(curl.contains("-H \"Content-Type: application/json\""))
+        XCTAssertFalse(curl.contains("secret-token"))
+        XCTAssertFalse(curl.contains("api-key-secret"))
+    }
+
+    func testGenerateCurlShowsSensitiveHeadersWhenEnabled() async {
+        await Harbor.setLogSensitiveHeaders(true)
+
+        let request = TestDebugRequest(debugType: .request)
+        var urlRequest = URLRequest(url: URL(string: "https://api.example.com/test")!)
+        urlRequest.setValue("Bearer secret-token", forHTTPHeaderField: "Authorization")
+
+        let curl = await request.generateCurl(urlRequest: urlRequest)
+
+        XCTAssertTrue(curl.contains("-H \"Authorization: Bearer secret-token\""))
+    }
+
+    func testGenerateCurlRedactsHeaderNamesCaseInsensitively() async {
+        let request = TestDebugRequest(debugType: .request)
+        var urlRequest = URLRequest(url: URL(string: "https://api.example.com/test")!)
+        urlRequest.setValue("api-key-secret", forHTTPHeaderField: "x-api-key")
+
+        let curl = await request.generateCurl(urlRequest: urlRequest)
+
+        XCTAssertFalse(curl.contains("api-key-secret"))
+    }
+
+    func testGenerateCurlRedactsCookies() async {
+        let configuration = URLSessionConfiguration.default
+        configuration.httpShouldSetCookies = true
+        let cookieStorage = HTTPCookieStorage.shared
+        configuration.httpCookieStorage = cookieStorage
+        let cookie = HTTPCookie(properties: [
+            .domain: "api.example.com",
+            .path: "/",
+            .name: "session",
+            .value: "super-secret-cookie",
+            .secure: "TRUE",
+            .expires: Date().addingTimeInterval(3600)
+        ])!
+        cookieStorage.setCookie(cookie)
+        addTeardownBlock { cookieStorage.deleteCookie(cookie) }
+        await Harbor.setCustomURLSession(URLSession(configuration: configuration))
+
+        let request = TestDebugRequest(debugType: .request)
+        let urlRequest = URLRequest(url: URL(string: "https://api.example.com/test")!)
+
+        let curl = await request.generateCurl(urlRequest: urlRequest)
+
+        XCTAssertTrue(curl.contains("-b \"<redacted>\""))
+        XCTAssertFalse(curl.contains("super-secret-cookie"))
+    }
+
+    func testGenerateCurlShowsCookiesWhenSensitiveLoggingEnabled() async {
+        let configuration = URLSessionConfiguration.default
+        configuration.httpShouldSetCookies = true
+        let cookieStorage = HTTPCookieStorage.shared
+        configuration.httpCookieStorage = cookieStorage
+        let cookie = HTTPCookie(properties: [
+            .domain: "api.example.com",
+            .path: "/",
+            .name: "session",
+            .value: "super-secret-cookie",
+            .secure: "TRUE",
+            .expires: Date().addingTimeInterval(3600)
+        ])!
+        cookieStorage.setCookie(cookie)
+        addTeardownBlock { cookieStorage.deleteCookie(cookie) }
+        await Harbor.setCustomURLSession(URLSession(configuration: configuration))
+        await Harbor.setLogSensitiveHeaders(true)
+
+        let request = TestDebugRequest(debugType: .request)
+        let urlRequest = URLRequest(url: URL(string: "https://api.example.com/test")!)
+
+        let curl = await request.generateCurl(urlRequest: urlRequest)
+
+        XCTAssertTrue(curl.contains("session=super-secret-cookie"))
+    }
+
+    func testGenerateCurlDoesNotLeakSharedSessionCookies() async {
+        // Given: a session cookie stored in URLSession.shared (not Harbor's session)
+        let sharedCookie = HTTPCookie(properties: [
+            .domain: "api.example.com",
+            .path: "/",
+            .name: "shared",
+            .value: "shared-secret",
+            .secure: "TRUE",
+            .expires: Date().addingTimeInterval(3600)
+        ])!
+        HTTPCookieStorage.shared.setCookie(sharedCookie)
+        addTeardownBlock { HTTPCookieStorage.shared.deleteCookie(sharedCookie) }
+
+        // And: Harbor configured with a custom session with an empty cookie storage
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.httpShouldSetCookies = true
+        configuration.httpCookieStorage = HTTPCookieStorage()
+        await Harbor.setCustomURLSession(URLSession(configuration: configuration))
+
+        let request = TestDebugRequest(debugType: .request)
+        let urlRequest = URLRequest(url: URL(string: "https://api.example.com/test")!)
+
+        // When
+        let curl = await request.generateCurl(urlRequest: urlRequest)
+
+        // Then: cookies from URLSession.shared must not appear in the cURL
+        XCTAssertFalse(curl.contains("shared-secret"))
+        XCTAssertFalse(curl.contains("-b \""))
+    }
+
+    func testGenerateCurlUsesCurrentSessionAdditionalHeaders() async {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.httpAdditionalHeaders = ["X-Custom-Header": "custom-value", "X-API-Key": "session-api-key"]
+        await Harbor.setCustomURLSession(URLSession(configuration: configuration))
+
+        let request = TestDebugRequest(debugType: .request)
+        let urlRequest = URLRequest(url: URL(string: "https://api.example.com/test")!)
+
+        let curl = await request.generateCurl(urlRequest: urlRequest)
+
+        XCTAssertTrue(curl.contains("-H \"X-Custom-Header: custom-value\""))
+        // Sensitive headers coming from the session configuration are redacted too
+        XCTAssertTrue(curl.contains("-H \"X-API-Key: <redacted>\""))
+        XCTAssertFalse(curl.contains("session-api-key"))
+    }
+
+    func testRedactedHeadersUsedInStructuredLog() async {
+        let request = TestDebugRequest(debugType: .request)
+        let headers = [
+            "Authorization": "Bearer secret-token",
+            "X-API-Key": "api-key-secret",
+            "Content-Type": "application/json"
+        ]
+
+        let redacted = await request.redactedHeaders(headers)
+        let redactedNil = await request.redactedHeaders(nil)
+
+        XCTAssertEqual(redacted?["Authorization"], "<redacted>")
+        XCTAssertEqual(redacted?["X-API-Key"], "<redacted>")
+        XCTAssertEqual(redacted?["Content-Type"], "application/json")
+        XCTAssertNil(redactedNil)
     }
     
     // MARK: - Debug Request Integration Tests

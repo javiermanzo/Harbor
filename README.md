@@ -201,12 +201,35 @@ await Harbor.setMTLS(mTLS)
 ```
 
 #### SSL Pinning
-Harbor supports SSL Pinning to enhance the security of your API requests. SSL Pinning ensures that the client checks the server's certificate against a known pinned certificate, adding an additional layer of security.
+Harbor supports SSL Pinning to enhance the security of your API requests. SSL Pinning ensures that the client checks the server's certificate against a known pinned public key, adding an additional layer of security.
 
-To configure SSL Pinning, use the `setSSlPinningKeys` method. You can provide multiple keys to support key rotation:
+Pins use the standard format `base64(SHA256(SPKI))` — the SHA-256 of the certificate's SubjectPublicKeyInfo, base64 encoded (supported key types: RSA 2048/4096, EC P-256/P-384).
+
+To generate a pin from a certificate you can use `Harbor.computePin(for:)`:
 
 ```swift
-let sslPinningKeys = ["yourSHA256CertificateHash1", "yourSHA256CertificateHash2"]
+if let pin = await Harbor.computePin(for: certificate) {
+    await Harbor.setSSlPinningKeys([pin])
+}
+```
+
+Or with OpenSSL:
+
+```bash
+openssl s_client -connect api.example.com:443 -servername api.example.com < /dev/null 2>/dev/null | \
+  openssl x509 -pubkey -noout | \
+  openssl pkey -pubin -outform der | \
+  openssl dgst -sha256 -binary | \
+  openssl base64
+```
+
+To configure SSL Pinning, use the `setSSlPinningKeys` method. You can provide multiple keys to support key rotation. Malformed pins log a warning and are ignored during validation:
+
+```swift
+let sslPinningKeys = [
+    "YLh1dUR9y6Kja30RrAn7JKnbQG/uEtLMkBgFF2Fuihg=", // current certificate
+    "GNKGcGj1ue3yRYvqr9t/lz2nkzMU5VZK3QBILcvPJ8U="  // backup / next rotation
+]
 await Harbor.setSSlPinningKeys(sslPinningKeys)
 ```
 
@@ -480,6 +503,14 @@ class MyRequest: HRequestWithResultProtocol, HDebugRequestProtocol {
 
 When your request is called, you will see in the Xcode console the information about your request.
 
+#### Sensitive Data in Logs
+
+By default, Harbor redacts sensitive headers (`Authorization`, `Cookie`, `Set-Cookie`, `X-API-Key`, `Proxy-Authorization`) and cookies from debug logs and generated cURL commands, printing `<redacted>` instead of the real value.
+
+```swift
+// Print real values (only for advanced debugging, never in production)
+await Harbor.setLogSensitiveHeaders(true)
+```
 
 ## JSON RPC
 Harbor also supports JSON RPC via the `HarborJRPC` package.

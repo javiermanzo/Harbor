@@ -11,9 +11,12 @@ import Foundation
 /// A Sendable wrapper for SecIdentity
 public struct HMTLSIdentity: Sendable {
     public let identity: SecIdentity
-    
-    public init(identity: SecIdentity) {
+    /// Certificate chain extracted from the P12 file (including intermediates), sent alongside the identity.
+    public let certificateChain: [SecCertificate]?
+
+    public init(identity: SecIdentity, certificateChain: [SecCertificate]? = nil) {
         self.identity = identity
+        self.certificateChain = certificateChain
     }
 }
 
@@ -40,7 +43,7 @@ public struct HmTLS: Sendable {
             let p12Contents = PKCS12(p12Data: p12Data, password: password, loggingEnabled: loggingEnabled)
 
             if let identity = p12Contents.identity {
-                return HMTLSIdentity(identity: identity)
+                return HMTLSIdentity(identity: identity, certificateChain: p12Contents.certChain)
             } else {
                 return nil
             }

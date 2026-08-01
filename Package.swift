@@ -29,7 +29,8 @@ let package = Package(
             ]),
         .testTarget(
             name: "HarborTests",
-            dependencies: ["Harbor"]),
+            dependencies: ["Harbor"],
+            exclude: ["certificate.p12", "certificate-ec256.der", "certificate-rsa4096.der"]),
 
         .target(
             name: "HarborJRPC",

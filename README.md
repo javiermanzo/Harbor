@@ -63,6 +63,9 @@ Harbor is a library for making API requests in Swift in a simple way using async
       - [Set JSON RPC Version](#set-json-rpc-version)
     - [Request Protocol](#request-protocol)
       - [HJRPCRequestProtocol](#hjrpcrequestprotocol)
+    - [Calling a Request](#calling-a-request)
+    - [Notifications](#notifications)
+    - [Batch Requests](#batch-requests)
     - [Response](#response-1)
 - [Mocks](#mocks)
   - [HMock](#hmock)
@@ -112,6 +115,12 @@ Add the following line to your Podfile:
 pod 'Harbor'
 ```
 
+If you also need JSON-RPC support, HarborJRPC is available as a subspec:
+
+```ruby
+pod 'Harbor/JRPC'
+```
+
 ### Swift Package Manager
 Add the following to your `Package.swift` file:
 
@@ -119,6 +128,17 @@ Add the following to your `Package.swift` file:
 dependencies: [
     .package(url: "https://github.com/javiermanzo/Harbor.git")
 ]
+```
+
+Then add the products you need to your target:
+
+```swift
+.target(
+    dependencies: [
+        .product(name: "Harbor", package: "Harbor"),
+        .product(name: "HarborJRPC", package: "Harbor") // Only if you need JSON-RPC support
+    ]
+)
 ```
 
 ## Usage
@@ -567,13 +587,22 @@ To use HarborJRPC, add the following import to your file:
 import HarborJRPC
 ```
 
+With Swift Package Manager, add `.product(name: "HarborJRPC", package: "Harbor")` to your target dependencies. With CocoaPods, use `pod 'Harbor/JRPC'`.
+
 ### Configuration
+HarborJRPC only manages the JSON-RPC endpoint URL and protocol version. Network-level settings (timeout, auth provider, mTLS, mocks, logging) are configured through `Harbor`'s API, the same way as for REST requests.
 
 #### Set URL
 Use this method to set the URL for the JSON RPC requests:
 
 ```swift
-HarborJRPC.setURL("https://api.example.com/")
+await HarborJRPC.setURL(URL(string: "https://api.example.com/rpc")!)
+```
+
+You can also set the URL from a string, which throws `HJRPCConfigurationError.invalidURL` if the string is not a valid URL:
+
+```swift
+try await HarborJRPC.setURL("https://api.example.com/rpc")
 ```
 
 #### Set JSON RPC Version
@@ -581,8 +610,15 @@ Use this method to set the JSON RPC version:
 
 ```swift
 // It uses 2.0 as default 
-HarborJRPC.setJRPCVersion("2.0")
+await HarborJRPC.setJRPCVersion("2.0")
 ```
+
+You can also configure both the URL and the version in a single call:
+
+```swift
+await HarborJRPC.configure(url: URL(string: "https://api.example.com/rpc")!, jrpcVersion: "2.0")
+```
+
 ### Request Protocol
 
 #### HJRPCRequestProtocol
@@ -593,13 +629,93 @@ Use the `HJRPCRequestProtocol` protocol if you want to send a JRPC request.
 
 ##### Properties:
 - `method`: A string that represents the JRPC method to be called.
-- `needsAuth`: A boolean indicating whether the request requires authentication.
-- `retries`: The number of retries in case the request fails.
-- `headers`: An optional dictionary containing any additional headers to be included in the request.
-- `parameters`: An optional dictionary of parameters to be included in the request.
+- `needsAuth`: A boolean indicating whether the request requires authentication. Default is `false`.
+- `retries`: The number of retries in case the request fails. Default is `nil`.
+- `headers`: An optional dictionary containing any additional headers to be included in the request. Default is `nil`.
+- `parameters`: Optional `HJRPCParams` to be included in the request, either `.named([String: Encodable & Sendable])` (encoded as a JSON object) or `.positioned([Encodable & Sendable])` (encoded as a JSON array). Default is `nil`.
+- `isNotification`: A boolean indicating whether the request is a JSON-RPC notification. Notifications do not carry an `id` and the server does not respond to them. Default is `false`.
+- `requestID`: An optional `HJRPCId` (`.string`, `.number` or `.null`) to send as the request identifier. Default is `nil`, which generates a UUID-based identifier.
+
+```swift
+struct GetBalanceRequest: HJRPCRequestProtocol {
+    typealias Model = String
+    let method: String = "eth_getBalance"
+
+    let address: String
+    let block: String
+
+    var parameters: HJRPCParams? {
+        .positioned([address, block])
+    }
+}
+```
+
+### Calling a Request
+Once the request is created, you can execute it using `requestResult()`, which returns an `HJRPCResponse`:
+
+```swift
+let response = await GetBalanceRequest(address: "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb", block: "latest").requestResult()
+
+switch response {
+case .success(let balance):
+    break
+case .error(let error):
+    break
+}
+```
+
+If you prefer throwing code, use `request()`, which returns the decoded model or throws an `HJRPCRequestError`:
+
+```swift
+do {
+    let balance = try await GetBalanceRequest(address: "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb", block: "latest").request()
+} catch {
+    // Handle HJRPCRequestError
+}
+```
+
+Server errors are delivered as `HJRPCRequestError.jrpcError`, wrapping an `HJRPCError` with the `code`, `message` and optional `data` returned by the server.
+
+### Notifications
+Set `isNotification` to `true` and call `notify()` to send a JSON-RPC notification. Notifications do not include an `id` and the server does not respond to them. Calling `notify()` on a request that is not a notification throws `HJRPCRequestError.invalidRequest`.
+
+```swift
+struct UnsubscribeRequest: HJRPCRequestProtocol {
+    typealias Model = Bool
+    let method: String = "eth_unsubscribe"
+    let isNotification: Bool = true
+
+    var parameters: HJRPCParams? {
+        .positioned(["0x123"])
+    }
+}
+
+try await UnsubscribeRequest().notify()
+```
+
+### Batch Requests
+Use `HarborJRPC.batch(_:)` to send several JSON-RPC requests as a single batch call:
+
+```swift
+let responses = await HarborJRPC.batch([
+    GetBlockNumberRequest(),
+    GetBalanceRequest(address: "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb", block: "latest")
+])
+
+for response in responses {
+    switch response {
+    case .success(let id, let result):
+        break // result is the raw HJSONValue returned for the request with the given id
+    case .error(let id, let error):
+        break
+    }
+}
+```
+
+Notifications included in a batch do not produce a response element. Servers may reorder responses, so each `HJRPCBatchResponse` is paired with the identifier echoed by the server.
 
 ### Response
-To configure a request using HarborJRPC, create a struct or class that implements `HJRPCRequestProtocol`. The result of calling `request()` will be an `HJRPCResponse`:
+The result of calling `requestResult()` is an `HJRPCResponse`:
 
 ```swift
 switch response {

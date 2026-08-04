@@ -317,9 +317,9 @@ case .error(let error):
             showServerErrorAlert()
         }
         
-    case .decodingError(let decodingError):
+    case .codable(let modelName, let decodingError):
         // Log decoding issue
-        logError("Failed to decode: \(decodingError)")
+        logError("Failed to encode/decode \(modelName): \(decodingError)")
         
     case .timeout:
         showTimeoutAlert()

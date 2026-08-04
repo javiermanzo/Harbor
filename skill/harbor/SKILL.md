@@ -277,8 +277,8 @@ See the `examples/` directory for:
 
 ### Configuring Authentication
 1. Implement `HAuthProviderProtocol`
-2. Return auth headers in `getHeaders()`
-3. Handle token refresh in `isTokenExpired()` and `refreshToken()`
+2. Return the current header in `getAuthorizationHeader()` (an `HAuthorizationHeader` key-value pair)
+3. Handle credential failures in `authFailed()` (called after a 401 when no new header is available; Harbor retries automatically when the header changes)
 4. Set globally: `await Harbor.setAuthProvider(provider)`
 
 ### Setting Up Tests

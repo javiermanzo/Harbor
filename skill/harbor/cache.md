@@ -4,12 +4,13 @@ Complete guide to Harbor's two-level caching system for optimizing network reque
 
 ## Overview
 
-Harbor implements a sophisticated two-level cache system:
+Harbor offers two cache strategies, selected via `HCache.CacheType`:
+
+- **`.urlCache`** (default): automatic HTTP caching backed by `URLCache`, with ETag/304 revalidation and zero configuration.
+- **`.custom(HCache.Configuration)`**: Harbor's own two-level cache with explicit expiration and size control:
 
 1. **Level 1 (Memory)**: NSCache for fast in-memory access
-2. **Level 2 (Disk)**: FileSystem cache for persistent storage
-
-**Performance**: Cache hits are approximately **2.5-2.9x faster** than network requests.
+2. **Level 2 (Disk)**: FileSystem cache with one file per cache key for persistent storage
 
 **Location**: `Sources/Harbor/Cache/`
 
@@ -44,7 +45,7 @@ Memory Cache (L1)
 
 ### Cache Manager
 
-**Location**: `Sources/Harbor/Cache/HCacheManager.swift`
+**Location**: `Sources/Harbor/Cache/HCache+Manager.swift`
 
 ```swift
 @HRequestManagerActor
@@ -67,7 +68,7 @@ final class Manager {
 
 ### Cache Configuration Types
 
-**Location**: `Sources/Harbor/Cache/HCachePolicy.swift`
+**Location**: `Sources/Harbor/Cache/HCacheType.swift`
 
 ```swift
 enum CacheType {
@@ -84,26 +85,29 @@ struct Configuration: Sendable, Equatable {
     let expirationTime: TimeInterval?
     let maxObjectSizeInMBs: Int
     let memoryCacheCapacityInMBs: Int
+    let diskCacheCapacityInMBs: Int
 }
 ```
+
+Defaults: `expirationTime` 1 week, `maxObjectSizeInMBs` 10, `memoryCacheCapacityInMBs` 100, `diskCacheCapacityInMBs` 100. Values below 1 are clamped to 1.
 
 **Options:**
 
 1. **Disabled** - No caching
 ```swift
-let cacheType: HCache.CacheType? = .disabled
+var cacheType: HCache.CacheType? = .disabled
 // or simply
-let cacheType: HCache.CacheType? = nil
+var cacheType: HCache.CacheType? = nil
 ```
 
 2. **Enabled** - Cache with expiration time
 ```swift
-let cacheType: HCache.CacheType? = .custom(HCache.Configuration(expirationTime: .oneHour))
+var cacheType: HCache.CacheType? = .custom(HCache.Configuration(expirationTime: .oneHour))
 ```
 
 3. **Custom** - Cache with expiration and size limit
 ```swift
-let cacheType: HCache.CacheType? = .custom(HCache.Configuration(
+var cacheType: HCache.CacheType? = .custom(HCache.Configuration(
     expirationTime: .oneDay,
     maxObjectSizeInMBs: 5  // 5MB max per object
 ))
@@ -115,6 +119,7 @@ let cacheType: HCache.CacheType? = .custom(HCache.Configuration(
 
 ```swift
 extension TimeInterval {
+    static var noExpiration: TimeInterval? { nil }
     static var oneMinute: TimeInterval { 60 }
     static var fiveMinutes: TimeInterval { 300 }
     static var fifteenMinutes: TimeInterval { 900 }
@@ -134,6 +139,7 @@ extension TimeInterval {
 
 **Usage:**
 ```swift
+.custom(HCache.Configuration(expirationTime: .noExpiration))
 .custom(HCache.Configuration(expirationTime: .oneMinute))
 .custom(HCache.Configuration(expirationTime: .fiveMinutes))
 .custom(HCache.Configuration(expirationTime: .fifteenMinutes))
@@ -177,7 +183,7 @@ Override global settings for specific requests:
 struct GetUserRequest: HGetRequestProtocol {
     typealias Model = User
     let url = "https://api.example.com/user"
-    let cacheType: HCache.CacheType? = .custom(HCache.Configuration(expirationTime: .oneDay))
+    var cacheType: HCache.CacheType? = .custom(HCache.Configuration(expirationTime: .oneDay))
     // This overrides global configuration
 }
 
@@ -185,7 +191,7 @@ struct GetUserRequest: HGetRequestProtocol {
 struct GetBalanceRequest: HGetRequestProtocol {
     typealias Model = Balance
     let url = "https://api.example.com/balance"
-    let cacheType: HCache.CacheType? = .disabled
+    var cacheType: HCache.CacheType? = .disabled
     // Never cache this request
 }
 ```
@@ -194,7 +200,7 @@ struct GetBalanceRequest: HGetRequestProtocol {
 
 1. **Per-request configuration** takes precedence
 2. **Global configuration** is used if per-request is not set
-3. **No caching** if neither is configured
+3. **`.urlCache`** (automatic HTTP caching) is the default if neither is configured
 
 ## Cache Usage Patterns
 
@@ -205,7 +211,7 @@ struct GetBalanceRequest: HGetRequestProtocol {
 struct GetCountriesRequest: HGetRequestProtocol {
     typealias Model = [Country]
     let url = "https://api.example.com/countries"
-    let cacheType: HCache.CacheType? = .custom(HCache.Configuration(expirationTime: .oneWeek))
+    var cacheType: HCache.CacheType? = .custom(HCache.Configuration(expirationTime: .oneWeek))
 }
 ```
 
@@ -216,7 +222,7 @@ struct GetCountriesRequest: HGetRequestProtocol {
 struct GetUserProfileRequest: HGetRequestProtocol {
     typealias Model = UserProfile
     let url = "https://api.example.com/profile"
-    let cacheType: HCache.CacheType? = .custom(HCache.Configuration(expirationTime: .oneHour))
+    var cacheType: HCache.CacheType? = .custom(HCache.Configuration(expirationTime: .oneHour))
 }
 ```
 
@@ -227,7 +233,7 @@ struct GetUserProfileRequest: HGetRequestProtocol {
 struct GetFeedRequest: HGetRequestProtocol {
     typealias Model = [Post]
     let url = "https://api.example.com/feed"
-    let cacheType: HCache.CacheType? = .custom(HCache.Configuration(expirationTime: .fiveMinutes))
+    var cacheType: HCache.CacheType? = .custom(HCache.Configuration(expirationTime: .fiveMinutes))
 }
 ```
 
@@ -238,7 +244,7 @@ struct GetFeedRequest: HGetRequestProtocol {
 struct GetBalanceRequest: HGetRequestProtocol {
     typealias Model = Balance
     let url = "https://api.example.com/balance"
-    let cacheType: HCache.CacheType? = .disabled
+    var cacheType: HCache.CacheType? = .disabled
 }
 ```
 
@@ -259,7 +265,7 @@ Harbor will use the smaller of:
 **Example:**
 ```swift
 // Request configured for 1 day cache
-let cacheType: HCache.CacheType? = .custom(HCache.Configuration(expirationTime: .oneDay))
+var cacheType: HCache.CacheType? = .custom(HCache.Configuration(expirationTime: .oneDay))
 
 // But server responds with: Cache-Control: max-age=3600 (1 hour)
 // Harbor will cache for 1 hour (respects server preference)
@@ -276,11 +282,27 @@ Harbor checks the `Expires` header if `Cache-Control` is not present.
 ### No-Cache Directives
 
 ```
-Cache-Control: no-cache
 Cache-Control: no-store
+Cache-Control: no-cache
 ```
 
-These directives prevent caching regardless of request configuration.
+- `no-store`: the response is never persisted, regardless of request configuration.
+- `no-cache`: the response is persisted (keeping its `ETag`/`Last-Modified` validators) but is always revalidated with the server before being served.
+
+### Other Supported Directives
+
+The custom cache also honors:
+
+- `s-maxage`: like `max-age`, takes precedence over `max-age` when present.
+- `must-revalidate` / `proxy-revalidate`: expired entries are never served without successful revalidation.
+- `stale-if-error`: an expired entry may be served on network or 5xx errors while still inside its window.
+- `Vary`: stored with the entry and matched against the request headers on lookup.
+
+Header lookup is case-insensitive, so it works with HTTP/2 lowercase headers.
+
+### Conditional Revalidation
+
+For GET requests, the custom cache sends stored validators as `If-None-Match` / `If-Modified-Since`. A `304 Not Modified` response serves the cached body and refreshes its expiration — even if the entry had already expired.
 
 ## Cache Size Limits
 
@@ -288,10 +310,12 @@ These directives prevent caching regardless of request configuration.
 
 **Memory Cache (L1):**
 - Managed by NSCache
+- Capacity controlled by `memoryCacheCapacityInMBs` (default: 100MB)
 - Automatically evicts under memory pressure
-- No explicit size limit (iOS manages it)
 
 **Disk Cache (L2):**
+- Capacity controlled by `diskCacheCapacityInMBs` (default: 100MB)
+- When exceeded, the oldest entries are evicted first (LRU)
 - Default max object size: 10MB
 - Can be customized per request
 
@@ -299,19 +323,28 @@ These directives prevent caching regardless of request configuration.
 
 ```swift
 // Limit cache objects to 5MB
-let cacheType: HCache.CacheType? = .custom(HCache.Configuration(
+var cacheType: HCache.CacheType? = .custom(HCache.Configuration(
     expirationTime: .oneHour,
     maxObjectSizeInMBs: 5
 ))
 
 // Larger images might need bigger limits
-let cacheType: HCache.CacheType? = .custom(HCache.Configuration(
+var cacheType: HCache.CacheType? = .custom(HCache.Configuration(
     expirationTime: .oneDay,
     maxObjectSizeInMBs: 20  // 20MB
 ))
 ```
 
 **Objects exceeding the limit are not cached.**
+
+```swift
+// Limit total cache capacity (memory and disk)
+var cacheType: HCache.CacheType? = .custom(HCache.Configuration(
+    expirationTime: .oneDay,
+    memoryCacheCapacityInMBs: 50,
+    diskCacheCapacityInMBs: 200
+))
+```
 
 ## Cache Management APIs
 
@@ -339,6 +372,8 @@ await request.clearCache()
 // Clear all cached data
 await Harbor.clearAllCache()
 ```
+
+This clears the custom cache (memory and disk), `URLCache.shared`, and the `URLCache` of the configured `.urlCache` default type or custom session when they differ.
 
 **Use Cases:**
 - User logout (clear all cached data)
@@ -391,7 +426,7 @@ func requestStream(source: HRequestSource = .cacheAndRemote)
 struct GetUserRequest: HGetRequestProtocol {
     typealias Model = User
     let url = "https://api.example.com/user"
-    let cacheType: HCache.CacheType? = .custom(HCache.Configuration(expirationTime: .oneHour))
+    var cacheType: HCache.CacheType? = .custom(HCache.Configuration(expirationTime: .oneHour))
 }
 
 // Stream will emit twice: first from cache, then from network
@@ -541,7 +576,7 @@ else {
 struct GetCategoriesRequest: HGetRequestProtocol {
     typealias Model = [Category]
     let url = "https://api.example.com/categories"
-    let cacheType: HCache.CacheType? = .custom(HCache.Configuration(expirationTime: .oneWeek))
+    var cacheType: HCache.CacheType? = .custom(HCache.Configuration(expirationTime: .oneWeek))
 }
 ```
 
@@ -552,7 +587,7 @@ struct GetCategoriesRequest: HGetRequestProtocol {
 struct GetBalanceRequest: HGetRequestProtocol {
     typealias Model = Balance
     let url = "https://api.example.com/balance"
-    let cacheType: HCache.CacheType? = .disabled
+    var cacheType: HCache.CacheType? = .disabled
 }
 ```
 
@@ -587,7 +622,7 @@ func logout() async {
 struct GetImageRequest: HGetRequestProtocol {
     typealias Model = Data
     let url: String
-    let cacheType: HCache.CacheType? = .custom(HCache.Configuration(
+    var cacheType: HCache.CacheType? = .custom(HCache.Configuration(
         expirationTime: .oneWeek,
         maxObjectSizeInMBs: 10  // 10MB
     ))
@@ -621,7 +656,7 @@ Don't override server cache directives. If the server says `no-cache`, Harbor re
 **To minimize memory:**
 ```swift
 // Large objects should have size limits
-let cacheType: HCache.CacheType? = .custom(HCache.Configuration(
+var cacheType: HCache.CacheType? = .custom(HCache.Configuration(
     expirationTime: .oneDay,
     maxObjectSizeInMBs: 5  // Limit to 5MB
 ))
@@ -649,7 +684,7 @@ Task {
 ### Network Efficiency
 
 **Cache hits avoid network entirely:**
-- 2.5-2.9x faster than network requests
+- No network round-trip for valid cached entries
 - Reduces data usage
 - Works offline
 
@@ -665,16 +700,16 @@ Task {
 **Check configuration:**
 ```swift
 // Ensure cache is enabled
-let cacheType: HCache.CacheType? = .custom(HCache.Configuration(expirationTime: .oneHour))
+var cacheType: HCache.CacheType? = .custom(HCache.Configuration(expirationTime: .oneHour))
 
 // Not disabled
-// let cacheType: HCache.CacheType? = .disabled
+// var cacheType: HCache.CacheType? = .disabled
 ```
 
 **Check HTTP headers:**
 ```swift
-// Server might send no-cache
-// Cache-Control: no-cache
+// Server might send no-store
+// Cache-Control: no-store
 // This prevents caching regardless of configuration
 ```
 
@@ -686,7 +721,7 @@ let cacheType: HCache.CacheType? = .custom(HCache.Configuration(expirationTime: 
 .custom(HCache.Configuration(expirationTime: .oneWeek))
 
 // Try shorter expiration
-.custom(HCache.Configuration(expirationTime: .tenMinutes))
+.custom(HCache.Configuration(expirationTime: .fifteenMinutes))
 ```
 
 **Force refresh:**
@@ -700,7 +735,7 @@ let response = await request.request()
 **Set size limits:**
 ```swift
 .custom(HCache.Configuration(
-    expirationTime: .oneDay, maxObjectSizeInMBs: 2)
+    expirationTime: .oneDay, maxObjectSizeInMBs: 2))
 ```
 
 **Periodic cleanup:**
@@ -711,8 +746,8 @@ await Harbor.clearAllCache()
 ## Related Files
 
 **Cache Implementation:**
-- `Sources/Harbor/Cache/HCacheManager.swift` - Cache manager and storage
-- `Sources/Harbor/Cache/HCachePolicy.swift` - Cache type definitions
+- `Sources/Harbor/Cache/HCache+Manager.swift` - Cache manager and storage
+- `Sources/Harbor/Cache/HCacheType.swift` - Cache type definitions
 - `Sources/Harbor/Cache/HCacheConfiguration.swift` - Cache configuration
 - `Sources/Harbor/Cache/TimeInterval+Cache.swift` - Predefined expiration times
 - `Sources/Harbor/Request/HRequestProtocol.swift` - Streaming APIs

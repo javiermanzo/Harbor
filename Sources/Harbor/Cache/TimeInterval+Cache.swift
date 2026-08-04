@@ -9,7 +9,7 @@ import Foundation
 
 public extension TimeInterval {
     /// No expiration time (uses default from cache manager).
-    static var none: TimeInterval? { nil }
+    static var noExpiration: TimeInterval? { nil }
     
     /// One minute cache expiration.
     static var oneMinute: TimeInterval { 60 }

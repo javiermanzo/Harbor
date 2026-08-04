@@ -127,7 +127,7 @@ struct GetUsersRequest: HGetRequestProtocol {
 struct GetUsersRequest: HGetRequestProtocol {
     typealias Model = [User]
     let url = "https://api.example.com/users"
-    let cacheType: HCache.CacheType = .custom(HCache.Configuration(
+    var cacheType: HCache.CacheType? = .custom(HCache.Configuration(
         expirationTime: .oneHour,
         maxObjectSizeInMBs: 10,
         memoryCacheCapacityInMBs: 100
@@ -138,7 +138,7 @@ struct GetUsersRequest: HGetRequestProtocol {
 struct GetUsersRequest: HGetRequestProtocol {
     typealias Model = [User]
     let url = "https://api.example.com/users"
-    let cacheType: HCache.CacheType = .urlCache(URLCache(
+    var cacheType: HCache.CacheType? = .urlCache(URLCache(
         memoryCapacity: 100 * 1024 * 1024,
         diskCapacity: 500 * 1024 * 1024
     ))
@@ -148,7 +148,7 @@ struct GetUsersRequest: HGetRequestProtocol {
 struct GetUsersRequest: HGetRequestProtocol {
     typealias Model = [User]
     let url = "https://api.example.com/users"
-    let cacheType: HCache.CacheType = .disabled
+    var cacheType: HCache.CacheType? = .disabled
 }
 ```
 

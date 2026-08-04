@@ -11,9 +11,12 @@ import Foundation
 @HRequestManagerActor
 struct HURLBuilder {
     /// Builds a complete URLRequest from a Harbor request protocol.
+    ///
+    /// For GET requests using the custom cache, the stored validators are injected as
+    /// `If-None-Match` / `If-Modified-Since` so the server can answer `304 Not Modified`.
     /// - Parameter request: The request conforming to HRequestBaseRequestProtocol.
     /// - Returns: A configured URLRequest, or nil if the request cannot be built.
-    static func buildUrlRequest<P: HRequestBaseRequestProtocol>(request: P) -> URLRequest? {
+    static func buildUrlRequest<P: HRequestBaseRequestProtocol>(request: P) async -> URLRequest? {
         let url: URL?
 
         switch request.httpMethod {
@@ -52,15 +55,18 @@ struct HURLBuilder {
             urlRequest.allHTTPHeaderFields = mergeHeaderParameters(currentHeaders: urlRequest.allHTTPHeaderFields, newHeaders: requestHeaderParameters)
         }
 
-        // --- Custom Cache ETag Injection ---
-        // If this is a GET request using custom cache, inject If-None-Match if we have a stored ETag.
-        // This is safe to do synchronously because HURLBuilder and HCache.Manager share @HRequestManagerActor.
-        if let getRequest = request as? any HGetRequestProtocol {
+        // Inject the stored validators as conditional headers for GET requests using the custom cache.
+        if request.httpMethod == .get, let getRequest = request as? any HGetRequestProtocol {
             let cacheType = getRequest.cacheType ?? HConfig.shared.cacheType
             if case .custom = cacheType,
-               let key = compositeURL(url: getRequest.url, pathParameters: getRequest.pathParameters, queryParameters: getRequest.queryParameters)?.absoluteString,
-               let etag = HCache.Manager.shared.getETagSync(forKey: key) {
-                urlRequest.setValue(etag, forHTTPHeaderField: "If-None-Match")
+               let key = compositeURL(url: getRequest.url, pathParameters: getRequest.pathParameters, queryParameters: getRequest.queryParameters)?.absoluteString {
+                let validators = await HCache.Manager.shared.getValidators(forKey: key, requestHeaders: urlRequest.allHTTPHeaderFields)
+                if let etag = validators.etag {
+                    urlRequest.setValue(etag, forHTTPHeaderField: "If-None-Match")
+                }
+                if let lastModified = validators.lastModified {
+                    urlRequest.setValue(lastModified, forHTTPHeaderField: "If-Modified-Since")
+                }
             }
         }
 

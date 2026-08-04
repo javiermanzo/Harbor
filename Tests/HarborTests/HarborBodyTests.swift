@@ -15,7 +15,7 @@ final class HarborBodyTests: XCTestCase {
         let service = MockPostBodyRequest(url: "https://example.com", bodyParameters: ["foo": "bar"], bodyType: .multipart)
 
         let url = URL(string: service.url)
-        let request = HURLBuilder.buildUrlRequest(request: service)
+        let request = await HURLBuilder.buildUrlRequest(request: service)
 
         XCTAssertEqual(request?.url, url)
         let contentType = try XCTUnwrap(request?.allHTTPHeaderFields!["Content-Type"])
@@ -26,7 +26,7 @@ final class HarborBodyTests: XCTestCase {
         let service = MockPostBodyRequest(url: "https://example.com", bodyParameters: nil, bodyType: .multipart)
 
         let url = URL(string: service.url)
-        let request = HURLBuilder.buildUrlRequest(request: service)
+        let request = await HURLBuilder.buildUrlRequest(request: service)
 
         XCTAssertEqual(request?.url, url)
         XCTAssertNil(request?.allHTTPHeaderFields?["Content-Type"])
@@ -37,7 +37,7 @@ final class HarborBodyTests: XCTestCase {
         let expectedContentType = "application/json"
 
         let url = URL(string: service.url)
-        let request = HURLBuilder.buildUrlRequest(request: service)
+        let request = await HURLBuilder.buildUrlRequest(request: service)
 
         XCTAssertEqual(request?.url, url)
         XCTAssertEqual(request?.allHTTPHeaderFields?["Content-Type"], expectedContentType)

@@ -36,10 +36,15 @@ extension HRequestManager {
             }
 
             let data = mock.jsonResponse?.data(using: .utf8) ?? Data()
-            return await HRequestManager.processResponse(model: model, request: request, statusCode: mock.statusCode, data: data)
+            let mockResponse = HTTPURLResponse(url: mockURL(for: request), statusCode: mock.statusCode, httpVersion: nil, headerFields: mock.headers)
+            return await HRequestManager.processResponse(model: model, request: request, statusCode: mock.statusCode, data: data, httpResponse: mockResponse)
         }
 
         if !connectivityMonitor.isConnectedToNetwork() {
+            if let getRequest = request as? any HGetRequestProtocol,
+               let stale = await getRequest.staleCacheOnError() as? Model {
+                return .success(stale)
+            }
             let hError: HRequestError = .noConnection
             logError(hError, request: request)
             return .error(hError)
@@ -56,7 +61,7 @@ extension HRequestManager {
     }
 
     private static func requestHandler<Model: HModel>(model: Model.Type, request: any HRequestWithResultProtocol) async -> HResponseWithResult<Model> {
-        guard let urlRequest = HURLBuilder.buildUrlRequest(request: request) else {
+        guard let urlRequest = await HURLBuilder.buildUrlRequest(request: request) else {
             let hError: HRequestError = .malformedRequest
             logError(hError, request: request)
             return .error(hError)
@@ -68,6 +73,10 @@ extension HRequestManager {
 
         do {
             let session = getURLSession(for: request)
+
+            // Sessions built internally are single-use; a user-provided session is left untouched.
+            let isCustomSession = session === HConfig.shared.customURLSession
+            defer { if !isCustomSession { session.finishTasksAndInvalidate() } }
 
             let startTime = Date()
 
@@ -97,6 +106,12 @@ extension HRequestManager {
                                          data: data,
                                          httpResponse: httpResponse)
         } catch let error as URLError {
+            if error.code != .cancelled,
+               !Task.isCancelled,
+               let getRequest = request as? any HGetRequestProtocol,
+               let stale = await getRequest.staleCacheOnError() as? Model {
+                return .success(stale)
+            }
             return .error(HRequestError.mapURLError(error))
         } catch {
             let hError: HRequestError = .invalidRequest
@@ -122,10 +137,10 @@ extension HRequestManager {
                 return .error(hError)
             }
         case 304:
-            // Not Modified — return cached data from custom cache.
-            // (URLCache handles 304 transparently at URLSession level; this branch handles custom cache.)
+            // Not Modified — serve the cached body and refresh the stored entry.
+            // (URLCache revalidates transparently at URLSession level; this branch handles the custom cache.)
             if let getRequest = request as? any HGetRequestProtocol,
-               let cachedAny = await getRequest.cache(),
+               let cachedAny = await getRequest.revalidatedCache(response: httpResponse),
                let cachedModel = cachedAny as? Model {
                 return .success(cachedModel)
             } else {
@@ -148,6 +163,11 @@ extension HRequestManager {
                 mutableRequest.retries = retries - 1
                 return await self.request(model: model, request: mutableRequest)
             } else {
+                if statusCode >= 500,
+                   let getRequest = request as? any HGetRequestProtocol,
+                   let stale = await getRequest.staleCacheOnError() as? Model {
+                    return .success(stale)
+                }
                 let hError: HRequestError = .api(statusCode: statusCode, data: data)
                 logError(hError, request: request)
                 return .error(hError)
@@ -191,7 +211,7 @@ extension HRequestManager {
     }
 
     private static func requestHandler<P: HRequestWithEmptyResponseProtocol>(request: P) async -> HResponse {
-        guard let urlRequest = HURLBuilder.buildUrlRequest(request: request) else {
+        guard let urlRequest = await HURLBuilder.buildUrlRequest(request: request) else {
             let hError: HRequestError = .malformedRequest
             logError(hError, request: request)
             return .error(hError)
@@ -203,6 +223,10 @@ extension HRequestManager {
 
         do {
             let session = getURLSession(for: request)
+
+            // Sessions built internally are single-use; a user-provided session is left untouched.
+            let isCustomSession = session === HConfig.shared.customURLSession
+            defer { if !isCustomSession { session.finishTasksAndInvalidate() } }
 
             let startTime = Date()
 
@@ -239,6 +263,9 @@ extension HRequestManager {
     static func processResponse(request: HRequestWithEmptyResponseProtocol, statusCode: Int, data: Data) async -> HResponse {
         switch statusCode {
         case 200 ... 299:
+            return .success
+        case 304:
+            // Not Modified — the cached representation is still valid; there is no body to serve.
             return .success
         case 401:
             if await !hasNewAuthorizationHeader(request: request) {
@@ -281,26 +308,32 @@ extension HRequestManager {
         return request
     }
 
-    /// URLSession getter that handles mTLS and SSL pinning if needed
-    /// Returns a cached session or creates a new optimized one
+    /// URLSession getter that handles mTLS and SSL pinning if needed.
+    ///
+    /// A user-provided session (see `Harbor.setCustomURLSession`) is used as-is. Otherwise a new
+    /// session is built per request from the current configuration, so changes to cache type,
+    /// timeout, mTLS or SSL pinning always take effect.
     static func getURLSession(for request: any HRequestBaseRequestProtocol) -> URLSession {
-        // Return cached session if available and configuration hasn't changed
-        if let currentURLSession = HConfig.shared.currentURLSession {
-            return currentURLSession
+        if let customURLSession = HConfig.shared.customURLSession {
+            return customURLSession
         }
 
         let configuration = URLSessionConfiguration.default
         configuration.timeoutIntervalForRequest = request.timeoutInterval ?? HConfig.shared.timeoutInterval
         configuration.timeoutIntervalForResource = request.timeoutInterval ?? HConfig.shared.timeoutInterval
-        
-        // Resolve effective cache type: request-specific takes precedence over global default
-        // Only HGetRequestProtocol has cache
+
+        // Only HGetRequestProtocol has cache. For cache types other than .urlCache, install an
+        // isolated zero-capacity URLCache so responses are never served from — nor stored
+        // into — URLCache.shared.
         if let getRequest = request as? any HGetRequestProtocol {
             let cacheType: HCache.CacheType = getRequest.cacheType ?? HConfig.shared.cacheType
 
-            if case .urlCache(let cache, let requestPolicy) = cacheType {
+            switch cacheType {
+            case .urlCache(let cache, let requestPolicy):
                 configuration.urlCache = cache
                 configuration.requestCachePolicy = requestPolicy
+            case .custom, .disabled:
+                configuration.urlCache = URLCache(memoryCapacity: 0, diskCapacity: 0, diskPath: nil)
             }
         }
 
@@ -308,15 +341,19 @@ extension HRequestManager {
         if HConfig.shared.mTLSIdentity != nil || HConfig.shared.sslPinningKeys != nil {
             let sessionDelegate = HURLSessionDelegate(mTLSIdentity: HConfig.shared.mTLSIdentity,
                                                       sslPinningKeys: HConfig.shared.sslPinningKeys)
-            let newSession = URLSession(configuration: configuration, delegate: sessionDelegate, delegateQueue: nil)
-            HConfig.shared.currentURLSession = newSession
-            return newSession
+            return URLSession(configuration: configuration, delegate: sessionDelegate, delegateQueue: nil)
         }
 
-        // Create session without delegate for standard requests
-        let newSession = URLSession(configuration: configuration)
-        HConfig.shared.currentURLSession = newSession
-        return newSession
+        return URLSession(configuration: configuration)
+    }
+
+    /// Builds the URL used for synthetic mock responses.
+    private static func mockURL(for request: any HRequestBaseRequestProtocol) -> URL {
+        if let getRequest = request as? any HGetRequestProtocol,
+           let url = HURLBuilder.compositeURL(url: getRequest.url, pathParameters: getRequest.pathParameters, queryParameters: getRequest.queryParameters) {
+            return url
+        }
+        return HURLBuilder.compositeURL(url: request.url, pathParameters: request.pathParameters) ?? URL(fileURLWithPath: "/")
     }
 
     static func logError(_ error: HRequestError, request: HRequestBaseRequestProtocol) {

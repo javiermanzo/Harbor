@@ -8,16 +8,19 @@
 import XCTest
 @testable import Harbor
 
+@HRequestManagerActor
 final class HarborETagTests: XCTestCase {
     
     override func setUp() async throws {
         await Harbor.removeAllMocks()
         await Harbor.clearAllCache()
+        await Harbor.setDefaultCacheType(.urlCache())
     }
-    
+
     override func tearDown() async throws {
         await Harbor.removeAllMocks()
         await Harbor.clearAllCache()
+        await Harbor.setDefaultCacheType(.urlCache())
     }
     
     // MARK: - Cache Policy Tests
@@ -123,13 +126,54 @@ final class HarborETagTests: XCTestCase {
             diskCapacity: 500 * 1024 * 1024
         )
         let request = GetUsersCustomURLCacheRequest(urlCache: customCache)
-        
+
         guard case .urlCache(let cache, _) = request.cacheType else {
             XCTFail("Expected urlCache type")
             return
         }
         XCTAssertEqual(cache.memoryCapacity, 100 * 1024 * 1024)
         XCTAssertEqual(cache.diskCapacity, 500 * 1024 * 1024)
+    }
+
+    // MARK: - ETag Tests
+
+    func testCachedETagFromURLCache() async throws {
+        let dedicatedCache = URLCache(memoryCapacity: 1024 * 1024, diskCapacity: 0)
+        let request = GetUsersCustomURLCacheRequest(urlCache: dedicatedCache)
+
+        let builtRequest = await HURLBuilder.buildUrlRequest(request: request)
+        let urlRequest = try XCTUnwrap(builtRequest)
+        let url = try XCTUnwrap(urlRequest.url)
+
+        let user = TestUser(id: 1, name: "John", email: "john@example.com")
+        let data = try JSONEncoder().encode(user)
+        let response = try XCTUnwrap(HTTPURLResponse(
+            url: url,
+            statusCode: 200,
+            httpVersion: "HTTP/1.1",
+            headerFields: ["ETag": "\"url-cache-etag\""]
+        ))
+        dedicatedCache.storeCachedResponse(CachedURLResponse(response: response, data: data), for: urlRequest)
+
+        let cachedETag = await request.cachedETag()
+        XCTAssertEqual(cachedETag, "\"url-cache-etag\"", "cachedETag should read the ETag from the URLCache entry")
+
+        dedicatedCache.removeAllCachedResponses()
+    }
+
+    // MARK: - Cache Type Equality Tests
+
+    func testCacheTypeURLCacheEquality() async throws {
+        let cache1 = URLCache(memoryCapacity: 1024, diskCapacity: 1024)
+        let cache2 = URLCache(memoryCapacity: 1024, diskCapacity: 1024)
+
+        XCTAssertEqual(HCache.CacheType.urlCache(urlCache: cache1), .urlCache(urlCache: cache1), "Same cache instance should be equal")
+        XCTAssertNotEqual(HCache.CacheType.urlCache(urlCache: cache1), .urlCache(urlCache: cache2), "Distinct cache instances should not be equal")
+        XCTAssertNotEqual(
+            HCache.CacheType.urlCache(urlCache: cache1, requestCachePolicy: .useProtocolCachePolicy),
+            .urlCache(urlCache: cache1, requestCachePolicy: .reloadIgnoringLocalCacheData),
+            "Different cache policies should not be equal"
+        )
     }
 }
 

@@ -20,15 +20,18 @@ Harbor provides a comprehensive mocking system that allows you to test network r
 **Location**: `Sources/Harbor/Mock/HMock.swift`
 
 ```swift
-struct HMock<Request: HRequestBaseRequestProtocol>: Sendable {
-    let requestType: Request.Type
+@HRequestManagerActor
+struct HMock {
+    let request: HRequestBaseRequestProtocol.Type
     let statusCode: Int
     let jsonResponse: String?
-    let data: Data?
-    let delay: TimeInterval
     let error: HRequestError?
+    let delay: Double?
+    let headers: [String: String]?
 }
 ```
+
+Use `headers` to simulate HTTP response headers such as `Cache-Control` or `ETag`, for example to test caching behavior.
 
 ### HMocker
 
@@ -865,7 +868,7 @@ func testB() async throws {
 
 ```swift
 extension HMock {
-    static func successUser() async -> HMock<GetUserRequest> {
+    static func successUser() async -> HMock {
         let json = """{"id": 1, "name": "Test User"}"""
         return await HMock(
             request: GetUserRequest.self,
@@ -874,7 +877,7 @@ extension HMock {
         )
     }
     
-    static func notFoundUser() async -> HMock<GetUserRequest> {
+    static func notFoundUser() async -> HMock {
         return await HMock(
             request: GetUserRequest.self,
             statusCode: 404,

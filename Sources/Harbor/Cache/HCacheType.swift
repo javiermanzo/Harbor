@@ -37,8 +37,7 @@ public extension HCache {
         public static func == (lhs: CacheType, rhs: CacheType) -> Bool {
             switch (lhs, rhs) {
             case (.urlCache(let lCache, let lPolicy), .urlCache(let rCache, let rPolicy)):
-                return lCache.memoryCapacity == rCache.memoryCapacity &&
-                       lCache.diskCapacity == rCache.diskCapacity &&
+                return ObjectIdentifier(lCache) == ObjectIdentifier(rCache) &&
                        lPolicy == rPolicy
             case (.disabled, .disabled):
                 return true

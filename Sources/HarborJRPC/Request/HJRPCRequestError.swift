@@ -38,6 +38,8 @@ public enum HJRPCRequestError: Error, Sendable {
     case certificate
     /// Request was cancelled.
     case cancelled
+    /// No cached data found for cache-only request.
+    case noCachedDataFound
 }
 
 extension HJRPCRequestError {
@@ -68,7 +70,7 @@ extension HJRPCRequestError {
         case .certificate:
             return .certificate
         case .noCachedDataFound:
-            return .invalidRequest
+            return .noCachedDataFound
         }
     }
 }

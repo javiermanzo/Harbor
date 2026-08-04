@@ -32,8 +32,8 @@ struct HConfig: Sendable {
             }
         }
     }
-    /// Custom URLSession to use for all requests.
-    var currentURLSession: URLSession?
+    /// Custom URLSession provided by the user to use for all requests. Used as-is when set.
+    var customURLSession: URLSession?
     /// Whether mocks should only be enabled in DEBUG builds. Default is true.
     var mocksOnlyInDebug: Bool = true
     /// Whether debug logging is enabled. Default is true in DEBUG builds, false in RELEASE builds.

@@ -1,10 +1,20 @@
 import XCTest
+import Harbor
 @testable import HarborJRPC
 
 final class HarborJRPCTests: XCTestCase {
 
     override func setUp() async throws {
         await HarborJRPC.setURL("https://api.example.com/rpc")
+    }
+
+    func testNoCachedDataFoundErrorMapping() throws {
+        let error = HJRPCRequestError.getError(hRequestError: .noCachedDataFound)
+
+        guard case .noCachedDataFound = error else {
+            XCTFail("Expected noCachedDataFound but got: \(error)")
+            return
+        }
     }
 
     func testJRPCVersionConfiguration() async throws {

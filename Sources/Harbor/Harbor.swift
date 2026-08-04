@@ -53,7 +53,7 @@ public extension Harbor {
 
     /// Sets custom URLSession for all Harbor requests.
     static func setCustomURLSession(_ customURLSession: URLSession) {
-        HConfig.shared.currentURLSession = customURLSession
+        HConfig.shared.customURLSession = customURLSession
     }
 
     /// Sets default cache type for requests without explicit cache settings.
@@ -135,8 +135,18 @@ public extension Harbor {
 
 public extension Harbor {
 
-    /// Clears all cached data (memory and disk).
-    static func clearAllCache() {
-        HCache.Manager.shared.clearAllCache()
+    /// Clears all cached data: the custom cache (memory and disk), `URLCache.shared`, and the
+    /// URLCache of the configured default cache type and custom session when they differ.
+    static func clearAllCache() async {
+        await HCache.Manager.shared.clearAllCache()
+        URLCache.shared.removeAllCachedResponses()
+
+        if case .urlCache(let cache, _) = HConfig.shared.cacheType, cache !== URLCache.shared {
+            cache.removeAllCachedResponses()
+        }
+
+        if let sessionCache = HConfig.shared.customURLSession?.configuration.urlCache, sessionCache !== URLCache.shared {
+            sessionCache.removeAllCachedResponses()
+        }
     }
 }

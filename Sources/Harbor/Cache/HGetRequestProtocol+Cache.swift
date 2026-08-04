@@ -14,20 +14,20 @@ public extension HGetRequestProtocol {
     /// - Returns: The cached model if found and valid, `nil` otherwise.
     func cache() async -> Model? {
         let effectiveCacheType = await effectiveCacheType()
-        
+
         switch effectiveCacheType {
         case .custom(let config):
             guard let cacheKey = await cacheKey() else { return nil }
-            return await HCache.Manager.shared.getCachedData(forKey: cacheKey, type: Model.self, config: config)
-            
+            return await HCache.Manager.shared.getCachedData(forKey: cacheKey, type: Model.self, config: config, requestHeaders: await effectiveRequestHeaders())
+
         case .urlCache(let urlCache, _):
             guard let urlRequest = await urlRequest() else { return nil }
-            
+
             if let cached = urlCache.cachedResponse(for: urlRequest) {
                 return try? JSONDecoder().decode(Model.self, from: cached.data)
             }
             return nil
-            
+
         case .disabled:
             return nil
         }
@@ -41,14 +41,27 @@ public extension HGetRequestProtocol {
     func saveCache(_ data: Data, response: HTTPURLResponse?) async {
         if case .custom(let config) = await effectiveCacheType(),
            let cacheKey = await cacheKey() {
-            await HCache.Manager.shared.storeData(data, forKey: cacheKey, config: config, response: response)
+            await HCache.Manager.shared.storeData(data, forKey: cacheKey, config: config, response: response, requestHeaders: await effectiveRequestHeaders())
         }
     }
 
-    /// Returns the stored ETag for this request from the custom cache, if available.
+    /// Returns the stored ETag for this request, if available.
+    /// Works with both custom cache and URLCache types.
     func cachedETag() async -> String? {
-        guard let key = await cacheKey() else { return nil }
-        return await HCache.Manager.shared.getETag(forKey: key)
+        switch await effectiveCacheType() {
+        case .custom:
+            guard let key = await cacheKey() else { return nil }
+            return await HCache.Manager.shared.getETag(forKey: key)
+
+        case .urlCache(let urlCache, _):
+            guard let urlRequest = await urlRequest(),
+                  let cached = urlCache.cachedResponse(for: urlRequest),
+                  let httpResponse = cached.response as? HTTPURLResponse else { return nil }
+            return httpResponse.value(forHTTPHeaderField: "ETag")
+
+        case .disabled:
+            return nil
+        }
     }
 
     /// Clears cached data for this specific request.
@@ -56,14 +69,12 @@ public extension HGetRequestProtocol {
     func clearCache() async {
         guard let cacheKey = await cacheKey() else { return }
 
-        guard let cacheType else { return }
-
-        switch cacheType {
+        switch await effectiveCacheType() {
         case .urlCache(let urlCache, _):
             // Remove from URLCache
             guard let urlRequest = await urlRequest() else { return }
             urlCache.removeCachedResponse(for: urlRequest)
-            
+
         case .custom:
             // Remove from custom cache
             await HCache.Manager.shared.removeCachedData(for: cacheKey)
@@ -71,6 +82,34 @@ public extension HGetRequestProtocol {
         case .disabled:
             break
         }
+    }
+
+    /// Returns the cached body to satisfy a `304 Not Modified` response and refreshes the
+    /// stored entry (timestamp, expiration and validators) from the revalidation headers.
+    func revalidatedCache(response: HTTPURLResponse?) async -> Model? {
+        switch await effectiveCacheType() {
+        case .custom(let config):
+            guard let cacheKey = await cacheKey(),
+                  let model = await HCache.Manager.shared.getRevalidatableCachedData(forKey: cacheKey, type: Model.self, requestHeaders: await effectiveRequestHeaders()) else { return nil }
+            await HCache.Manager.shared.refreshEntry(forKey: cacheKey, response: response, config: config)
+            return model
+
+        case .urlCache(let urlCache, _):
+            guard let urlRequest = await urlRequest(),
+                  let cached = urlCache.cachedResponse(for: urlRequest) else { return nil }
+            return try? JSONDecoder().decode(Model.self, from: cached.data)
+
+        case .disabled:
+            return nil
+        }
+    }
+
+    /// Returns an expired cached body while its `stale-if-error` window still allows serving it.
+    /// Only works with custom cache type.
+    func staleCacheOnError() async -> Model? {
+        guard case .custom = await effectiveCacheType(),
+              let cacheKey = await cacheKey() else { return nil }
+        return await HCache.Manager.shared.getStaleOnErrorData(forKey: cacheKey, type: Model.self, requestHeaders: await effectiveRequestHeaders())
     }
 }
 
@@ -80,7 +119,6 @@ private extension HGetRequestProtocol {
     /// Uses the request-specific cache type if set, otherwise falls back to the global default.
     /// - Returns: The effective `HCache.CacheType` to use for this request.
     func effectiveCacheType() async ->  HCache.CacheType {
-        let effectiveCacheType: HCache.CacheType
         if let requestCacheType = self.cacheType {
            return requestCacheType
         } else {
@@ -88,10 +126,21 @@ private extension HGetRequestProtocol {
         }
     }
 
-    /// Builds and returns a URLRequest for this request.
+    /// Builds a URLRequest for this request.
     /// - Returns: The configured URLRequest, or nil if the request cannot be built.
     func urlRequest() async -> URLRequest? {
         await HURLBuilder.buildUrlRequest(request: self)
+    }
+
+    /// Resolves the headers that will effectively be sent with this request: the global default
+    /// headers merged with the request-specific ones. Used to evaluate `Vary` consistently with
+    /// what is actually sent on the wire.
+    func effectiveRequestHeaders() async -> [String: String]? {
+        var headers = await HConfig.shared.defaultHeaderParameters ?? [:]
+        if let own = headerParameters {
+            headers.merge(own) { _, new in new }
+        }
+        return headers.isEmpty ? nil : headers
     }
 
     /// Generates a cache key for this request based on the complete URL.

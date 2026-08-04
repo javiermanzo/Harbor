@@ -447,8 +447,8 @@ let cacheType = HCache.CacheType.custom(HCache.Configuration(expirationTime: .on
 
 ### Cache Performance
 
-- **Memory cache (L1)**: ~2.5-2.9x faster than network requests
-- **Disk cache (L2)**: Faster than network for large payloads
+- **Memory cache (L1)**: NSCache-backed, avoids a network round-trip on hits
+- **Disk cache (L2)**: Persistent storage, faster than network for large payloads
 - **Cache key**: SHA256 of URL + parameters for uniqueness
 
 ### Concurrency Performance

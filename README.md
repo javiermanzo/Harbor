@@ -344,6 +344,9 @@ Harbor includes a complete caching system to optimize the performance of your GE
 You can set a global default cache configuration for all requests:
 
 ```swift
+// Use URLCache-backed automatic HTTP caching (this is the default)
+await Harbor.setDefaultCacheType(.urlCache())
+
 // Enable cache globally with custom cache (1 week expiration)
 await Harbor.setDefaultCacheType(.custom(HCache.Configuration(expirationTime: .oneWeek)))
 
@@ -358,9 +361,7 @@ You can override the default cache type for specific GET requests by implementin
 class MyGetRequest: HGetRequestProtocol {
     // ... other properties
     
-    var cacheType: HCache.CacheType {
-        return .custom(HCache.Configuration(expirationTime: .oneDay, maxObjectSizeInMBs: 20))
-    }
+    var cacheType: HCache.CacheType? = .custom(HCache.Configuration(expirationTime: .oneDay, maxObjectSizeInMBs: 20))
 }
 ```
 
@@ -375,6 +376,7 @@ HCache.Configuration(expirationTime: .oneHour)      // 1 hour
 HCache.Configuration(expirationTime: .oneDay)       // 1 day
 HCache.Configuration(expirationTime: .threeDays)    // 3 days
 HCache.Configuration(expirationTime: .oneWeek)      // 1 week (default)
+HCache.Configuration(expirationTime: .noExpiration) // No expiration
 ```
 
 ##### Max Object Size
@@ -384,9 +386,22 @@ You can also configure the maximum size for cached objects (in MB). The default 
 HCache.Configuration(expirationTime: .oneDay, maxObjectSizeInMBs: 50) // Allow up to 50MB
 ```
 
+The custom cache also lets you limit its total memory and disk capacity (100MB each by default). When the disk capacity is exceeded, the oldest entries are evicted first:
+
+```swift
+HCache.Configuration(
+    expirationTime: .oneDay,
+    memoryCacheCapacityInMBs: 50,
+    diskCacheCapacityInMBs: 200
+)
+```
+
 #### HCache Performance
 
-Harbor's caching system uses **NSCache + FileSystem storage** instead of URLCache for superior performance and reliability. Performance testing shows this implementation is **2.5-2.9x faster** than alternative approaches.
+Harbor offers two cache strategies for GET requests:
+
+- **`.urlCache`** (default): backed by `URLCache`, it provides automatic HTTP caching with ETag/304 revalidation and zero configuration.
+- **`.custom(HCache.Configuration)`**: Harbor's own two-level cache — an `NSCache` in-memory layer in front of a single-file-per-key disk store — with explicit expiration and size control, plus conditional revalidation via `ETag`/`Last-Modified` headers.
 
 #### Cache Usage
 
@@ -405,7 +420,7 @@ await MyGetRequest().clearCache()
 ```
 
 ##### Clear All Cache
-Clear all cached data:
+Clear all cached data, including the custom cache (memory and disk) and `URLCache.shared`:
 
 ```swift
 await Harbor.clearAllCache()
@@ -607,6 +622,7 @@ Use `HMock` to declare mock responses for your requests.
 - `jsonResponse`: A `String` representing the JSON response. This will be decoded as the expected model for your request.
 - `error`: An optional `HRequestError` if you want to simulate an error response.
 - `delay`: An optional delay (in seconds) before returning the mock response, to simulate network latency.
+- `headers`: An optional dictionary of HTTP response headers (e.g. `Cache-Control`, `ETag`) to simulate server caching behavior.
 
 ### Register a Mock
 To register a mock, use the `register(mock:)` method. This will allow you to simulate responses instead of making actual API calls.

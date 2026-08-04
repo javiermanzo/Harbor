@@ -19,6 +19,9 @@
 - New error cases `certificate` and `noCachedDataFound`, plus `HRequestError.mapURLError(_:)` (#53)
 - Default implementations for request protocol properties (`needsAuth`, `retries`, `pathParameters`, `headerParameters`, `queryParameters`, `bodyType`) (#38)
 - Claude AI skill documentation (#51)
+- `HCache.Configuration.diskCacheCapacityInMBs` (default 100 MB); disk capacity is enforced with LRU eviction of the oldest entries
+- `HMock.headers` to simulate HTTP response headers (e.g. `Cache-Control`, `ETag`)
+- New error case `HJRPCRequestError.noCachedDataFound`
 
 ### Changed
 - Upgraded LogBird dependency from 1.0.0 to 2.1.0; debug logging now uses typed `LBValue` metadata, the `LBExtraMessage(key:value:)` API and LogBird's layered sensitive-key action API (#57)
@@ -30,6 +33,12 @@
 - Logging disabled by default in Release builds (#50)
 - `requestStream` throws if the remote request fails even when cache is available (#46)
 - Documentation updates (#37, #41)
+- Custom cache now honors HTTP response directives: `Cache-Control` (`no-store`, `no-cache`, `max-age`, `s-maxage`, `must-revalidate`/`proxy-revalidate`, `stale-if-error`), `Expires` and `Vary`, with case-insensitive header lookup (HTTP/2-safe)
+- Custom cache sends stored validators as `If-None-Match`/`If-Modified-Since` on GET requests; a `304 Not Modified` response serves the cached body and refreshes its expiration, even if the entry had already expired
+- `HCache.Configuration.memoryCacheCapacityInMBs` is now applied to the in-memory cache; memory, disk and object-size values below 1 are clamped to 1
+- `Harbor.clearAllCache()` also clears `URLCache.shared` and the URLCache of the configured `.urlCache` default type / custom session
+- `Harbor.setCustomURLSession(_:)` uses the provided session as-is; Harbor no longer caches URLSessions internally, so per-request timeout and cache-type changes always apply. Requests with `.custom`/`.disabled` cache are isolated from `URLCache.shared`
+- `cachedETag()` now also works with the `.urlCache` cache type
 
 ### Fixed
 - Sensitive keys now apply to Harbor's debug logger: they were previously set on `LogBird.shared` while debug logging used a separate `LogBird(subsystem:category:)` instance, so the Harbor HTTP keys never reached the logs (#57)
@@ -47,6 +56,8 @@
 - False `.noConnection` on the first request in Release (#55)
 
 ### ⚠️ Breaking Changes
+- `TimeInterval.none` renamed to `TimeInterval.noExpiration`
+- `Harbor.clearAllCache()` is now `async`
 - `Harbor.setSSlPinningSHA256(String?)` → `Harbor.setSSlPinningKeys([String]?)` (#42)
 - SSL pinning pins must now be `base64(SHA256(SPKI))`. Pins generated from the raw public key bytes (previous behavior) will no longer match — regenerate them with `Harbor.computePin(for:)` or the OpenSSL command documented in the README (#56)
 - Error cases renamed: `apiError` → `api`, `codableError` → `codable`, `noConnectionError` → `noConnection`, `malformedRequestError` → `malformedRequest`, `timeoutError` → `timeout` (#53)

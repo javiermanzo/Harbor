@@ -18,7 +18,7 @@ public extension HGetRequestProtocol {
         switch effectiveCacheType {
         case .custom(let config):
             guard let cacheKey = await cacheKey() else { return nil }
-            return await HCache.Manager.shared.getCachedData(forKey: cacheKey, type: Model.self, config: config, requestHeaders: headerParameters)
+            return await HCache.Manager.shared.getCachedData(forKey: cacheKey, type: Model.self, config: config, requestHeaders: await effectiveRequestHeaders())
 
         case .urlCache(let urlCache, _):
             guard let urlRequest = await urlRequest() else { return nil }
@@ -41,7 +41,7 @@ public extension HGetRequestProtocol {
     func saveCache(_ data: Data, response: HTTPURLResponse?) async {
         if case .custom(let config) = await effectiveCacheType(),
            let cacheKey = await cacheKey() {
-            await HCache.Manager.shared.storeData(data, forKey: cacheKey, config: config, response: response, requestHeaders: headerParameters)
+            await HCache.Manager.shared.storeData(data, forKey: cacheKey, config: config, response: response, requestHeaders: await effectiveRequestHeaders())
         }
     }
 
@@ -90,7 +90,7 @@ public extension HGetRequestProtocol {
         switch await effectiveCacheType() {
         case .custom(let config):
             guard let cacheKey = await cacheKey(),
-                  let model = await HCache.Manager.shared.getRevalidatableCachedData(forKey: cacheKey, type: Model.self, requestHeaders: headerParameters) else { return nil }
+                  let model = await HCache.Manager.shared.getRevalidatableCachedData(forKey: cacheKey, type: Model.self, requestHeaders: await effectiveRequestHeaders()) else { return nil }
             await HCache.Manager.shared.refreshEntry(forKey: cacheKey, response: response, config: config)
             return model
 
@@ -109,7 +109,7 @@ public extension HGetRequestProtocol {
     func staleCacheOnError() async -> Model? {
         guard case .custom = await effectiveCacheType(),
               let cacheKey = await cacheKey() else { return nil }
-        return await HCache.Manager.shared.getStaleOnErrorData(forKey: cacheKey, type: Model.self, requestHeaders: headerParameters)
+        return await HCache.Manager.shared.getStaleOnErrorData(forKey: cacheKey, type: Model.self, requestHeaders: await effectiveRequestHeaders())
     }
 }
 
@@ -126,10 +126,21 @@ private extension HGetRequestProtocol {
         }
     }
 
-    /// Builds and returns a URLRequest for this request.
+    /// Builds a URLRequest for this request.
     /// - Returns: The configured URLRequest, or nil if the request cannot be built.
     func urlRequest() async -> URLRequest? {
         await HURLBuilder.buildUrlRequest(request: self)
+    }
+
+    /// Resolves the headers that will effectively be sent with this request: the global default
+    /// headers merged with the request-specific ones. Used to evaluate `Vary` consistently with
+    /// what is actually sent on the wire.
+    func effectiveRequestHeaders() async -> [String: String]? {
+        var headers = await HConfig.shared.defaultHeaderParameters ?? [:]
+        if let own = headerParameters {
+            headers.merge(own) { _, new in new }
+        }
+        return headers.isEmpty ? nil : headers
     }
 
     /// Generates a cache key for this request based on the complete URL.

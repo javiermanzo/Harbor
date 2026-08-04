@@ -983,6 +983,12 @@ final class HarborCacheTests: XCTestCase {
         let isPrivate = HCache.Manager.parseCacheControlDirectives("private")
         XCTAssertTrue(isPrivate.isPrivate)
         XCTAssertFalse(isPrivate.isPublic)
+
+        let quotedMaxAge = HCache.Manager.parseCacheControlDirectives("max-age=\"3600\"")
+        XCTAssertEqual(quotedMaxAge.maxAge, 3600, "Quoted directive values should be parsed")
+
+        let quotedStaleIfError = HCache.Manager.parseCacheControlDirectives("stale-if-error=\"1800\"")
+        XCTAssertEqual(quotedStaleIfError.staleIfError, 1800, "Quoted directive values should be parsed")
     }
 
     // MARK: - HTTP Date Parsing Unit Tests

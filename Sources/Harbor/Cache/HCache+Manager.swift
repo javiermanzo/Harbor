@@ -226,8 +226,12 @@ extension HCache {
                 staleIfError: directives?.staleIfError.map { TimeInterval($0) } ?? entry.staleIfError
             )
 
-            memoryCache.setObject(refreshed, forKey: nsKey, cost: refreshed.data.count)
-            _ = await writeToDisk(DiskEntry(entry: refreshed), forKey: key, diskCapacity: config.diskCacheCapacityInBytes)
+            let written = await writeToDisk(DiskEntry(entry: refreshed), forKey: key, diskCapacity: config.diskCacheCapacityInBytes)
+            if written {
+                memoryCache.setObject(refreshed, forKey: nsKey, cost: refreshed.data.count)
+            } else {
+                HarborLogger.log("Failed to persist refreshed cache entry on disk", level: .error)
+            }
         }
 
         /// Returns the stored validators (ETag and Last-Modified) for the given cache key, if available.
@@ -326,13 +330,13 @@ extension HCache {
             for directive in directives {
                 let trimmed = directive.trimmingCharacters(in: .whitespacesAndNewlines)
                 if trimmed.hasPrefix("s-maxage=") {
-                    result.sMaxAge = Int(String(trimmed.dropFirst(9)))
+                    result.sMaxAge = Self.parseDeltaSeconds(String(trimmed.dropFirst(9)))
                 } else if trimmed.hasPrefix("max-age=") {
-                    result.maxAge = Int(String(trimmed.dropFirst(8)))
+                    result.maxAge = Self.parseDeltaSeconds(String(trimmed.dropFirst(8)))
                 } else if trimmed.hasPrefix("stale-while-revalidate=") {
-                    result.staleWhileRevalidate = Int(String(trimmed.dropFirst(23)))
+                    result.staleWhileRevalidate = Self.parseDeltaSeconds(String(trimmed.dropFirst(23)))
                 } else if trimmed.hasPrefix("stale-if-error=") {
-                    result.staleIfError = Int(String(trimmed.dropFirst(15)))
+                    result.staleIfError = Self.parseDeltaSeconds(String(trimmed.dropFirst(15)))
                 } else {
                     switch trimmed {
                     case "no-cache": result.noCache = true
@@ -346,6 +350,13 @@ extension HCache {
                 }
             }
             return result
+        }
+
+        /// Parses a delta-seconds directive value, tolerating the quoted-string form
+        /// (`max-age="60"`) allowed for field values.
+        private static func parseDeltaSeconds(_ value: String) -> Int? {
+            let unquoted = value.trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
+            return Int(unquoted)
         }
 
         /// HTTP-date formatters for the three formats allowed by RFC 9110 (IMF-fixdate, RFC 850, asctime),

@@ -60,7 +60,7 @@ struct HURLBuilder {
             let cacheType = getRequest.cacheType ?? HConfig.shared.cacheType
             if case .custom = cacheType,
                let key = compositeURL(url: getRequest.url, pathParameters: getRequest.pathParameters, queryParameters: getRequest.queryParameters)?.absoluteString {
-                let validators = await HCache.Manager.shared.getValidators(forKey: key, requestHeaders: getRequest.headerParameters)
+                let validators = await HCache.Manager.shared.getValidators(forKey: key, requestHeaders: urlRequest.allHTTPHeaderFields)
                 if let etag = validators.etag {
                     urlRequest.setValue(etag, forHTTPHeaderField: "If-None-Match")
                 }

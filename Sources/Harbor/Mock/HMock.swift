@@ -21,6 +21,8 @@ public struct HMock {
     public let error: HRequestError?
     /// Optional delay in seconds before returning the response.
     public let delay: Double?
+    /// Optional HTTP response headers (e.g. `Cache-Control`, `ETag`).
+    public let headers: [String: String]?
 
     /// The name of the request type being mocked.
     public var requestName: String {
@@ -34,11 +36,13 @@ public struct HMock {
     ///   - jsonResponse: Optional JSON response body
     ///   - error: Optional error to return instead of success
     ///   - delay: Optional delay in seconds before returning the response
-    public init(request: HRequestBaseRequestProtocol.Type, statusCode: Int, jsonResponse: String? = nil, error: HRequestError? = nil, delay: Double? = nil) {
+    ///   - headers: Optional HTTP response headers
+    public init(request: HRequestBaseRequestProtocol.Type, statusCode: Int, jsonResponse: String? = nil, error: HRequestError? = nil, delay: Double? = nil, headers: [String: String]? = nil) {
         self.request = request
         self.statusCode = statusCode
         self.jsonResponse = jsonResponse
         self.error = error
         self.delay = delay
+        self.headers = headers
     }
 }

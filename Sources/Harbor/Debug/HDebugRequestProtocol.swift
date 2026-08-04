@@ -163,7 +163,7 @@ extension HDebugRequestProtocol {
         }
 
         // Read cookies and additional headers from Harbor's actual session, never from URLSession.shared
-        let sessionConfiguration = HConfig.shared.currentURLSession?.configuration
+        let sessionConfiguration = HConfig.shared.customURLSession?.configuration
 
         if sessionConfiguration?.httpShouldSetCookies == true {
             if let cookieStorage = sessionConfiguration?.httpCookieStorage,

@@ -47,6 +47,9 @@ extension HDebugRequestProtocol {
     /// Prints detailed request information to the console.
     /// - Parameter urlRequest: The URL request to debug.
     func logRequest(urlRequest: URLRequest) {
+        // Gate before building the payload: serializing parameters and
+        // generating the cURL is wasted work when logging is disabled.
+        guard HarborLogger.isLoggingEnabled else { return }
         if let request = self as? HRequestBaseRequestProtocol,
            self.debugType == .request || self.debugType == .requestAndResponse {
             var additionalInfo: [String: LBValue] = [:]
@@ -89,6 +92,9 @@ extension HDebugRequestProtocol {
     ///   - data: The response data.
     ///   - duration: The request duration in milliseconds.
     func logResponse(httpResponse: HTTPURLResponse, data: Data, duration: Double) {
+        // Gate before redacting/parsing the body: JSONSerialization of every
+        // response is wasted work when logging is disabled.
+        guard HarborLogger.isLoggingEnabled else { return }
         if self.debugType == .response || self.debugType == .requestAndResponse {
             var extraMessages: [LBExtraMessage] = []
             if let value = redactedResponseBody(data: data, httpResponse: httpResponse) {
@@ -112,6 +118,7 @@ extension HDebugRequestProtocol {
     /// swallowed; only the `isLoggingEnabled` gate applies.
     /// - Parameter error: The error that occurred during the request.
     func logErrorResponse(error: HRequestError) {
+        guard HarborLogger.isLoggingEnabled else { return }
         var extraMessages: [LBExtraMessage] = []
 
         extraMessages.append(LBExtraMessage(key: "Error Type", value: "\(error)"))

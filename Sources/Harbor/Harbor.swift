@@ -86,8 +86,8 @@ public extension Harbor {
     /// `access-token` and `ACCESS_TOKEN` all match `token`.
     ///
     /// Harbor starts from LogBird's global defaults, which already cover
-    /// common HTTP auth fields (`authorization`, `auth`, `cookie`, `apiKey`,
-    /// `bearer`, `credentials`, `token`, `password`, `secret`, `privateKey`).
+    /// common HTTP auth fields (`authorization`, `auth`, `cookie`, `apikey`,
+    /// `bearer`, `credentials`, `token`, `password`, `secret`, `privatekey`).
     ///
     /// Examples:
     /// ```swift
@@ -110,7 +110,6 @@ public extension Harbor {
         HConfig.shared.logSensitiveHeaders = enabled
     }
 }
-
 
 // MARK: - Mocking
 

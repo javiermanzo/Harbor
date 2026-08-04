@@ -54,9 +54,9 @@ Harbor is a library for making API requests in Swift in a simple way using async
     - [AsyncThrowingStream Support](#asyncthrowingstream-support)
     - [Data Sources](#data-sources)
     - [Stream Usage Examples](#stream-usage-examples)
-    - [Debug](#debug)
+  - [Debug](#debug)
     - [Sensitive Data in Logs](#sensitive-data-in-logs)
-    - [JSON RPC](#json-rpc)
+  - [JSON RPC](#json-rpc)
     - [Installation](#installation-1)
     - [Configuration](#configuration-1)
       - [Set URL](#set-url)
@@ -538,6 +538,9 @@ await Harbor.loggingSensitiveKeys(.reset)
 await Harbor.loggingSensitiveKeys(.clear)
 ```
 
+**JSON response bodies** are also redacted in debug logs: when the response `Content-Type` is JSON (or the body looks like JSON), any key containing a sensitive key is printed as `<redacted>`, so login responses like `{"access_token": "...", "refresh_token": "..."}` don't leak tokens. Set `Harbor.setLogSensitiveHeaders(true)` to see the raw body.
+
+Note that matching is **substring-based**: a key is redacted when it contains any sensitive key. This means the `auth` default also matches keys like `author` or `oauth` in response bodies, which will show as `<redacted>` in debug logs even though they are not credentials.
 
 ## JSON RPC
 Harbor also supports JSON RPC via the `HarborJRPC` package.

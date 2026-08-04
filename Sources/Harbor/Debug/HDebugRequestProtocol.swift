@@ -91,7 +91,7 @@ extension HDebugRequestProtocol {
     func logResponse(httpResponse: HTTPURLResponse, data: Data, duration: Double) {
         if self.debugType == .response || self.debugType == .requestAndResponse {
             var extraMessages: [LBExtraMessage] = []
-            if let value = String(data: data, encoding: String.Encoding.ascii) {
+            if let value = redactedResponseBody(data: data, httpResponse: httpResponse) {
                 extraMessages.append(LBExtraMessage(key: "Response Value", value: value))
             }
             
@@ -107,18 +107,19 @@ extension HDebugRequestProtocol {
     }
     
     /// Prints error response information to the console.
+    ///
+    /// Errors are logged regardless of `debugType` so failures are never silently
+    /// swallowed; only the `isLoggingEnabled` gate applies.
     /// - Parameter error: The error that occurred during the request.
     func logErrorResponse(error: HRequestError) {
-        if self.debugType == .response || self.debugType == .requestAndResponse {
-            var extraMessages: [LBExtraMessage] = []
-            
-            extraMessages.append(LBExtraMessage(key: "Error Type", value: "\(error)"))
-            
-            var additionalInfo: [String: LBValue] = [:]
-            additionalInfo["request"] = .string(String(describing: type(of: self)))
-            
-            HarborLogger.log("Response Error \(String(describing: type(of: self)))", extraMessages: extraMessages, additionalInfo: additionalInfo, level: .error)
-        }
+        var extraMessages: [LBExtraMessage] = []
+
+        extraMessages.append(LBExtraMessage(key: "Error Type", value: "\(error)"))
+
+        var additionalInfo: [String: LBValue] = [:]
+        additionalInfo["request"] = .string(String(describing: type(of: self)))
+
+        HarborLogger.log("Response Error \(String(describing: type(of: self)))", extraMessages: extraMessages, additionalInfo: additionalInfo, level: .error)
     }
     
     /// Converts a dictionary to a JSON string representation.
@@ -211,5 +212,58 @@ extension HDebugRequestProtocol {
         headers?.reduce(into: [String: String]()) { result, header in
             result[header.key] = redactedHeaderValue(name: header.key, value: header.value)
         }
+    }
+
+    /// Builds the debug string for a response body, redacting sensitive values
+    /// when the body is JSON (e.g. login/refresh tokens) unless
+    /// `HConfig.logSensitiveHeaders` is enabled. Non-JSON bodies are returned
+    /// as-is; if JSON parsing fails the raw body is returned.
+    internal func redactedResponseBody(data: Data, httpResponse: HTTPURLResponse) -> String? {
+        guard let raw = String(data: data, encoding: .utf8) ?? String(data: data, encoding: .ascii) else { return nil }
+        if HConfig.shared.logSensitiveHeaders { return raw }
+
+        let contentType = (httpResponse.value(forHTTPHeaderField: "Content-Type") ?? "").lowercased()
+        guard contentType.contains("json") || Self.looksLikeJSON(raw),
+              let parsed = try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]) else {
+            return raw
+        }
+
+        let needles = HarborLogger.sensitiveKeys
+        let redacted = Self.redactJSONValue(parsed, needles: needles)
+        guard JSONSerialization.isValidJSONObject(redacted),
+              let redactedData = try? JSONSerialization.data(withJSONObject: redacted, options: []),
+              let redactedString = String(data: redactedData, encoding: .utf8) else {
+            return raw
+        }
+        return redactedString
+    }
+
+    /// True when `s` starts with `{` or `[` after trimming whitespace.
+    private static func looksLikeJSON(_ s: String) -> Bool {
+        let trimmed = s.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.first == "{" || trimmed.first == "["
+    }
+
+    /// Recursively redacts sensitive values within a parsed JSON object/array.
+    /// A key is sensitive when it contains any of `needles` after normalization
+    /// (mirrors LogBird's matching).
+    private static func redactJSONValue(_ value: Any, needles: Set<String>) -> Any {
+        if let dict = value as? [String: Any] {
+            var result: [String: Any] = [:]
+            for (key, nested) in dict {
+                result[key] = isSensitiveKey(key, needles: needles) ? "<redacted>" : redactJSONValue(nested, needles: needles)
+            }
+            return result
+        } else if let array = value as? [Any] {
+            return array.map { redactJSONValue($0, needles: needles) }
+        }
+        return value
+    }
+
+    /// Normalizes `key` (lowercase, stripping `-`, `_` and whitespace) and
+    /// returns whether it contains any of `needles`.
+    private static func isSensitiveKey(_ key: String, needles: Set<String>) -> Bool {
+        let normalized = key.lowercased().filter { $0 != "_" && $0 != "-" && !$0.isWhitespace }
+        return needles.contains { normalized.contains($0) }
     }
 }

@@ -414,7 +414,7 @@ final class HarborDebugTests: XCTestCase {
         await XCTAssertNoThrowAsync(await request.logErrorResponse(error: error))
     }
 
-    // MARK: - #47 logErrorResponse is not filtered by debugType
+    // MARK: - logErrorResponse is not filtered by debugType
 
     func testLogErrorResponseLogsEvenForNoneDebugType() async {
         await Harbor.setLoggingEnabled(true)
@@ -433,7 +433,7 @@ final class HarborDebugTests: XCTestCase {
         XCTAssertEqual(last.level, .error)
     }
 
-    // MARK: - #194 response body redaction
+    // MARK: - Response body redaction
 
     func testLogResponseRedactsSensitiveJSONBody() async {
         await Harbor.setLogSensitiveHeaders(false)

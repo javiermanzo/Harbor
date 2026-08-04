@@ -222,33 +222,42 @@ final class OAuth2Manager: HAuthProviderProtocol, @unchecked Sendable {
     }
     
     // MARK: - HAuthProviderProtocol
-    
-    func getHeaders() async -> [String: String] {
-        guard let token = accessToken else {
-            return [:]
+
+    func getAuthorizationHeader() async -> HAuthorizationHeader {
+        // Refresh proactively when the token is about to expire
+        if isTokenExpired() {
+            try? await refreshTokens()
         }
-        return ["Authorization": "Bearer \(token)"]
+        return HAuthorizationHeader(key: "Authorization", value: "Bearer \(accessToken ?? "")")
     }
-    
-    func isTokenExpired() async -> Bool {
+
+    func authFailed() async {
+        // The server rejected the current token - force a refresh so the
+        // next request picks up new credentials
+        try? await refreshTokens()
+    }
+
+    // MARK: - Token Refresh
+
+    private func isTokenExpired() -> Bool {
         guard let expiration = tokenExpiration else {
             return true
         }
         // Refresh 60 seconds before expiration
         return Date().addingTimeInterval(60) > expiration
     }
-    
-    func refreshToken() async throws {
+
+    private func refreshTokens() async throws {
         guard let refreshToken = refreshToken else {
             throw OAuth2Error.noRefreshToken
         }
-        
+
         struct RefreshRequest: HPostRequestProtocol {
             typealias Model = TokenResponse
             let url: String
             var bodyParameters: [String: Any]?
         }
-        
+
         let request = RefreshRequest(
             url: tokenEndpoint,
             bodyParameters: [
@@ -258,17 +267,17 @@ final class OAuth2Manager: HAuthProviderProtocol, @unchecked Sendable {
                 "client_secret": clientSecret
             ]
         )
-        
+
         let response = await request.request()
         switch response {
         case .success(let tokens):
             self.accessToken = tokens.accessToken
             self.refreshToken = tokens.refreshToken
             self.tokenExpiration = Date().addingTimeInterval(tokens.expiresIn)
-            
+
             // Save to secure storage
             try await saveTokens(tokens)
-            
+
         case .error(let error):
             throw error
         }
@@ -452,16 +461,9 @@ func fetchDataWithErrorRecovery<T: HGetRequestProtocol>(
         case .error(let error):
             switch error {
             case .authNeeded:
-                // Try to refresh auth
-                if let authProvider = await getAuthProvider() {
-                    do {
-                        try await authProvider.refreshToken()
-                        // Retry with new token
-                        continue
-                    } catch {
-                        return nil
-                    }
-                }
+                // Credentials were rejected: Harbor already called authFailed() on the
+                // provider. Re-authenticate the user instead of retrying.
+                await showLoginScreen()
                 return nil
                 
             case .noConnection:

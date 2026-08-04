@@ -40,8 +40,7 @@ Use `headers` to simulate HTTP response headers such as `Cache-Control` or `ETag
 ```swift
 @HRequestManagerActor
 final class HMocker {
-    static var mocks: [String: Any] = [:]
-    static var mocksOnlyInDebug: Bool = true
+    static var mocks: [String: HMock] = [:]
 }
 ```
 
@@ -80,21 +79,6 @@ let mock = await HMock(
     request: GetUserRequest.self,
     statusCode: 200,
     jsonResponse: jsonString
-)
-
-await Harbor.register(mock: mock)
-```
-
-### Mock with Data
-
-```swift
-// For non-JSON responses
-let imageData = UIImage(named: "test-image")?.pngData()
-
-let mock = await HMock(
-    request: GetImageRequest.self,
-    statusCode: 200,
-    data: imageData
 )
 
 await Harbor.register(mock: mock)
@@ -173,8 +157,10 @@ await Harbor.register(mock: mock)
 
 ### Remove Specific Mock
 
+`remove(mock:)` takes the registered `HMock` instance:
+
 ```swift
-await Harbor.remove(mock: GetUserRequest.self)
+await Harbor.remove(mock: mock)
 ```
 
 ### Remove All Mocks
@@ -616,27 +602,19 @@ func testRequestStream() async throws {
 
 ### Mock Auth Provider
 
+The real `HAuthProviderProtocol` has two methods: `getAuthorizationHeader()` returns the current `HAuthorizationHeader`, and `authFailed()` is called when the server rejects the credentials.
+
 ```swift
 final class MockAuthProvider: HAuthProviderProtocol, @unchecked Sendable {
     var token: String?
-    var expired: Bool = false
-    var refreshCalled: Bool = false
-    
-    func getHeaders() async -> [String: String] {
-        guard let token = token else {
-            return [:]
-        }
-        return ["Authorization": "Bearer \(token)"]
+    var authFailedCalled: Bool = false
+
+    func getAuthorizationHeader() async -> HAuthorizationHeader {
+        HAuthorizationHeader(key: "Authorization", value: "Bearer \(token ?? "")")
     }
-    
-    func isTokenExpired() async -> Bool {
-        return expired
-    }
-    
-    func refreshToken() async throws {
-        refreshCalled = true
-        token = "refreshed-token"
-        expired = false
+
+    func authFailed() async {
+        authFailedCalled = true
     }
 }
 ```
@@ -649,7 +627,7 @@ func testAuthenticatedRequest() async throws {
     let mockAuth = MockAuthProvider()
     mockAuth.token = "test-token"
     await Harbor.setAuthProvider(mockAuth)
-    
+
     let mockJSON = """{"data": "private"}"""
     let mock = await HMock(
         request: GetPrivateDataRequest.self,
@@ -657,10 +635,10 @@ func testAuthenticatedRequest() async throws {
         jsonResponse: mockJSON
     )
     await Harbor.register(mock: mock)
-    
+
     // When
     let response = await GetPrivateDataRequest().request()
-    
+
     // Then
     switch response {
     case .success(let data):
@@ -671,40 +649,52 @@ func testAuthenticatedRequest() async throws {
 }
 ```
 
-### Token Refresh Test
+### Credential Refresh Test
+
+On a 401, Harbor asks the provider for the authorization header again and retries the request automatically when the value has changed. When the header is unchanged, Harbor calls `authFailed()` and returns `.authNeeded`.
 
 ```swift
-func testTokenRefresh() async throws {
+func testAuthFailedIsCalledOn401() async throws {
     // Given
     let mockAuth = MockAuthProvider()
-    mockAuth.token = "old-token"
-    mockAuth.expired = true
+    mockAuth.token = "expired-token"
     await Harbor.setAuthProvider(mockAuth)
-    
-    let mockJSON = """{"data": "private"}"""
+
     let mock = await HMock(
         request: GetPrivateDataRequest.self,
-        statusCode: 200,
-        jsonResponse: mockJSON
+        statusCode: 401,
+        jsonResponse: """
+        {
+            "error": "Unauthorized"
+        }
+        """
     )
     await Harbor.register(mock: mock)
-    
+
     // When
-    _ = await GetPrivateDataRequest().request()
-    
+    let response = await GetPrivateDataRequest().request()
+
     // Then
-    XCTAssertTrue(mockAuth.refreshCalled)
-    XCTAssertEqual(mockAuth.token, "refreshed-token")
+    if case .error(let error) = response {
+        XCTAssertEqual(error, .authNeeded)
+    } else {
+        XCTFail("Expected authNeeded error")
+    }
+    XCTAssertTrue(mockAuth.authFailedCalled)
 }
 ```
 
 ## Testing JSON-RPC
+
+JSON-RPC requests run through internal wrapper types, so mocks are registered against `HJRPCRequestWrapper<Model>.self`, which requires `@testable import HarborJRPC`. The mocked JSON must be the full JSON-RPC response envelope with the matching `jsonrpc` version and request `id`, so give the request a fixed `requestID`.
 
 ### JSON-RPC Mock
 
 ```swift
 func testJRPCRequest() async throws {
     // Given
+    await HarborJRPC.configure(url: URL(string: "https://api.example.com/rpc")!, jrpcVersion: "2.0")
+
     let mockJSON = """
     {
         "jsonrpc": "2.0",
@@ -712,24 +702,31 @@ func testJRPCRequest() async throws {
         "result": "0x1234567"
     }
     """
-    
+
     let mock = await HMock(
-        request: GetBlockNumberRequest.self,
+        request: HJRPCRequestWrapper<String>.self,
         statusCode: 200,
         jsonResponse: mockJSON
     )
     await Harbor.register(mock: mock)
-    
+
     // When
-    let response = await GetBlockNumberRequest().request()
-    
+    let response = await GetBlockNumberRequest().requestResult()
+
     // Then
     switch response {
     case .success(let blockNumber):
         XCTAssertEqual(blockNumber, "0x1234567")
     case .error(let error):
-        XCTFail("Request failed: \(error)")
+        XCTFail("Request failed: \(error.localizedDescription)")
     }
+}
+
+// Request used above, with a fixed id matching the mock envelope
+struct GetBlockNumberRequest: HJRPCRequestProtocol {
+    typealias Model = String
+    let method: String = "eth_blockNumber"
+    let requestID: HJRPCId? = .number(1)
 }
 ```
 
@@ -748,23 +745,26 @@ func testJRPCError() async throws {
         }
     }
     """
-    
+
     let mock = await HMock(
-        request: GetBlockNumberRequest.self,
+        request: HJRPCRequestWrapper<String>.self,
         statusCode: 200,
         jsonResponse: mockJSON
     )
     await Harbor.register(mock: mock)
-    
+
     // When
-    let response = await GetBlockNumberRequest().request()
-    
+    let response = await GetBlockNumberRequest().requestResult()
+
     // Then
     switch response {
     case .success:
         XCTFail("Expected error but got success")
-    case .error:
-        XCTAssertTrue(true)
+    case .error(let error):
+        guard case .jrpcError(let jrpcError) = error else {
+            return XCTFail("Expected jrpcError but got: \(error.localizedDescription)")
+        }
+        XCTAssertEqual(jrpcError.standardCode, .invalidRequest)
     }
 }
 ```

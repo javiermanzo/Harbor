@@ -9,7 +9,7 @@ import Foundation
 import HarborJRPC
 import Harbor
 
-struct JRPCRequest: HJRPCRequestProtocol, HDebugRequestProtocol, @unchecked Sendable {
+struct JRPCRequest: HJRPCRequestProtocol, HDebugRequestProtocol {
     var debugType: HDebugRequestType = .requestAndResponse
     typealias Model = String
     var method: String = "eth_blockNumber"

@@ -35,15 +35,20 @@ struct HURLBuilder {
         // TODO: Move to a config class
         urlRequest.httpShouldHandleCookies = false
 
-        if let request = request as? HRequestWithBodyProtocol, let parameters = request.bodyParameters {
-            switch request.bodyType {
-            case .json:
+        if let request = request as? HRequestWithBodyProtocol {
+            if let rawBody = request.rawBody {
                 urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
-                urlRequest.httpBody = dataBody(params: parameters, type: .json, boundary: nil)
-            case .multipart:
-                let boundary = "Boundary-\(UUID().uuidString)"
-                urlRequest.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
-                urlRequest.httpBody = dataBody(params: parameters, type: .multipart, boundary: boundary)
+                urlRequest.httpBody = rawBody
+            } else if let parameters = request.bodyParameters {
+                switch request.bodyType {
+                case .json:
+                    urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                    urlRequest.httpBody = dataBody(params: parameters, type: .json, boundary: nil)
+                case .multipart:
+                    let boundary = "Boundary-\(UUID().uuidString)"
+                    urlRequest.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+                    urlRequest.httpBody = dataBody(params: parameters, type: .multipart, boundary: boundary)
+                }
             }
         }
 

@@ -443,12 +443,18 @@ await Harbor.setLogSensitiveHeaders(true)
 **Location**: `Sources/Harbor/Auth/HAuthProviderProtocol.swift`
 
 ```swift
-protocol HAuthProviderProtocol: AnyObject, Sendable {
-    func getHeaders() async -> [String: String]
-    func isTokenExpired() async -> Bool
-    func refreshToken() async throws
+protocol HAuthProviderProtocol: Sendable {
+    func getAuthorizationHeader() async -> HAuthorizationHeader
+    func authFailed() async
+}
+
+struct HAuthorizationHeader: Sendable, Equatable {
+    let key: String    // e.g. "Authorization", "X-API-Key"
+    let value: String  // e.g. "Bearer token123"
 }
 ```
+
+Harbor calls `getAuthorizationHeader()` before every request with `needsAuth = true` and sets the returned key-value pair as a header. On a 401 response, Harbor asks for the header again: if the value changed (e.g. the provider refreshed its token), the request is retried automatically; otherwise `authFailed()` is called and the request fails with `.authNeeded`. There is no built-in expiration check — return the freshest header you have from `getAuthorizationHeader()` and use `authFailed()` to trigger re-authentication.
 
 ### Implementing Auth Provider
 
@@ -457,30 +463,23 @@ protocol HAuthProviderProtocol: AnyObject, Sendable {
 ```swift
 final class TokenAuthProvider: HAuthProviderProtocol, @unchecked Sendable {
     private var accessToken: String?
-    private var tokenExpiration: Date?
-    
-    func getHeaders() async -> [String: String] {
-        guard let token = accessToken else {
-            return [:]
-        }
-        return ["Authorization": "Bearer \(token)"]
+
+    func getAuthorizationHeader() async -> HAuthorizationHeader {
+        HAuthorizationHeader(key: "Authorization", value: "Bearer \(accessToken ?? "")")
     }
-    
-    func isTokenExpired() async -> Bool {
-        guard let expiration = tokenExpiration else {
-            return true
-        }
-        return Date() > expiration
+
+    func authFailed() async {
+        // Called when the server rejects the credentials (401 and the header did not change).
+        // Refresh the token or ask the user to log in again.
+        await refreshToken()
     }
-    
-    func refreshToken() async throws {
-        // Call refresh token endpoint
-        // Update accessToken and tokenExpiration
-    }
-    
-    func setToken(_ token: String, expiresIn: TimeInterval) {
+
+    func setToken(_ token: String) {
         self.accessToken = token
-        self.tokenExpiration = Date().addingTimeInterval(expiresIn)
+    }
+
+    private func refreshToken() async {
+        // Call refresh token endpoint and update accessToken
     }
 }
 ```
@@ -492,44 +491,51 @@ final class OAuth2AuthProvider: HAuthProviderProtocol, @unchecked Sendable {
     private var accessToken: String?
     private var refreshToken: String?
     private var tokenExpiration: Date?
-    
+
     private let clientId: String
     private let clientSecret: String
     private let tokenEndpoint: String
-    
+
     init(clientId: String, clientSecret: String, tokenEndpoint: String) {
         self.clientId = clientId
         self.clientSecret = clientSecret
         self.tokenEndpoint = tokenEndpoint
     }
-    
-    func getHeaders() async -> [String: String] {
-        guard let token = accessToken else {
-            return [:]
+
+    func getAuthorizationHeader() async -> HAuthorizationHeader {
+        // Refresh proactively when the token is about to expire
+        if isTokenExpired() {
+            try? await refreshTokens()
         }
-        return ["Authorization": "Bearer \(token)"]
+        return HAuthorizationHeader(key: "Authorization", value: "Bearer \(accessToken ?? "")")
     }
-    
-    func isTokenExpired() async -> Bool {
+
+    func authFailed() async {
+        // The server rejected the current token - force a refresh so the
+        // next request picks up new credentials
+        try? await refreshTokens()
+    }
+
+    private func isTokenExpired() -> Bool {
         guard let expiration = tokenExpiration else {
             return true
         }
-        // Check if token expires in next 60 seconds
+        // Consider expired 60 seconds before the actual expiration
         return Date().addingTimeInterval(60) > expiration
     }
-    
-    func refreshToken() async throws {
+
+    private func refreshTokens() async throws {
         guard let refreshToken = refreshToken else {
             throw AuthError.noRefreshToken
         }
-        
+
         // Call OAuth2 token refresh endpoint
         let request = RefreshTokenRequest(
             clientId: clientId,
             clientSecret: clientSecret,
             refreshToken: refreshToken
         )
-        
+
         let response = await request.request()
         switch response {
         case .success(let tokenResponse):
@@ -540,7 +546,7 @@ final class OAuth2AuthProvider: HAuthProviderProtocol, @unchecked Sendable {
             throw error
         }
     }
-    
+
     func setTokens(access: String, refresh: String, expiresIn: TimeInterval) {
         self.accessToken = access
         self.refreshToken = refresh
@@ -560,22 +566,18 @@ enum AuthError: Error {
 final class APIKeyAuthProvider: HAuthProviderProtocol, @unchecked Sendable {
     private let apiKey: String
     private let headerName: String
-    
+
     init(apiKey: String, headerName: String = "X-API-Key") {
         self.apiKey = apiKey
         self.headerName = headerName
     }
-    
-    func getHeaders() async -> [String: String] {
-        return [headerName: apiKey]
+
+    func getAuthorizationHeader() async -> HAuthorizationHeader {
+        HAuthorizationHeader(key: headerName, value: apiKey)
     }
-    
-    func isTokenExpired() async -> Bool {
-        return false  // API keys don't expire
-    }
-    
-    func refreshToken() async throws {
-        // API keys don't need refresh
+
+    func authFailed() async {
+        // API keys can't be refreshed - prompt for a new key if needed
     }
 }
 ```
@@ -611,24 +613,14 @@ Request with needsAuth = true
     ▼
 Check if auth provider is set
     │
-    ├─ No → Execute request without auth
+    ├─ No → Return authProviderNeeded error
     │
     └─ Yes
         │
         ▼
-    Check if token expired
+    Call getAuthorizationHeader() → Add header → Execute request
         │
-        ├─ No → Add auth headers → Execute request
-        │
-        └─ Yes
-            │
-            ▼
-        Refresh token
-            │
-            ├─ Success → Add auth headers → Execute request
-            │
-            └─ Failure → Return authNeeded error
-    
+        ▼
 Request completes
     │
     ├─ Status 200-299 → Return success
@@ -636,11 +628,13 @@ Request completes
     └─ Status 401
         │
         ▼
-    Refresh token (one retry)
+    Call getAuthorizationHeader() again
         │
-        ├─ Success → Retry request with new token
+        ├─ Header changed (provider refreshed credentials)
+        │   → Retry request once with the new header
         │
-        └─ Failure → Return authNeeded error
+        └─ Header unchanged
+            → Call authFailed() → Return authNeeded error
 ```
 
 ### Complete Example
@@ -705,11 +699,13 @@ default:
 
 3. **Preemptive Token Refresh**
 ```swift
-// Refresh token before expiration
-func isTokenExpired() async -> Bool {
-    guard let expiration = tokenExpiration else { return true }
-    // Refresh 60 seconds before expiration
-    return Date().addingTimeInterval(60) > expiration
+// Refresh the token inside getAuthorizationHeader() when it is close to expiring,
+// so Harbor always gets a valid header
+func getAuthorizationHeader() async -> HAuthorizationHeader {
+    if tokenIsCloseToExpiring {
+        try? await refreshTokens()
+    }
+    return HAuthorizationHeader(key: "Authorization", value: "Bearer \(accessToken ?? "")")
 }
 ```
 

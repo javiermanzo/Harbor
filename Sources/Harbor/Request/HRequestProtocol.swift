@@ -112,6 +112,8 @@ public protocol HRequestWithBodyProtocol: HRequestWithEmptyResponseProtocol {
     var bodyType: HRequestDataType { get }
     /// Parameters to include in the request body.
     var bodyParameters: [String: Any]? { get set }
+    /// Raw HTTP body data. When set, it is sent as-is instead of `bodyParameters` (Content-Type application/json).
+    var rawBody: Data? { get }
 }
 
 // MARK: - HTTP Method Protocols
@@ -195,6 +197,7 @@ public extension HGetRequestProtocol {
 /// Default implementations for `HRequestWithBodyProtocol`.
 public extension HRequestWithBodyProtocol {
     var bodyType: HRequestDataType { .json }
+    var rawBody: Data? { nil }
 }
 
 /// Default implementations for `HPostRequestProtocol`.

@@ -47,7 +47,7 @@ struct RequestsView: View {
         await Harbor.setLoggingEnabled(true)
 
         // Configure JRpc
-        await HarborJRPC.setURL("https://ethereum.publicnode.com")
+        await HarborJRPC.setURL(URL(string: "https://ethereum.publicnode.com")!)
 
         // Configure mTLS (optional - requires certificate)
         // guard let url = Bundle.main.url(forResource: "certificate", withExtension: "p12") else { return }
@@ -639,7 +639,7 @@ struct RequestsView: View {
     func performJRPCRequest() {
         addResult("=== JRPC - eth_blockNumber ===")
         performWithLoading {
-            let response = await JRPCRequest().request()
+            let response = await JRPCRequest().requestResult()
 
             await MainActor.run {
                 switch response {
@@ -655,18 +655,8 @@ struct RequestsView: View {
     func performJRPCBalanceRequest() {
         addResult("=== JRPC - eth_getBalance ===")
         performWithLoading {
-            struct GetBalanceRequest: HJRPCRequestProtocol {
-                typealias Model = String
-                let method: String = "eth_getBalance"
-                let params: [String: Any]?
-
-                init(address: String) {
-                    self.params = ["address": address, "block": "latest"]
-                }
-            }
-
             let request = GetBalanceRequest(address: "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb")
-            let response = await request.request()
+            let response = await request.requestResult()
 
             await MainActor.run {
                 switch response {

@@ -22,6 +22,12 @@
 - `HCache.Configuration.diskCacheCapacityInMBs` (default 100 MB); disk capacity is enforced with LRU eviction of the oldest entries (#58)
 - `HMock.headers` to simulate HTTP response headers (e.g. `Cache-Control`, `ETag`) (#58)
 - New error case `HJRPCRequestError.noCachedDataFound` (#58)
+- JSON-RPC 2.0 spec compliance in HarborJRPC: batch requests via `HarborJRPC.batch(_:)`, notifications via `notify()`, standard error codes (`HJRPCStandardCode`), the error `data` field (`HJRPCError.data`), response id and version validation, configurable request identifiers (`requestID` with `HJRPCId`: string, number or explicit null), and explicit-null result handling
+- Public `HJRPCConfig`, `HJRPCResult` and `HJRPCError` types
+- Throwing `HJRPCRequestProtocol.request()` returning the decoded model; the non-throwing variant is now `requestResult()`
+- `HarborJRPC.setURL(URL)` plus a validating `setURL(String)` overload that throws `HJRPCConfigurationError.invalidURL`, and `HarborJRPC.configure(url:jrpcVersion:)` to set both at once
+- `rawBody` in Harbor's `HRequestWithBodyProtocol` to send raw `Data` as the request body instead of `bodyParameters`
+- CocoaPods subspec `Harbor/JRPC` to integrate HarborJRPC via CocoaPods
 
 ### Changed
 - Upgraded LogBird dependency from 1.0.0 to 2.1.0; debug logging now uses typed `LBValue` metadata, the `LBExtraMessage(key:value:)` API and LogBird's layered sensitive-key action API (#57)
@@ -40,6 +46,7 @@
 - `Harbor.setCustomURLSession(_:)` uses the provided session as-is; Harbor no longer caches URLSessions internally, so per-request timeout and cache-type changes always apply. Requests with `.custom`/`.disabled` cache are isolated from `URLCache.shared` (#58)
 - `cachedETag()` now also works with the `.urlCache` cache type (#58)
 - `clearCache()` now falls back to the global default cache type when the request does not specify one (#58)
+- `HJRPCRequestError` conforms to `LocalizedError` with human-readable descriptions, and includes new `invalidResponse` and `idMismatch` cases
 
 ### Fixed
 - Sensitive keys now apply to Harbor's debug logger: they were previously set on `LogBird.shared` while debug logging used a separate `LogBird(subsystem:category:)` instance, so the Harbor HTTP keys never reached the logs (#57)
@@ -62,6 +69,9 @@
 - `Harbor.setSSlPinningSHA256(String?)` → `Harbor.setSSlPinningKeys([String]?)` (#42)
 - SSL pinning pins must now be `base64(SHA256(SPKI))`. Pins generated from the raw public key bytes (previous behavior) will no longer match — regenerate them with `Harbor.computePin(for:)` or the OpenSSL command documented in the README (#56)
 - Error cases renamed: `apiError` → `api`, `codableError` → `codable`, `noConnectionError` → `noConnection`, `malformedRequestError` → `malformedRequest`, `timeoutError` → `timeout` (#53)
+- `HJRPCRequestProtocol.parameters` is now the typed `HJRPCParams` enum (`.named` / `.positioned`) instead of `[String: Any]`, removing the need for `@unchecked Sendable` conformances on JRPC requests
+- `HJRPCRequestProtocol.request()` now throws and returns the decoded `Model`; use `requestResult()` for the previous non-throwing `HJRPCResponse` behavior
+- `HJRPCRequestProtocol.retries` and `.headers` are now get-only
 
 ## 3.0.0 - Response cases, Logging (2024-12-25)
 

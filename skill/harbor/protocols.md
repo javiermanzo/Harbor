@@ -299,12 +299,25 @@ struct DeleteUserRequest: HDeleteRequestProtocol {
 
 **Location**: `Sources/HarborJRPC/Request/HJRPCRequestProtocol.swift`
 
-**Required Properties:**
+**Protocol Definition:**
 ```swift
-protocol HJRPCRequestProtocol {
-    associatedtype Model: Decodable, Sendable
+protocol HJRPCRequestProtocol: Sendable {
+    associatedtype Model: HModel  // Codable & Sendable
+
+    // Required
     var method: String { get }
-    var params: [String: Any]? { get }
+
+    // Optional with defaults
+    var needsAuth: Bool { get }              // default: false
+    var retries: Int? { get }                // default: nil
+    var headers: [String: String]? { get }   // default: nil
+    var parameters: HJRPCParams? { get }     // default: nil
+    var isNotification: Bool { get }         // default: false
+    var requestID: HJRPCId? { get }          // default: nil (UUID-based id is generated)
+
+    func requestResult() async -> HJRPCResponse<Model>
+    func request() async throws -> Model
+    func notify() async throws
 }
 ```
 
@@ -313,35 +326,81 @@ protocol HJRPCRequestProtocol {
 struct GetBlockNumberRequest: HJRPCRequestProtocol {
     typealias Model = String
     let method: String = "eth_blockNumber"
-    let params: [String: Any]? = nil
 }
 
 // Configure JSON-RPC endpoint once
-await HarborJRPC.setURL("https://ethereum.publicnode.com")
+await HarborJRPC.setURL(URL(string: "https://ethereum.publicnode.com")!)
 
 // Execute request
-let response = await GetBlockNumberRequest().request()
+let response = await GetBlockNumberRequest().requestResult()
 ```
 
 **Example - JSON-RPC with Parameters:**
+
+Parameters are typed: `.named` is encoded as a JSON object, `.positioned` as a JSON array.
+
 ```swift
 struct GetBalanceRequest: HJRPCRequestProtocol {
     typealias Model = String
     let method: String = "eth_getBalance"
-    let params: [String: Any]?
-    
+    let parameters: HJRPCParams?
+
     init(address: String, block: String = "latest") {
-        self.params = ["address": address, "block": block]
+        self.parameters = .positioned([address, block])
     }
+}
+
+// Named parameters are encoded as a JSON object
+struct SubscribeRequest: HJRPCRequestProtocol {
+    typealias Model = String
+    let method: String = "eth_subscribe"
+    var parameters: HJRPCParams? {
+        .named(["type": "newHeads"])
+    }
+}
+```
+
+**Example - Notification:**
+```swift
+struct UnsubscribeRequest: HJRPCRequestProtocol {
+    typealias Model = Bool
+    let method: String = "eth_unsubscribe"
+    let isNotification: Bool = true
+    var parameters: HJRPCParams? {
+        .positioned(["0x123"])
+    }
+}
+
+// Notifications carry no id and the server does not respond
+try await UnsubscribeRequest().notify()
+```
+
+**Example - Custom Request ID:**
+```swift
+struct GetBlockNumberRequest: HJRPCRequestProtocol {
+    typealias Model = String
+    let method: String = "eth_blockNumber"
+    let requestID: HJRPCId? = .number(1)  // .string, .number or .null
 }
 ```
 
 **Response Format:**
 ```swift
-enum HJRPCResponse<Model: Decodable> {
-    case success(result: Model)
-    case error(code: Int, message: String)
+enum HJRPCResponse<Model: Sendable> {
+    case success(Model)
+    case error(HJRPCRequestError)
 }
+```
+
+`requestResult()` returns the `HJRPCResponse` enum; `request()` returns the decoded `Model` and throws `HJRPCRequestError` on failure. Server errors are delivered as `HJRPCRequestError.jrpcError`, wrapping an `HJRPCError` with `code`, `message` and optional `data`.
+
+**Batch Requests:**
+```swift
+let responses: [HJRPCBatchResponse] = await HarborJRPC.batch([
+    GetBlockNumberRequest(),
+    GetBalanceRequest(address: "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb")
+])
+// Each element is .success(id: HJRPCId?, result: HJSONValue) or .error(id: HJRPCId?, error: HJRPCRequestError)
 ```
 
 **When to Use:**
@@ -510,7 +569,7 @@ case .error(let error):
 
 ```swift
 enum HResponseWithResult<Model> {
-    case success(result: Model)
+    case success(Model)
     case error(HRequestError)
 }
 ```

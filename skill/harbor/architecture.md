@@ -139,10 +139,9 @@ Harbor uses the Strategy pattern for pluggable behaviors.
 **Location**: `Sources/Harbor/Auth/HAuthProviderProtocol.swift`
 
 ```swift
-protocol HAuthProviderProtocol: AnyObject, Sendable {
-    func getHeaders() async -> [String: String]
-    func isTokenExpired() async -> Bool
-    func refreshToken() async throws
+protocol HAuthProviderProtocol: Sendable {
+    func getAuthorizationHeader() async -> HAuthorizationHeader
+    func authFailed() async
 }
 
 // Consumers can inject any authentication strategy
@@ -191,7 +190,7 @@ Harbor uses adapters to integrate different protocols and APIs.
 
 #### JSON-RPC Adapter
 
-**Location**: `Sources/HarborJRPC/Request/HJRPCRequestWrapper.swift`
+**Location**: `Sources/HarborJRPC/Request/HJRPCRequestProtocol.swift`
 
 JSON-RPC requests are adapted to Harbor's REST protocol system:
 
@@ -199,16 +198,13 @@ JSON-RPC requests are adapted to Harbor's REST protocol system:
 // User defines JSON-RPC request
 struct EthBlockNumber: HJRPCRequestProtocol {
     typealias Model = String
-    var method: String = "eth_blockNumber"
+    let method: String = "eth_blockNumber"
 }
 
-// Internally wrapped as POST request
-struct HJRPCRequestWrapper<Request: HJRPCRequestProtocol>: HPostRequestProtocol {
-    let originalRequest: Request
-    
-    var bodyParameters: [String: Any]? {
-        ["jsonrpc": "2.0", "method": originalRequest.method]
-    }
+// Internally wrapped as a POST request with a JSON-RPC 2.0 body
+struct HJRPCRequestWrapper<RawModel: HModel>: HPostRequestProtocol {
+    let jsonBody: [String: HJSONValue]
+    // ["jsonrpc": "2.0", "method": ..., "id": ..., "params": ...]
 }
 ```
 
@@ -469,7 +465,7 @@ let cacheType = HCache.CacheType.custom(HCache.Configuration(expirationTime: .on
 - `Sources/Harbor/Request/HRequestProtocol.swift` - Protocol definitions
 - `Sources/Harbor/Request/HRequestManager.swift` - Core processing logic
 - `Sources/Harbor/Config/HConfig.swift` - Configuration management
-- `Sources/HarborJRPC/Request/HJRPCRequestWrapper.swift` - Adapter example
+- `Sources/HarborJRPC/Request/HJRPCRequestProtocol.swift` - JRPC protocol and adapter example
 
 **Pattern Examples:**
 - `Example/HarborExample/Requests/` - Various request implementations

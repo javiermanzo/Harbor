@@ -33,7 +33,7 @@ final class HarborManagerTests: XCTestCase {
         let service = MockGetRequest<String>(url: "https://example.com", queryParameters: ["id": "123", "sort": "desc"])
 
         // When
-        let request = HURLBuilder.buildUrlRequest(request: service)
+        let request = await HURLBuilder.buildUrlRequest(request: service)
         
         // Then
         XCTAssertNotNil(request)
@@ -46,7 +46,7 @@ final class HarborManagerTests: XCTestCase {
         let service = MockPostRequest(url: "https://example.com", bodyParameters: ["name": "John"])
 
         // When
-        let request = HURLBuilder.buildUrlRequest(request: service)
+        let request = await HURLBuilder.buildUrlRequest(request: service)
 
         // Then
         XCTAssertNotNil(request)
@@ -62,7 +62,7 @@ final class HarborManagerTests: XCTestCase {
         let service = MockInvalidRequest()
 
         // When
-        let request = HURLBuilder.buildUrlRequest(request: service)
+        let request = await HURLBuilder.buildUrlRequest(request: service)
 
         // Then
         XCTAssertNil(request)

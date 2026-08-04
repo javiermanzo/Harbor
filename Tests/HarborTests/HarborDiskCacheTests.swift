@@ -10,109 +10,108 @@ import XCTest
 
 @HRequestManagerActor
 final class HarborDiskCacheTests: XCTestCase {
-    
+
     override func setUp() async throws {
-        Harbor.clearAllCache()
-        // Ensure disk operations finish
-        HCache.Manager.shared.diskQueue.sync {}
+        await Harbor.clearAllCache()
+        await HCache.Manager.shared.waitForPendingDiskOperations()
     }
-    
+
     override func tearDown() async throws {
-        Harbor.clearAllCache()
-        HCache.Manager.shared.diskQueue.sync {}
+        await Harbor.clearAllCache()
+        await HCache.Manager.shared.waitForPendingDiskOperations()
     }
-    
+
     // MARK: - Physical Persistence Tests
-    
+
     func testDataIsPersistedAsSingleFile() async throws {
         let testData = "Disk Persistence Test".data(using: .utf8)!
         let request = TestDiskRequest(url: "https://disk.test/1")
         let config = HCache.Configuration()
-        
+
         // 1. Store Data - use URL directly as cache key
         let key = request.url
         await HCache.Manager.shared.storeData(testData, forKey: key, config: config, response: nil)
-        
+
         // 2. Wait for background disk write
-        HCache.Manager.shared.diskQueue.sync {}
-        
+        await HCache.Manager.shared.waitForPendingDiskOperations()
+
         // 3. Verify File Exists
         let hash = key.sha256Hash
         let cacheDir = HCache.Manager.shared.cacheDirectory
-        
+
         // New format: .cache extension
         let fileURL = cacheDir.appendingPathComponent(hash).appendingPathExtension("cache")
-        
+
         XCTAssertTrue(FileManager.default.fileExists(atPath: fileURL.path), "Single cache file should exist on disk")
-        
+
         // 4. Verify Content (It's a DiskEntry wrapper now)
         let fileData = try Data(contentsOf: fileURL)
         let diskEntry = try JSONDecoder().decode(TestDiskEntry.self, from: fileData)
-        
+
         XCTAssertEqual(diskEntry.data, testData, "Saved data inside wrapper should match original")
     }
-    
+
     func testLazyLoadingFromDisk() async throws {
         // Encode the string as a JSON value so JSONDecoder can read it back
         let rawString = "Lazy Load Test"
         let testData = try JSONEncoder().encode(rawString)
-        
+
         let request = TestDiskRequest(url: "https://disk.test/lazy")
         let config = HCache.Configuration()
-        
+
         // 1. Manually write file to disk (simulating previous session) - use URL directly as key
         let key = request.url
         let hash = key.sha256Hash
         let cacheDir = HCache.Manager.shared.cacheDirectory
         let fileURL = cacheDir.appendingPathComponent(hash).appendingPathExtension("cache")
-        
+
         // Create DiskEntry manually
         let entry = TestDiskEntry(data: testData, timestamp: Date(), expirationTime: .oneHour)
         let encodedEntry = try JSONEncoder().encode(entry)
-        
+
         try encodedEntry.write(to: fileURL)
-        
+
         // 2. Try to get data (should hit disk)
         let cached: TestDiskModel? = await HCache.Manager.shared.getCachedData(forKey: key, type: TestDiskModel.self, config: config)
-        
+
         XCTAssertNotNil(cached)
         XCTAssertEqual(cached?.value, "Lazy Load Test")
     }
-    
+
     func testCorruptedCacheFileIsIgnored() async throws {
         let request = TestDiskRequest(url: "https://disk.test/corrupt")
         let config = HCache.Configuration()
-        
+
         let key = request.url
         let hash = key.sha256Hash
         let cacheDir = HCache.Manager.shared.cacheDirectory
         let fileURL = cacheDir.appendingPathComponent(hash).appendingPathExtension("cache")
-        
+
         // 1. Write garbage data to file
         try "Not A Valid DiskEntry JSON".data(using: .utf8)!.write(to: fileURL)
-        
+
         // 2. Try to get data
         let cached: TestDiskModel? = await HCache.Manager.shared.getCachedData(forKey: key, type: TestDiskModel.self, config: config)
-        
+
         // 3. Should fail gracefully (return nil)
         XCTAssertNil(cached, "Should return nil if cache file is corrupted")
     }
-    
+
     func testLargeFileLimit() async {
         // 1. Create data > 10MB (Default Limit set in Manager)
         let largeData = Data(count: 11 * 1024 * 1024)
         let request = TestDiskRequest(url: "https://disk.test/large")
         let config = HCache.Configuration()
-        
+
         // 2. Try store - use URL directly as key
         let key = request.url
         await HCache.Manager.shared.storeData(largeData, forKey: key, config: config, response: nil)
-        HCache.Manager.shared.diskQueue.sync {}
-        
+        await HCache.Manager.shared.waitForPendingDiskOperations()
+
         // 3. Verify NOT in disk
         let hash = key.sha256Hash
         let fileURL = HCache.Manager.shared.cacheDirectory.appendingPathComponent(hash).appendingPathExtension("cache")
-        
+
         XCTAssertFalse(FileManager.default.fileExists(atPath: fileURL.path), "Should not persist files larger than limit")
     }
 
@@ -121,17 +120,117 @@ final class HarborDiskCacheTests: XCTestCase {
         let largeData = Data(count: 15 * 1024 * 1024)
         let request = TestDiskRequest(url: "https://disk.test/large-custom")
         let config = HCache.Configuration(maxObjectSizeInMBs: 20)
-        
+
         // 2. Try store - use URL directly as key
         let key = request.url
         await HCache.Manager.shared.storeData(largeData, forKey: key, config: config, response: nil)
-        HCache.Manager.shared.diskQueue.sync {}
-        
+        await HCache.Manager.shared.waitForPendingDiskOperations()
+
         // 3. Verify IS in disk
         let hash = key.sha256Hash
         let fileURL = HCache.Manager.shared.cacheDirectory.appendingPathComponent(hash).appendingPathExtension("cache")
-        
+
         XCTAssertTrue(FileManager.default.fileExists(atPath: fileURL.path), "Should persist files smaller than custom limit")
+    }
+
+    // MARK: - Disk Capacity Tests
+
+    func testDiskCapacityEvictsOldestEntries() async {
+        let config = HCache.Configuration(diskCacheCapacityInMBs: 1)
+        let entryData = Data(count: 600 * 1024)
+
+        let keys = [
+            "https://disk.test/lru-oldest",
+            "https://disk.test/lru-middle",
+            "https://disk.test/lru-newest"
+        ]
+
+        // Writes are serialized, so modification dates increase with each store
+        for key in keys {
+            await HCache.Manager.shared.storeData(entryData, forKey: key, config: config, response: nil)
+        }
+        await HCache.Manager.shared.waitForPendingDiskOperations()
+
+        let cacheDir = HCache.Manager.shared.cacheDirectory
+        let oldestURL = cacheDir.appendingPathComponent(keys[0].sha256Hash).appendingPathExtension("cache")
+        let newestURL = cacheDir.appendingPathComponent(keys[2].sha256Hash).appendingPathExtension("cache")
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: oldestURL.path), "Oldest entry should be evicted to fit the disk capacity")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: newestURL.path), "Newest entry should be kept")
+    }
+
+    // MARK: - Concurrent Access Tests
+
+    func testConcurrentStoreAndRead() async throws {
+        let config = HCache.Configuration()
+
+        try await withThrowingTaskGroup(of: Void.self) { group in
+            for index in 0..<20 {
+                group.addTask {
+                    let key = "https://disk.test/concurrent-\(index)"
+                    let data = try! JSONEncoder().encode("value-\(index)")
+                    await HCache.Manager.shared.storeData(data, forKey: key, config: config, response: nil)
+                    _ = await HCache.Manager.shared.getCachedData(forKey: key, type: String.self, config: config)
+                }
+            }
+            try await group.waitForAll()
+        }
+        await HCache.Manager.shared.waitForPendingDiskOperations()
+
+        for index in 0..<20 {
+            let key = "https://disk.test/concurrent-\(index)"
+            let cached: String? = await HCache.Manager.shared.getCachedData(forKey: key, type: String.self, config: config)
+            XCTAssertEqual(cached, "value-\(index)", "Every concurrently stored entry should be readable")
+        }
+    }
+
+    // MARK: - Legacy Format Migration Tests
+
+    func testLegacyFilesAreRemovedOnStore() async throws {
+        let key = "https://disk.test/legacy"
+        let hash = key.sha256Hash
+        let cacheDir = HCache.Manager.shared.cacheDirectory
+
+        // Legacy format: data file without extension plus a .meta sidecar
+        let legacyDataURL = cacheDir.appendingPathComponent(hash)
+        let legacyMetaURL = legacyDataURL.appendingPathExtension("meta")
+
+        try "legacy data".data(using: .utf8)!.write(to: legacyDataURL)
+        try "legacy meta".data(using: .utf8)!.write(to: legacyMetaURL)
+
+        // Storing for the same key cleans up the legacy pair
+        let testData = "current data".data(using: .utf8)!
+        await HCache.Manager.shared.storeData(testData, forKey: key, config: HCache.Configuration(), response: nil)
+        await HCache.Manager.shared.waitForPendingDiskOperations()
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: legacyDataURL.path), "Legacy data file should be removed")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: legacyMetaURL.path), "Legacy meta file should be removed")
+
+        let currentURL = legacyDataURL.appendingPathExtension("cache")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: currentURL.path), "Current format file should exist")
+    }
+
+    // MARK: - Clear Cache Tests
+
+    func testClearAllCacheRecreatesDirectory() async throws {
+        let cacheDir = HCache.Manager.shared.cacheDirectory
+
+        // Populate the directory
+        let testData = "to be cleared".data(using: .utf8)!
+        await HCache.Manager.shared.storeData(testData, forKey: "https://disk.test/clear", config: HCache.Configuration(), response: nil)
+        await HCache.Manager.shared.waitForPendingDiskOperations()
+
+        var isDirectory: ObjCBool = false
+        let contentsBefore = try FileManager.default.contentsOfDirectory(atPath: cacheDir.path)
+        XCTAssertFalse(contentsBefore.isEmpty, "Cache directory should contain entries before clearing")
+
+        await HCache.Manager.shared.clearAllCache()
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: cacheDir.path, isDirectory: &isDirectory), "Cache directory should exist after clearing")
+        XCTAssertTrue(isDirectory.boolValue, "Cache directory should be a directory")
+
+        let contentsAfter = try FileManager.default.contentsOfDirectory(atPath: cacheDir.path)
+        XCTAssertTrue(contentsAfter.isEmpty, "Cache directory should be empty after clearing")
     }
 }
 
@@ -146,12 +245,12 @@ private struct TestDiskEntry: Codable {
 
 private struct TestDiskModel: HModel {
     let value: String
-    
+
     init(from decoder: Decoder) throws {
         let container = try decoder.singleValueContainer()
         self.value = try container.decode(String.self)
     }
-    
+
     func encode(to encoder: Encoder) throws {
         var container = encoder.singleValueContainer()
         try container.encode(value)

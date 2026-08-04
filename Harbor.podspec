@@ -11,5 +11,5 @@ Pod::Spec.new do |s|
   s.swift_version = '5.0'
   s.source_files = 'Sources/Harbor/**/*'
 
-  s.dependency 'LogBird', '1.0'
+  s.dependency 'LogBird', '2.1.0'
 end

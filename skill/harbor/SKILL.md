@@ -327,7 +327,7 @@ See [protocols.md](protocols.md) for detailed error handling examples.
 - **Minimum iOS**: 15.0
 - **Minimum macOS**: 14.0
 - **Swift Version**: 5.9+ (Swift 6 compatible)
-- **Dependencies**: LogBird 1.0.0
+- **Dependencies**: LogBird 2.1.0
 
 ## Additional Resources
 

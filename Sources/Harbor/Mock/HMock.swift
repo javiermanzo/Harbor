@@ -12,18 +12,18 @@ import Foundation
 @HRequestManagerActor
 public struct HMock {
     /// The request type to mock.
-    let request: HRequestBaseRequestProtocol.Type
+    public let request: HRequestBaseRequestProtocol.Type
     /// The HTTP status code to return.
-    let statusCode: Int
+    public let statusCode: Int
     /// Optional JSON response body.
-    let jsonResponse: String?
+    public let jsonResponse: String?
     /// Optional error to return instead of success.
-    let error: HRequestError?
+    public let error: HRequestError?
     /// Optional delay in seconds before returning the response.
-    let delay: Double?
+    public let delay: Double?
 
     /// The name of the request type being mocked.
-    var requestName: String {
+    public var requestName: String {
         "\(request.self)"
     }
 

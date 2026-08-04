@@ -54,8 +54,9 @@ Harbor is a library for making API requests in Swift in a simple way using async
     - [AsyncThrowingStream Support](#asyncthrowingstream-support)
     - [Data Sources](#data-sources)
     - [Stream Usage Examples](#stream-usage-examples)
-  - [Debug](#debug)
-  - [JSON RPC](#json-rpc)
+    - [Debug](#debug)
+    - [Sensitive Data in Logs](#sensitive-data-in-logs)
+    - [JSON RPC](#json-rpc)
     - [Installation](#installation-1)
     - [Configuration](#configuration-1)
       - [Set URL](#set-url)
@@ -491,6 +492,12 @@ private func loadUsers() async {
 ### Debug
 You can print debug information about your request using the `HDebugRequestProtocol` protocol. Implement the protocol in the request class.
 
+Debug logging is enabled by default in `#if DEBUG` builds and disabled in release builds. You can configure it programmatically:
+
+```swift
+await Harbor.setLoggingEnabled(true) // or false to turn off debug logging
+```
+
 ```swift
 class MyRequest: HRequestWithResultProtocol, HDebugRequestProtocol {
     var debugType: HDebugRequestType = .requestAndResponse
@@ -503,14 +510,34 @@ class MyRequest: HRequestWithResultProtocol, HDebugRequestProtocol {
 
 When your request is called, you will see in the Xcode console the information about your request.
 
-#### Sensitive Data in Logs
+### Sensitive Data in Logs
+Harbor redacts sensitive data from debug logs and generated cURL commands through two complementary mechanisms:
 
-By default, Harbor redacts sensitive headers (`Authorization`, `Cookie`, `Set-Cookie`, `X-API-Key`, `Proxy-Authorization`) and cookies from debug logs and generated cURL commands, printing `<redacted>` instead of the real value.
+**Header values** (`Authorization`, `Cookie`, `Set-Cookie`, `X-API-Key`, `Proxy-Authorization`) and cookies are printed as `<redacted>` in cURL output and the structured `headerParameters` log. Matching is case-insensitive.
 
 ```swift
-// Print real values (only for advanced debugging, never in production)
+// Print real header values (only for advanced debugging, never in production)
 await Harbor.setLogSensitiveHeaders(true)
 ```
+
+**Metadata keys** (in `additionalInfo`, `extraMessages` and error `userInfo`) are redacted automatically via [LogBird](https://github.com/javiermanzo/LogBird). Harbor inherits LogBird's global default keys (`password`, `token`, `authorization`, `auth`, `secret`, `apikey`, `cookie`, `bearer`, `credentials`, `privatekey`), whose separator-insensitive matching already covers HTTP auth fields like `set-cookie`, `x-api-key`, `access_token`, `refresh_token` and `private_key`. Matching is case-insensitive and ignores separators, so `accessToken`, `access-token` and `ACCESS_TOKEN` all match `token`.
+
+Actions are configured via `HLoggingSensitiveKeyAction`:
+
+```swift
+// Replace the full set (LogBird's defaults are NOT merged back in)
+await Harbor.loggingSensitiveKeys(.set(["signature", "otp"]))
+
+// Extend the current set, keeping the defaults
+await Harbor.loggingSensitiveKeys(.add(["signature", "otp"]))
+
+// Restore LogBird's defaults
+await Harbor.loggingSensitiveKeys(.reset)
+
+// Remove all keys, disabling redaction entirely (debug only)
+await Harbor.loggingSensitiveKeys(.clear)
+```
+
 
 ## JSON RPC
 Harbor also supports JSON RPC via the `HarborJRPC` package.

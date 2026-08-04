@@ -3,6 +3,8 @@
 ## [UNRELEASED]
 
 ### Added
+- `HarborLogger` facade encapsulating LogBird (single logger instance + sensitive-key redaction) so LogBird is an internal implementation detail of Harbor (#57)
+- `Harbor.loggingSensitiveKeys(_:)` taking `HLoggingSensitiveKeyAction` (`.set`, `.add`, `.reset`, `.clear`) for sensitive-key redaction configuration (#57)
 - Cache system `HCache` with memory (L1) + disk (L2) storage (#39, #42)
 - `HCache.CacheType`: `.urlCache` (default, automatic ETag/304), `.custom` (manual TTL and size control), `.disabled` (#52)
 - Per-request `cacheType` override on GET requests (#52)
@@ -19,6 +21,9 @@
 - Claude AI skill documentation (#51)
 
 ### Changed
+- Upgraded LogBird dependency from 1.0.0 to 2.1.0; debug logging now uses typed `LBValue` metadata, the `LBExtraMessage(key:value:)` API and LogBird's layered sensitive-key action API (#57)
+- Harbor no longer registers its own sensitive keys: LogBird 2.1's expanded global defaults (`password`, `token`, `authorization`, `auth`, `secret`, `apikey`, `cookie`, `bearer`, `credentials`, `privatekey`) already cover HTTP auth fields via separator-insensitive matching. `Harbor.loggingSensitiveKeys(_:)` can still fully replace, extend, restore or clear them (previously `setSensitiveKeys` always merged `LogBird.defaultSensitiveKeys` and could not be disabled) (#57)
+- Debug logging is enabled by default in DEBUG builds and disabled in RELEASE; the gate is encapsulated in `HarborLogger` (#57)
 - Network monitoring migrated from SystemConfiguration to NWPathMonitor (#49)
 - SHA256 migrated from CommonCrypto to CryptoKit (#47)
 - Cache cleanup now runs in background (#48)
@@ -27,6 +32,8 @@
 - Documentation updates (#37, #41)
 
 ### Fixed
+- Sensitive keys now apply to Harbor's debug logger: they were previously set on `LogBird.shared` while debug logging used a separate `LogBird(subsystem:category:)` instance, so the Harbor HTTP keys never reached the logs (#57)
+- Removed global LogBird mutation side effect from `HConfig.init()`; redaction is now owned by `HarborLogger` (#57)
 - URL injection vulnerability: path and query parameters are now percent-encoded (#46)
 - `clearCache` uses the proper URLRequest for URLCache (#52)
 - 304 Not Modified handling (#52)

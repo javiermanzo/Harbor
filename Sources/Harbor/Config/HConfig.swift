@@ -15,7 +15,7 @@ struct HConfig: Sendable {
 
     /// Logger instance for configuration related events
     private static let logger = LogBird(subsystem: "com.harbor", category: "config")
-    
+
     /// Authentication provider for adding credentials to requests.
     var authProvider: HAuthProviderProtocol?
     /// Default headers applied to all requests.
@@ -36,8 +36,12 @@ struct HConfig: Sendable {
     var currentURLSession: URLSession?
     /// Whether mocks should only be enabled in DEBUG builds. Default is true.
     var mocksOnlyInDebug: Bool = true
-    /// Whether logging is enabled for debug purposes. Default is false.
+    /// Whether debug logging is enabled. Default is true in DEBUG builds, false in RELEASE builds.
+    #if DEBUG
+    var isLoggingEnabled: Bool = true
+    #else
     var isLoggingEnabled: Bool = false
+    #endif
     /// Whether sensitive header values are printed in debug logs and generated cURL commands. Default is false (redacted).
     var logSensitiveHeaders: Bool = false
     /// Header names treated as sensitive (lowercased) and redacted from debug output unless `logSensitiveHeaders` is true.

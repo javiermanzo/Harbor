@@ -17,7 +17,16 @@ struct HJRPCResult<Model: HModel>: HModel {
 /// Represents a JSON-RPC error returned by the server.
 public struct HJRPCError: HModel {
     /// The error code as defined by the JSON-RPC specification.
-    let code: Int
+    public let code: Int
     /// A human-readable error message.
-    let message: String
+    public let message: String
+
+    /// Creates a new JSON-RPC error.
+    /// - Parameters:
+    ///   - code: The error code
+    ///   - message: The error message
+    public init(code: Int, message: String) {
+        self.code = code
+        self.message = message
+    }
 }

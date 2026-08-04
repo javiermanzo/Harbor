@@ -44,48 +44,43 @@ public enum HDebugRequestType: Sendable {
 @HRequestManagerActor
 extension HDebugRequestProtocol {
     
-    /// Shared logger instance for debug output using LogBird framework.
-    /// Uses "com.harbor" subsystem with "debugging" category for organized log filtering.
-    static var logger: LogBird { LogBird(subsystem: "com.harbor", category: "debugging") }
-    
     /// Prints detailed request information to the console.
     /// - Parameter urlRequest: The URL request to debug.
     func logRequest(urlRequest: URLRequest) {
-        #if DEBUG
-        guard HConfig.shared.isLoggingEnabled else { return }
         if let request = self as? HRequestBaseRequestProtocol,
            self.debugType == .request || self.debugType == .requestAndResponse {
-            var additionalInfo: [String: String] = [:]
-            additionalInfo["request"] = String(describing: type(of: self))
-            additionalInfo["url"] = urlRequest.url?.absoluteString
-            additionalInfo["httpMethod"] = request.httpMethod.rawValue
+            var additionalInfo: [String: LBValue] = [:]
+            additionalInfo["request"] = .string(String(describing: type(of: self)))
+            if let urlString = urlRequest.url?.absoluteString {
+                additionalInfo["url"] = .string(urlString)
+            }
+            additionalInfo["httpMethod"] = .string(request.httpMethod.rawValue)
             
             if let headers = dictionaryToJSONString(redactedHeaders(urlRequest.allHTTPHeaderFields)) {
-                additionalInfo["headerParameters"] = String(describing: headers)
+                additionalInfo["headerParameters"] = .string(headers)
             }
             
             if let pathParameters = dictionaryToJSONString(request.pathParameters) {
-                additionalInfo["pathParameters"] = String(describing: pathParameters)
+                additionalInfo["pathParameters"] = .string(pathParameters)
             }
             
             if let r = self as? (any HGetRequestProtocol),
                let queryParameters = dictionaryToJSONString(r.queryParameters) {
-                additionalInfo["queryParameters"] = queryParameters
+                additionalInfo["queryParameters"] = .string(queryParameters)
             }
             
             if let r = self as? (any HRequestWithBodyProtocol),
                let bodyParameters = dictionaryToJSONString(r.bodyParameters) {
-                additionalInfo["bodyParameters"] = bodyParameters
+                additionalInfo["bodyParameters"] = .string(bodyParameters)
             }
             
-            additionalInfo["needsAuth"] = String(describing: request.needsAuth)
+            additionalInfo["needsAuth"] = .bool(request.needsAuth)
             
             let curl = self.generateCurl(urlRequest: urlRequest)
-            let extraMessages: [LBExtraMessage] = [LBExtraMessage(title: "cURL", message: curl)]
+            let extraMessages: [LBExtraMessage] = [LBExtraMessage(key: "cURL", value: curl)]
             
-            Self.logger.log("Request \(String(describing: type(of: request)))", extraMessages: extraMessages, additionalInfo: additionalInfo, level: .debug)
+            HarborLogger.log("Request \(String(describing: type(of: request)))", extraMessages: extraMessages, additionalInfo: additionalInfo, level: .debug)
         }
-        #endif
     }
     
     /// Prints detailed response information to the console.
@@ -94,42 +89,36 @@ extension HDebugRequestProtocol {
     ///   - data: The response data.
     ///   - duration: The request duration in milliseconds.
     func logResponse(httpResponse: HTTPURLResponse, data: Data, duration: Double) {
-        #if DEBUG
-        guard HConfig.shared.isLoggingEnabled else { return }
         if self.debugType == .response || self.debugType == .requestAndResponse {
             var extraMessages: [LBExtraMessage] = []
             if let value = String(data: data, encoding: String.Encoding.ascii) {
-                extraMessages.append(LBExtraMessage(title: "Response Value", message: value))
+                extraMessages.append(LBExtraMessage(key: "Response Value", value: value))
             }
             
-            extraMessages.append(LBExtraMessage(title: "Response Object", message: httpResponse.debugDescription))
+            extraMessages.append(LBExtraMessage(key: "Response Object", value: httpResponse.debugDescription))
             
-            var additionalInfo: [String: String] = [:]
-            additionalInfo["request"] = String(describing: type(of: self))
-            additionalInfo["size"] = data.debugDescription
-            additionalInfo["duration"] = "\(String(format: "%.2f", duration))ms"
+            var additionalInfo: [String: LBValue] = [:]
+            additionalInfo["request"] = .string(String(describing: type(of: self)))
+            additionalInfo["size"] = .string(data.debugDescription)
+            additionalInfo["duration"] = .string("\(String(format: "%.2f", duration))ms")
             
-            Self.logger.log("Response \(String(describing: type(of: self)))", extraMessages: extraMessages, additionalInfo: additionalInfo, level: .debug)
+            HarborLogger.log("Response \(String(describing: type(of: self)))", extraMessages: extraMessages, additionalInfo: additionalInfo, level: .debug)
         }
-        #endif
     }
     
     /// Prints error response information to the console.
     /// - Parameter error: The error that occurred during the request.
     func logErrorResponse(error: HRequestError) {
-        #if DEBUG
-        guard HConfig.shared.isLoggingEnabled else { return }
         if self.debugType == .response || self.debugType == .requestAndResponse {
             var extraMessages: [LBExtraMessage] = []
             
-            extraMessages.append(LBExtraMessage(title: "Error Type", message: "\(error)"))
+            extraMessages.append(LBExtraMessage(key: "Error Type", value: "\(error)"))
             
-            var additionalInfo: [String: String] = [:]
-            additionalInfo["request"] = String(describing: type(of: self))
+            var additionalInfo: [String: LBValue] = [:]
+            additionalInfo["request"] = .string(String(describing: type(of: self)))
             
-            Self.logger.log("Response Error \(String(describing: type(of: self)))", extraMessages: extraMessages, additionalInfo: additionalInfo, level: .error)
+            HarborLogger.log("Response Error \(String(describing: type(of: self)))", extraMessages: extraMessages, additionalInfo: additionalInfo, level: .error)
         }
-        #endif
     }
     
     /// Converts a dictionary to a JSON string representation.
@@ -142,11 +131,7 @@ extension HDebugRequestProtocol {
             let jsonString = String(data: jsonData, encoding: .utf8)
             return jsonString
         } catch {
-            #if DEBUG
-            if HConfig.shared.isLoggingEnabled {
-                Self.logger.log("Error converting dictionary to JSON", error: error)
-            }
-            #endif
+            HarborLogger.log("Error converting dictionary to JSON", error: error)
             return nil
         }
     }

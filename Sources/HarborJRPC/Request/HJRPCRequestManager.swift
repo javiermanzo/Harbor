@@ -80,6 +80,10 @@ extension HJRPCRequestManager {
         case .success:
             return
         case .error(let harborError):
+            // The server MUST NOT respond to a notification (JSON-RPC 2.0, section 4.1),
+            // so a 2xx response whose body cannot be decoded as a JSON-RPC envelope
+            // (for example an empty body) still counts as a delivered notification.
+            if case .codable = harborError { return }
             throw HJRPCRequestError.getError(hRequestError: harborError)
         }
     }
@@ -138,6 +142,12 @@ extension HJRPCRequestManager {
                 return .error(id: envelope.id, error: .invalidResponse)
             }
         case .error(let harborError):
+            // A batch containing only notifications produces no response at all
+            // (JSON-RPC 2.0, sections 4.1 and 6), so an undecodable 2xx body
+            // (for example an empty body) means there are no responses to report.
+            if case .codable = harborError, requestIDs.allSatisfy({ $0 == nil }) {
+                return []
+            }
             let error = HJRPCRequestError.getError(hRequestError: harborError)
             return requestIDs.map { .error(id: $0, error: error) }
         }

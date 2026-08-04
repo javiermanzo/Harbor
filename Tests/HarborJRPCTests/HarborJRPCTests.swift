@@ -122,6 +122,19 @@ final class HarborJRPCTests: XCTestCase {
         }
     }
 
+    func testNotifySucceedsWithEmptyResponseBody() async throws {
+        // Given: the server MUST NOT respond to a notification, so a 200 with an empty body is valid.
+        let mock = HMock(request: HJRPCRequestWrapper<HJSONValue>.self, statusCode: 200)
+        await Harbor.register(mock: mock)
+
+        // When / Then
+        do {
+            try await TestNotificationRequest().notify()
+        } catch {
+            XCTFail("Expected notify() to succeed but got: \(error)")
+        }
+    }
+
     func testNotifyOnNonNotificationRequestThrowsInvalidRequest() async throws {
         // Given
         let request = TestRequest(method: "eth_blockNumber")
@@ -356,6 +369,23 @@ final class HarborJRPCTests: XCTestCase {
             return XCTFail("Expected jrpcError but got: \(thirdError)")
         }
         XCTAssertEqual(jrpcError.code, -32602)
+    }
+
+    func testBatchWithOnlyNotificationsReturnsNoResponses() async throws {
+        // Given: the server MUST NOT respond to an all-notification batch, so a 200 with an empty body is valid.
+        let mock = HMock(request: HJRPCBatchWrapper.self, statusCode: 200)
+        await Harbor.register(mock: mock)
+
+        let requests: [any HJRPCRequestProtocol] = [
+            TestNotificationRequest(),
+            TestNotificationRequest(),
+        ]
+
+        // When
+        let responses = await HarborJRPC.batch(requests)
+
+        // Then
+        XCTAssertTrue(responses.isEmpty)
     }
 
     func testBatchWithEmptyURLReturnsURLNeededPerRequest() async throws {

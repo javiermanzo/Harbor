@@ -14,6 +14,6 @@ struct GetBalanceRequest: HJRPCRequestProtocol {
     let parameters: HJRPCParams?
 
     init(address: String) {
-        self.parameters = .named(["address": address, "block": "latest"])
+        self.parameters = .positioned([address, "latest"])
     }
 }

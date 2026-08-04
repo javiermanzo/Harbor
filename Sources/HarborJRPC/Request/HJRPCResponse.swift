@@ -15,3 +15,16 @@ public enum HJRPCResponse<Model: Sendable>: Sendable {
     /// The request failed with an error.
     case error(HJRPCRequestError)
 }
+
+// MARK: - CustomStringConvertible
+
+extension HJRPCResponse: CustomStringConvertible {
+    public var description: String {
+        switch self {
+        case .success(let model):
+            return "HJRPCResponse.success(\(model))"
+        case .error(let error):
+            return "HJRPCResponse.error(\(error.localizedDescription))"
+        }
+    }
+}

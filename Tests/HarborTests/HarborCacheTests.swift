@@ -763,6 +763,9 @@ final class HarborCacheTests: XCTestCase {
         let esCached = await TestVaryEsRequest().cache()
         XCTAssertNil(esCached, "The stored variant must not be served for different Vary header values")
 
+        let enCachedAgain = await enRequest.cache()
+        XCTAssertNotNil(enCachedAgain, "A vary mismatch must be a miss, not an eviction of the stored variant")
+
         await Harbor.removeAllMocks()
     }
 
@@ -922,6 +925,35 @@ final class HarborCacheTests: XCTestCase {
         }
 
         await Harbor.removeAllMocks()
+    }
+
+    func testStaleIfErrorServesExpiredEntryWithoutConnection() async throws {
+        let testData = TestCacheData(value: "offline-stale-body", timestamp: Date())
+        let jsonData = try JSONEncoder().encode(testData)
+
+        let request = TestStaleOfflineRequest()
+        let key = try XCTUnwrap(HURLBuilder.compositeURL(url: request.url, pathParameters: request.pathParameters, queryParameters: request.queryParameters)?.absoluteString)
+
+        let url = try XCTUnwrap(URL(string: request.url))
+        let storeResponse = HTTPURLResponse(
+            url: url,
+            statusCode: 200,
+            httpVersion: "HTTP/1.1",
+            headerFields: ["Cache-Control": "max-age=0, stale-if-error=3600"]
+        )
+        await HCache.Manager.shared.storeData(jsonData, forKey: key, config: HCache.Configuration(), response: storeResponse)
+        await HCache.Manager.shared.waitForPendingDiskOperations()
+
+        HRequestManager.connectivityMonitor = FakeConnectivityMonitor(connected: false)
+        defer { HRequestManager.connectivityMonitor = HRequestManagerMonitor() }
+
+        let response = await request.request()
+        switch response {
+        case .success(let data):
+            XCTAssertEqual(data.value, "offline-stale-body", "The connectivity pre-check should fall back to a servable stale entry")
+        case .error(let error):
+            XCTFail("Expected stale success but got error: \(error)")
+        }
     }
 
     // MARK: - URLSession Isolation Tests
@@ -1159,6 +1191,13 @@ private struct TestStaleOnErrorMustRevalidateRequest: HGetRequestProtocol {
     typealias Model = TestCacheData
 
     let url: String = "https://cache.example.com/stale-on-error-must-revalidate"
+    let cacheType: HCache.CacheType? = .custom(HCache.Configuration())
+}
+
+private struct TestStaleOfflineRequest: HGetRequestProtocol {
+    typealias Model = TestCacheData
+
+    let url: String = "https://cache.example.com/stale-offline"
     let cacheType: HCache.CacheType? = .custom(HCache.Configuration())
 }
 

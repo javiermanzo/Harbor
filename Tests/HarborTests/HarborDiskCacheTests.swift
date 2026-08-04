@@ -136,7 +136,8 @@ final class HarborDiskCacheTests: XCTestCase {
     // MARK: - Disk Capacity Tests
 
     func testDiskCapacityEvictsOldestEntries() async {
-        let config = HCache.Configuration(diskCacheCapacityInMBs: 1)
+        // Entries are stored JSON-encoded (base64 data), so each 600 KB payload takes ~800 KB on disk
+        let config = HCache.Configuration(diskCacheCapacityInMBs: 3)
         let entryData = Data(count: 600 * 1024)
 
         let keys = [
@@ -145,18 +146,35 @@ final class HarborDiskCacheTests: XCTestCase {
             "https://disk.test/lru-newest"
         ]
 
-        // Writes are serialized, so modification dates increase with each store
+        // ~2.4 MB fits the 3 MB capacity, so nothing is evicted yet
         for key in keys {
             await HCache.Manager.shared.storeData(entryData, forKey: key, config: config, response: nil)
         }
         await HCache.Manager.shared.waitForPendingDiskOperations()
 
+        // Pin deterministic modification dates instead of relying on write-order mtimes
         let cacheDir = HCache.Manager.shared.cacheDirectory
-        let oldestURL = cacheDir.appendingPathComponent(keys[0].sha256Hash).appendingPathExtension("cache")
-        let newestURL = cacheDir.appendingPathComponent(keys[2].sha256Hash).appendingPathExtension("cache")
+        let fileURLs = keys.map { cacheDir.appendingPathComponent($0.sha256Hash).appendingPathExtension("cache") }
+        let sentinelDates = [
+            Date().addingTimeInterval(-3600),
+            Date().addingTimeInterval(-1800),
+            Date().addingTimeInterval(-60)
+        ]
+        for (fileURL, date) in zip(fileURLs, sentinelDates) {
+            try? FileManager.default.setAttributes([.modificationDate: date], ofItemAtPath: fileURL.path)
+        }
 
-        XCTAssertFalse(FileManager.default.fileExists(atPath: oldestURL.path), "Oldest entry should be evicted to fit the disk capacity")
-        XCTAssertTrue(FileManager.default.fileExists(atPath: newestURL.path), "Newest entry should be kept")
+        // The extra entry pushes the directory over the 3 MB capacity
+        let extraKey = "https://disk.test/lru-extra"
+        await HCache.Manager.shared.storeData(entryData, forKey: extraKey, config: config, response: nil)
+        await HCache.Manager.shared.waitForPendingDiskOperations()
+
+        let extraURL = cacheDir.appendingPathComponent(extraKey.sha256Hash).appendingPathExtension("cache")
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fileURLs[0].path), "Oldest entry should be evicted to fit the disk capacity")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: fileURLs[1].path), "Middle entry should be kept")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: fileURLs[2].path), "Newest entry should be kept")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: extraURL.path), "The entry that triggered the eviction should never be evicted itself")
     }
 
     // MARK: - Concurrent Access Tests

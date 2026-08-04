@@ -162,11 +162,11 @@ extension HDebugRequestProtocol {
             components.append("-X \(httpMethod)")
         }
 
-        // Read cookies and additional headers from Harbor's actual session, never from URLSession.shared
-        let sessionConfiguration = HConfig.shared.customURLSession?.configuration
+        // Read cookies and additional headers from Harbor's session configuration, never from URLSession.shared
+        let sessionConfiguration = HConfig.shared.customURLSession?.configuration ?? .default
 
-        if sessionConfiguration?.httpShouldSetCookies == true {
-            if let cookieStorage = sessionConfiguration?.httpCookieStorage,
+        if sessionConfiguration.httpShouldSetCookies == true {
+            if let cookieStorage = sessionConfiguration.httpCookieStorage,
                let cookies = cookieStorage.cookies(for: url), !cookies.isEmpty {
                 if HConfig.shared.logSensitiveHeaders {
                     let string = cookies.reduce("") { $0 + "\($1.name)=\($1.value);" }
@@ -179,7 +179,7 @@ extension HDebugRequestProtocol {
 
         var headers: [AnyHashable: Any] = [:]
 
-        sessionConfiguration?.httpAdditionalHeaders?.filter {  $0.0 != AnyHashable("Cookie") }
+        sessionConfiguration.httpAdditionalHeaders?.filter {  $0.0 != AnyHashable("Cookie") }
             .forEach { headers[$0.0] = $0.1 }
 
         urlRequest.allHTTPHeaderFields?.filter { $0.0 != "Cookie" }

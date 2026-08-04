@@ -39,6 +39,7 @@
 - `Harbor.clearAllCache()` also clears `URLCache.shared` and the URLCache of the configured `.urlCache` default type / custom session (#58)
 - `Harbor.setCustomURLSession(_:)` uses the provided session as-is; Harbor no longer caches URLSessions internally, so per-request timeout and cache-type changes always apply. Requests with `.custom`/`.disabled` cache are isolated from `URLCache.shared` (#58)
 - `cachedETag()` now also works with the `.urlCache` cache type (#58)
+- `clearCache()` now falls back to the global default cache type when the request does not specify one (#58)
 
 ### Fixed
 - Sensitive keys now apply to Harbor's debug logger: they were previously set on `LogBird.shared` while debug logging used a separate `LogBird(subsystem:category:)` instance, so the Harbor HTTP keys never reached the logs (#57)

@@ -51,9 +51,9 @@ extension HCache {
             memoryCache.totalCostLimit = Configuration().memoryCacheCapacityInBytes
             memoryCache.countLimit = 500
 
-            // 4. Perform background cleanup
+            // 4. Perform background cleanup, serialized with writes on the disk queue
             let dir = self.cacheDirectory
-            Task.detached(priority: .background) {
+            diskQueue.async {
                 FileStorage.cleanupExpiredFiles(at: dir)
             }
         }
@@ -85,9 +85,9 @@ extension HCache {
                 return nil
             }
 
-            // Vary mismatch: the stored variant cannot satisfy this request.
+            // Vary mismatch: the stored variant cannot satisfy this request. It is a miss,
+            // but the entry is kept — another request may still match it.
             guard diskEntry.matchesVary(Self.varyKey(for: diskEntry.vary, requestHeaders: requestHeaders)) else {
-                await removeDiskData(forKey: key)
                 return nil
             }
 
@@ -187,11 +187,11 @@ extension HCache {
             memoryCache.totalCostLimit = config.memoryCacheCapacityInBytes
 
             // Persist to disk first; only promote to memory when the write succeeds.
+            // On failure the previous entry (if any) is left untouched in both levels.
             let written = await writeToDisk(DiskEntry(entry: entry), forKey: key, diskCapacity: config.diskCacheCapacityInBytes)
             if written {
                 memoryCache.setObject(entry, forKey: NSString(string: key), cost: data.count)
             } else {
-                memoryCache.removeObject(forKey: NSString(string: key))
                 HarborLogger.log("Failed to persist cache entry on disk", level: .error)
             }
         }
@@ -216,7 +216,8 @@ extension HCache {
             let refreshed = Entry(
                 data: entry.data,
                 timestamp: Date(),
-                expirationTime: calculateEffectiveExpirationTime(fromResponse: response, fallbackTime: config.expirationTime),
+                // Headers absent from the 304 response retain the values of the stored entry.
+                expirationTime: calculateEffectiveExpirationTime(fromResponse: response, fallbackTime: entry.expirationTime ?? config.expirationTime),
                 etag: response?.value(forHTTPHeaderField: "ETag") ?? entry.etag,
                 lastModified: response?.value(forHTTPHeaderField: "Last-Modified") ?? entry.lastModified,
                 vary: entry.vary,
@@ -451,11 +452,11 @@ extension HCache {
                         try? FileManager.default.removeItem(at: legacyURLs.0)
                         try? FileManager.default.removeItem(at: legacyURLs.1)
 
-                        FileStorage.enforceCapacity(at: dir, maxBytes: diskCapacity)
+                        FileStorage.enforceCapacity(at: dir, maxBytes: diskCapacity, excluding: fileURL)
 
                         continuation.resume(returning: true)
                     } catch {
-                        try? FileManager.default.removeItem(at: fileURL)
+                        // The write is atomic: on failure the previous file (if any) is intact.
                         continuation.resume(returning: false)
                     }
                 }
@@ -517,7 +518,8 @@ private extension HCache {
         }
 
         /// Evicts the oldest entries (by modification date) until the directory size fits the limit.
-        static func enforceCapacity(at directory: URL, maxBytes: Int) {
+        /// The file passed in `excluding` counts towards the total size but is never evicted.
+        static func enforceCapacity(at directory: URL, maxBytes: Int, excluding excludedURL: URL? = nil) {
             guard let files = try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: [.contentModificationDateKey, .fileSizeKey]) else { return }
 
             var totalSize = 0
@@ -527,7 +529,9 @@ private extension HCache {
                 let values = try? fileURL.resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey])
                 let size = values?.fileSize ?? 0
                 totalSize += size
-                entries.append((fileURL, values?.contentModificationDate ?? .distantPast, size))
+                if fileURL != excludedURL {
+                    entries.append((fileURL, values?.contentModificationDate ?? .distantPast, size))
+                }
             }
 
             guard totalSize > maxBytes else { return }

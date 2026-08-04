@@ -14,11 +14,13 @@ final class HarborETagTests: XCTestCase {
     override func setUp() async throws {
         await Harbor.removeAllMocks()
         await Harbor.clearAllCache()
+        await Harbor.setDefaultCacheType(.urlCache())
     }
-    
+
     override func tearDown() async throws {
         await Harbor.removeAllMocks()
         await Harbor.clearAllCache()
+        await Harbor.setDefaultCacheType(.urlCache())
     }
     
     // MARK: - Cache Policy Tests

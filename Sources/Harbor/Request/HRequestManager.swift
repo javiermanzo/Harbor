@@ -41,6 +41,10 @@ extension HRequestManager {
         }
 
         if !connectivityMonitor.isConnectedToNetwork() {
+            if let getRequest = request as? any HGetRequestProtocol,
+               let stale = await getRequest.staleCacheOnError() as? Model {
+                return .success(stale)
+            }
             let hError: HRequestError = .noConnection
             logError(hError, request: request)
             return .error(hError)
@@ -70,6 +74,10 @@ extension HRequestManager {
         do {
             let session = getURLSession(for: request)
 
+            // Sessions built internally are single-use; a user-provided session is left untouched.
+            let isCustomSession = session === HConfig.shared.customURLSession
+            defer { if !isCustomSession { session.finishTasksAndInvalidate() } }
+
             let startTime = Date()
 
             let (data, httpResponse) = try await session.data(for: urlRequest)
@@ -98,7 +106,9 @@ extension HRequestManager {
                                          data: data,
                                          httpResponse: httpResponse)
         } catch let error as URLError {
-            if let getRequest = request as? any HGetRequestProtocol,
+            if error.code != .cancelled,
+               !Task.isCancelled,
+               let getRequest = request as? any HGetRequestProtocol,
                let stale = await getRequest.staleCacheOnError() as? Model {
                 return .success(stale)
             }
@@ -213,6 +223,10 @@ extension HRequestManager {
 
         do {
             let session = getURLSession(for: request)
+
+            // Sessions built internally are single-use; a user-provided session is left untouched.
+            let isCustomSession = session === HConfig.shared.customURLSession
+            defer { if !isCustomSession { session.finishTasksAndInvalidate() } }
 
             let startTime = Date()
 

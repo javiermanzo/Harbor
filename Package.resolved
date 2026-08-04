@@ -1,13 +1,13 @@
 {
-  "originHash" : "982ae41d35e176a67c90166457f3410f9cb46a9adc2dd642136153e38ef5c4ef",
+  "originHash" : "8a1c017daa772264c33de5cbb816113f8970e2d6ed05e0f24f14260016d92a9c",
   "pins" : [
     {
       "identity" : "logbird",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/javiermanzo/LogBird",
       "state" : {
-        "revision" : "ecf012c3bf7170474946eb483f5e36dbb5df266c",
-        "version" : "1.0.0"
+        "revision" : "3f7331df016a16acadae21f3d1add82c66f08d29",
+        "version" : "2.1.0"
       }
     }
   ],

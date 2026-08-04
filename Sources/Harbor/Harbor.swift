@@ -79,8 +79,32 @@ public extension Harbor {
         HConfig.shared.isLoggingEnabled = enabled
     }
 
+    /// Configures sensitive-key redaction for debug logs.
+    ///
+    /// A key is sensitive when it contains any of the configured values;
+    /// matching is case-insensitive and ignores separators, so `accessToken`,
+    /// `access-token` and `ACCESS_TOKEN` all match `token`.
+    ///
+    /// Harbor starts from LogBird's global defaults, which already cover
+    /// common HTTP auth fields (`authorization`, `auth`, `cookie`, `apikey`,
+    /// `bearer`, `credentials`, `token`, `password`, `secret`, `privatekey`).
+    ///
+    /// Examples:
+    /// ```swift
+    /// await Harbor.loggingSensitiveKeys(.set(["signature", "otp"])) // replace the full set
+    /// await Harbor.loggingSensitiveKeys(.add(["signature"]))          // extend the current set
+    /// await Harbor.loggingSensitiveKeys(.reset)                       // restore the defaults
+    /// await Harbor.loggingSensitiveKeys(.clear)                       // disable redaction (debug)
+    /// ```
+    ///
+    /// - Parameter action: The update to apply to the sensitive-key set.
+    static func loggingSensitiveKeys(_ action: HLoggingSensitiveKeyAction) {
+        HarborLogger.sensitiveKeys(action)
+    }
+
     /// Configures whether sensitive header values (Authorization, Cookie, Set-Cookie, X-API-Key,
-    /// Proxy-Authorization) are printed in debug logs and generated cURL commands.
+    /// Proxy-Authorization) and sensitive fields in JSON response bodies (e.g. `access_token`,
+    /// `refresh_token`) are printed in debug logs and generated cURL commands.
     /// - Parameter enabled: If true, real values are printed. If false (default), values are redacted as `<redacted>`.
     static func setLogSensitiveHeaders(_ enabled: Bool) {
         HConfig.shared.logSensitiveHeaders = enabled

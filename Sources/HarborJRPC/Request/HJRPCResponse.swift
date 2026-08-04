@@ -1,5 +1,5 @@
 //
-//  File.swift
+//  HJRPCResponse.swift
 //  
 //
 //  Created by Javier Manzo on 30/07/2024.

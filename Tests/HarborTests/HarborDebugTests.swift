@@ -413,6 +413,93 @@ final class HarborDebugTests: XCTestCase {
         
         await XCTAssertNoThrowAsync(await request.logErrorResponse(error: error))
     }
+
+    // MARK: - logErrorResponse is not filtered by debugType
+
+    func testLogErrorResponseLogsEvenForNoneDebugType() async {
+        await Harbor.setLoggingEnabled(true)
+        await HarborLogger.logger.clearLogs()
+        addTeardownBlock { await HarborLogger.logger.clearLogs() }
+
+        let request = TestDebugRequest(debugType: .none)
+        await request.logErrorResponse(error: .noConnection)
+
+        let logs = await HarborLogger.logger.logs
+        guard let last = logs.last else {
+            XCTFail("Expected an error log regardless of debugType")
+            return
+        }
+        XCTAssertTrue(last.message?.contains("Response Error") == true)
+        XCTAssertEqual(last.level, .error)
+    }
+
+    // MARK: - Response body redaction
+
+    func testLogResponseRedactsSensitiveJSONBody() async {
+        await Harbor.setLogSensitiveHeaders(false)
+        await Harbor.setLoggingEnabled(true)
+        await HarborLogger.logger.clearLogs()
+        addTeardownBlock { await HarborLogger.logger.clearLogs() }
+
+        let body = #"{"access_token":"abc123","refresh_token":"def456","user":"johndoe"}"#
+        let data = body.data(using: .utf8)!
+        let response = HTTPURLResponse(url: URL(string: "https://api.example.com/login")!,
+                                       statusCode: 200, httpVersion: nil,
+                                       headerFields: ["Content-Type": "application/json"])!
+
+        let request = TestDebugRequest(debugType: .response)
+        await request.logResponse(httpResponse: response, data: data, duration: 12.0)
+
+        guard let last = await HarborLogger.logger.logs.last,
+              let responseValue = last.extraMessages?.first(where: { $0.key == "Response Value" })?.value else {
+            XCTFail("Expected a Response Value extra message")
+            return
+        }
+
+        XCTAssertTrue(responseValue.contains("<redacted>"), "Sensitive fields should be redacted")
+        XCTAssertFalse(responseValue.contains("abc123"), "access_token value must not leak")
+        XCTAssertFalse(responseValue.contains("def456"), "refresh_token value must not leak")
+        XCTAssertTrue(responseValue.contains("johndoe"), "Non-sensitive fields should be preserved")
+    }
+
+    func testLogResponseDoesNotRedactBodyWhenSensitiveHeadersEnabled() async {
+        await Harbor.setLogSensitiveHeaders(true)
+        await Harbor.setLoggingEnabled(true)
+        await HarborLogger.logger.clearLogs()
+        addTeardownBlock {
+            await Harbor.setLogSensitiveHeaders(false)
+            await HarborLogger.logger.clearLogs()
+        }
+
+        let body = #"{"access_token":"abc123"}"#
+        let data = body.data(using: .utf8)!
+        let response = HTTPURLResponse(url: URL(string: "https://api.example.com/login")!,
+                                       statusCode: 200, httpVersion: nil,
+                                       headerFields: ["Content-Type": "application/json"])!
+
+        let request = TestDebugRequest(debugType: .response)
+        await request.logResponse(httpResponse: response, data: data, duration: 12.0)
+
+        guard let responseValue = await HarborLogger.logger.logs.last?
+            .extraMessages?.first(where: { $0.key == "Response Value" })?.value else {
+            XCTFail("Expected a Response Value extra message")
+            return
+        }
+        XCTAssertTrue(responseValue.contains("abc123"), "Raw token should be visible when opt-in is on")
+    }
+
+    func testRedactedResponseBodyLeavesNonJSONUnchanged() async {
+        await Harbor.setLogSensitiveHeaders(false)
+        let request = TestDebugRequest(debugType: .response)
+        let body = "plain-body-without-tokens"
+        let data = body.data(using: .utf8)!
+        let response = HTTPURLResponse(url: URL(string: "https://api.example.com/")!,
+                                       statusCode: 200, httpVersion: nil,
+                                       headerFields: ["Content-Type": "text/plain"])!
+
+        let result = await request.redactedResponseBody(data: data, httpResponse: response)
+        XCTAssertEqual(result, body)
+    }
 }
 
 // MARK: - Test Models and Requests

@@ -55,6 +55,7 @@ public protocol HRequestBaseRequestProtocol: Sendable {
     /// - Warning: When both `retries` and `retryPolicy` are set, `retryPolicy` takes
     ///   precedence and `retries` is silently ignored. Prefer `retryPolicy` for new code;
     ///   this property may be removed in a future major release.
+    @available(*, deprecated, message: "Use retryPolicy instead.")
     var retries: Int? { get set }
     /// Optional retry policy (backoff and jitter) for failed requests. Default: `nil`
     /// (derived from `retries` and the configured default policy).
@@ -72,6 +73,7 @@ public extension HRequestBaseRequestProtocol {
     /// Default: `false`.
     var needsAuth: Bool { false }
     /// Default: `nil`.
+    @available(*, deprecated, message: "Use retryPolicy instead.")
     var retries: Int? { get { nil } set { } }
     /// Default: `nil`.
     var retryPolicy: HRetryPolicy? { nil }

@@ -125,7 +125,7 @@ extension HJRPCRequestManager {
 
         let needsAuth = requests.contains { $0.needsAuth }
 
-        let harborRequest = HJRPCBatchWrapper(debugType: .none, rawBody: rawBody, requestIDs: requestIDs, url: config.url, needsAuth: needsAuth, retries: nil, pathParameters: nil, headerParameters: nil)
+        let harborRequest = HJRPCBatchWrapper(debugType: .none, rawBody: rawBody, requestIDs: requestIDs, url: config.url, needsAuth: needsAuth, retries: nil, retryPolicy: nil, pathParameters: nil, headerParameters: nil)
         let response: HResponseWithResult = await harborRequest.request()
 
         switch response {

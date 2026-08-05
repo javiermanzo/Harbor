@@ -83,6 +83,7 @@
 - `HJRPCRequestProtocol.parameters` is now the typed `HJRPCParams` enum (`.named` / `.positioned`) instead of `[String: Any]`, removing the need for `@unchecked Sendable` conformances on JRPC requests
 - `HJRPCRequestProtocol.request()` now throws and returns the decoded `Model`; use `requestResult()` for the previous non-throwing `HJRPCResponse` behavior
 - `HJRPCRequestProtocol.retries` and `.headers` are now get-only
+- Internally built `URLSession`s now set `httpShouldSetCookies` from `Harbor.setHTTPShouldHandleCookies(_:)`; with the default `false`, `Set-Cookie` responses are not stored in the shared cookie storage unless cookie handling is enabled
 
 ## 3.0.0 - Response cases, Logging (2024-12-25)
 

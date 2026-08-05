@@ -136,7 +136,7 @@ enum HURLBuilder {
                 // framing on the receiver. The UUID-based boundary makes accidental collision
                 // essentially impossible; this is defense against a malicious or unlucky payload.
                 let boundaryDelimiter = Data("--\(boundary)".utf8)
-                if fileData.contains(boundaryDelimiter) {
+                if fileData.range(of: boundaryDelimiter) != nil {
                     throw HRequestError.malformedRequest(reason: "Multipart file for field \"\(name)\" contains the boundary string")
                 }
 

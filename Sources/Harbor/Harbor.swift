@@ -29,12 +29,17 @@ public extension Harbor {
     }
 
     /// Configures mutual TLS for client certificate authentication.
+    /// The P12 file is read and imported off the actor so in-flight requests are not blocked.
     /// - Parameter mTLS: The mTLS configuration.
     /// - Throws: `HMTLSError` when the identity could not be extracted from the P12
     ///   (file missing, wrong password, malformed, no identity). mTLS stays disabled in that case.
-    static func setMTLS(_ mTLS: HmTLS) throws {
+    static func setMTLS(_ mTLS: HMTLS) async throws {
+        let loggingEnabled = HConfig.shared.isLoggingEnabled
         do {
-            HConfig.shared.mTLSIdentity = try mTLS.extractIdentity(loggingEnabled: HConfig.shared.isLoggingEnabled)
+            let identity = try await Task.detached {
+                try mTLS.extractIdentity(loggingEnabled: loggingEnabled)
+            }.value
+            HConfig.shared.mTLSIdentity = identity
             HRequestManager.invalidateURLSession()
         } catch {
             HConfig.shared.mTLSIdentity = nil
@@ -52,10 +57,42 @@ public extension Harbor {
 
     /// Enables SSL pinning with SHA256 hashes of the certificate's SubjectPublicKeyInfo (SPKI),
     /// base64 encoded. Provide multiple keys to support key rotation (backup pins).
-    /// Use `Harbor.computePin(for:)` to generate pins from a certificate.
-    static func setSSlPinningKeys(_ sslPinningKeys: [String]?) {
+    /// The pins apply to every host. Use `Harbor.computePin(for:)` to generate pins from a certificate.
+    static func setSSLPinningKeys(_ sslPinningKeys: [String]?) {
         HConfig.shared.sslPinningKeys = sslPinningKeys
         HRequestManager.invalidateURLSession()
+    }
+
+    /// Enables SSL pinning scoped to specific hosts. Challenges from these hosts are
+    /// validated against the given pins; hosts not configured here fall back to the
+    /// global pins set with `setSSLPinningKeys(_:)` or, when none are set, to default handling.
+    /// Passing `nil` removes the pins for the given hosts.
+    /// - Parameters:
+    ///   - sslPinningKeys: The pins for the hosts, or `nil` to stop pinning them.
+    ///   - hosts: The hosts the pins apply to (matched against `URLProtectionSpace.host`).
+    static func setSSLPinningKeys(_ sslPinningKeys: [String]?, forHosts hosts: [String]) {
+        if let sslPinningKeys {
+            var keysByHost = HConfig.shared.sslPinningKeysByHost ?? [:]
+            for host in hosts {
+                keysByHost[host] = sslPinningKeys
+            }
+            HConfig.shared.sslPinningKeysByHost = keysByHost
+        } else {
+            guard var keysByHost = HConfig.shared.sslPinningKeysByHost else { return }
+            for host in hosts {
+                keysByHost.removeValue(forKey: host)
+            }
+            HConfig.shared.sslPinningKeysByHost = keysByHost.isEmpty ? nil : keysByHost
+        }
+        HRequestManager.invalidateURLSession()
+    }
+
+    /// Enables SSL pinning with SHA256 hashes of the certificate's SubjectPublicKeyInfo (SPKI),
+    /// base64 encoded. Provide multiple keys to support key rotation (backup pins).
+    /// Use `Harbor.computePin(for:)` to generate pins from a certificate.
+    @available(*, deprecated, renamed: "setSSLPinningKeys(_:)")
+    static func setSSlPinningKeys(_ sslPinningKeys: [String]?) {
+        setSSLPinningKeys(sslPinningKeys)
     }
 
     /// Computes the SSL pin for a certificate: `base64(SHA256(SPKI))`.
@@ -127,6 +164,12 @@ public extension Harbor {
     /// - Parameter enabled: If true, real values are printed. If false (default), values are redacted as `<redacted>`.
     static func setLogSensitiveHeaders(_ enabled: Bool) {
         HConfig.shared.logSensitiveHeaders = enabled
+    }
+
+    /// Configures whether requests handle cookies through the shared cookie storage.
+    /// Default is false.
+    static func setHTTPShouldHandleCookies(_ enabled: Bool) {
+        HConfig.shared.httpShouldHandleCookies = enabled
     }
 
     /// Configures whether DEBUG/simulator builds assume network availability instead of

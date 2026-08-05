@@ -13,10 +13,14 @@ enum HURLBuilder {
     ///
     /// For GET requests using the custom cache, the stored validators are injected as
     /// `If-None-Match` / `If-Modified-Since` so the server can answer `304 Not Modified`.
-    /// - Parameter request: The request conforming to HRequestBaseRequestProtocol.
+    /// - Parameters:
+    ///   - request: The request conforming to HRequestBaseRequestProtocol.
+    ///   - authHeader: The authorization header fetched from the auth provider, applied on
+    ///     top of the request's own headers. Injecting it here keeps the caller's request
+    ///     object untouched, which matters when the conformer is a reference type.
     /// - Returns: A configured URLRequest.
     /// - Throws: `HRequestError.malformedRequest` when the URL or the body cannot be built.
-    static func buildUrlRequest<P: HRequestBaseRequestProtocol>(request: P) async throws -> URLRequest {
+    static func buildUrlRequest<P: HRequestBaseRequestProtocol>(request: P, authHeader: HAuthorizationHeader? = nil) async throws -> URLRequest {
         let url: URL
 
         switch request.httpMethod {
@@ -32,8 +36,7 @@ enum HURLBuilder {
         var urlRequest = URLRequest(url: url)
 
         urlRequest.httpMethod = request.httpMethod.rawValue
-        // TODO: Move to a config class
-        urlRequest.httpShouldHandleCookies = false
+        urlRequest.httpShouldHandleCookies = await HConfig.shared.httpShouldHandleCookies
 
         if let request = request as? HRequestWithBodyProtocol {
             if let rawBody = request.rawBody {
@@ -62,6 +65,10 @@ enum HURLBuilder {
 
         if let requestHeaderParameters = request.headerParameters {
             urlRequest.allHTTPHeaderFields = mergeHeaderParameters(currentHeaders: urlRequest.allHTTPHeaderFields, newHeaders: requestHeaderParameters)
+        }
+
+        if let authHeader {
+            urlRequest.setValue(authHeader.value, forHTTPHeaderField: authHeader.key)
         }
 
         // Inject the stored validators as conditional headers for GET requests using the custom cache.

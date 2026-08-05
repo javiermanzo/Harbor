@@ -18,10 +18,12 @@ final class HURLSessionDelegate: NSObject, URLSessionDelegate, @unchecked Sendab
 
     private let mTLSIdentity: HMTLSIdentity?
     private let sslPinningKeys: [String]?
+    private let sslPinningKeysByHost: [String: [String]]?
 
-    init(mTLSIdentity: HMTLSIdentity?, sslPinningKeys: [String]?) {
+    init(mTLSIdentity: HMTLSIdentity?, sslPinningKeys: [String]?, sslPinningKeysByHost: [String: [String]]? = nil) {
         self.mTLSIdentity = mTLSIdentity
         self.sslPinningKeys = sslPinningKeys
+        self.sslPinningKeysByHost = sslPinningKeysByHost
     }
 
     func urlSession(_ session: URLSession, didReceive challenge: URLAuthenticationChallenge, completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
@@ -36,11 +38,14 @@ final class HURLSessionDelegate: NSObject, URLSessionDelegate, @unchecked Sendab
 
         // Handle server trust validation (SSL pinning)
         if challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodServerTrust {
-            if let sslPinningKeys, let result = processSSLPinning(challenge, sslPinningKeys: sslPinningKeys) {
+            // Host-scoped pins take precedence; hosts without scoped pins use the global
+            // ones. When neither applies, the host is not pinned and gets default handling.
+            let pinningKeys = sslPinningKeysByHost?[challenge.protectionSpace.host] ?? sslPinningKeys
+            if let pinningKeys, let result = processSSLPinning(challenge, sslPinningKeys: pinningKeys) {
                 return completionHandler(result.disposition, result.credential)
             }
-            // If SSL pinning is configured but validation fails, reject
-            if sslPinningKeys != nil {
+            // If SSL pinning applies to this host but validation fails, reject
+            if pinningKeys != nil {
                 return completionHandler(.cancelAuthenticationChallenge, nil)
             }
         }
@@ -53,11 +58,11 @@ final class HURLSessionDelegate: NSObject, URLSessionDelegate, @unchecked Sendab
         guard challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodClientCertificate else {
             return nil
         }
-        
+
         guard let mTLSIdentity = mTLSIdentity else {
             return nil
         }
-        
+
         let credential = URLCredential(identity: mTLSIdentity.identity,
                                        certificates: mTLSIdentity.certificateChain,
                                        persistence: .none)
@@ -69,7 +74,7 @@ final class HURLSessionDelegate: NSObject, URLSessionDelegate, @unchecked Sendab
               let serverTrust = challenge.protectionSpace.serverTrust else {
             return nil
         }
-        
+
         // Evaluate server trust first
         var error: CFError?
         guard SecTrustEvaluateWithError(serverTrust, &error) else {
@@ -78,8 +83,15 @@ final class HURLSessionDelegate: NSObject, URLSessionDelegate, @unchecked Sendab
             }
             return (disposition: .cancelAuthenticationChallenge, credential: nil)
         }
-        
-        // Ignore malformed pins so they can never produce accidental matches
+
+        return matchPins(serverTrust: serverTrust, sslPinningKeys: sslPinningKeys)
+    }
+
+    /// Checks the certificate chain of an already-trusted server trust against the
+    /// configured pins. Succeeds when any certificate in the chain matches one of the
+    /// pins; cancels otherwise. Malformed pins are ignored so they can never produce
+    /// accidental matches.
+    func matchPins(serverTrust: SecTrust, sslPinningKeys: [String]) -> HChallengeResult {
         let validPins = Set(sslPinningKeys.filter { HSPKI.isValidPin($0) }.map { HSPKI.normalizePin($0) })
         guard !validPins.isEmpty else {
             Self.logger.log("SSL Pinning Failed: no valid pins configured", level: .error)

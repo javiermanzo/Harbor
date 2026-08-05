@@ -13,6 +13,8 @@ public extension HGetRequestProtocol {
     /// Works with both custom cache and URLCache types.
     /// - Parameter authHeader: The authorization header sent with the request, so
     ///   `Vary: Authorization` entries are keyed by the credential they were stored with.
+    ///   When nil and the request needs auth, the header is resolved from the configured
+    ///   auth provider.
     /// - Returns: The cached model if found and valid, `nil` otherwise.
     func cache(authHeader: HAuthorizationHeader? = nil) async -> Model? {
         let effectiveCacheType = await effectiveCacheType()
@@ -42,6 +44,8 @@ public extension HGetRequestProtocol {
     ///   - response: The HTTP response containing cache headers (optional).
     ///   - authHeader: The authorization header sent with the request, so
     ///     `Vary: Authorization` entries are keyed by the credential they were stored with.
+    ///     When nil and the request needs auth, the header is resolved from the configured
+    ///     auth provider.
     func saveCache(_ data: Data, response: HTTPURLResponse?, authHeader: HAuthorizationHeader? = nil) async {
         if case .custom(let config) = await effectiveCacheType(),
            let cacheKey = await cacheKey() {
@@ -140,17 +144,29 @@ private extension HGetRequestProtocol {
 
     /// Resolves the headers that will effectively be sent with this request: the global default
     /// headers merged with the request-specific ones and the authorization header. Used to
-    /// evaluate `Vary` consistently with what is actually sent on the wire. The credential is
-    /// only used for vary-key computation; it is never logged.
+    /// evaluate `Vary` consistently with what is actually sent on the wire. When `authHeader`
+    /// is nil and the request needs auth, the header is resolved from the configured auth
+    /// provider so the vary-key matches the one the network flow stores; without a provider
+    /// the lookup proceeds without a header. The credential is only used for vary-key
+    /// computation; it is never logged.
     func effectiveRequestHeaders(authHeader: HAuthorizationHeader?) async -> [String: String]? {
         var headers = await HConfig.shared.defaultHeaderParameters ?? [:]
         if let own = headerParameters {
             headers.merge(own) { _, new in new }
         }
-        if let authHeader {
+        if let authHeader = await resolveAuthHeader(authHeader) {
             headers[authHeader.key] = authHeader.value
         }
         return headers.isEmpty ? nil : headers
+    }
+
+    /// Returns the given authorization header, or resolves it from the configured auth
+    /// provider when the request needs auth. Never fails: without a provider the cache
+    /// path proceeds without a header.
+    func resolveAuthHeader(_ authHeader: HAuthorizationHeader?) async -> HAuthorizationHeader? {
+        if let authHeader { return authHeader }
+        guard needsAuth else { return nil }
+        return await HConfig.shared.authProvider?.getAuthorizationHeader()
     }
 
     /// Generates a cache key for this request based on the complete URL.

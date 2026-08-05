@@ -445,4 +445,58 @@ final class HarborRequestManagerAuthTests: XCTestCase {
         XCTAssertEqual(modelBAgain.quote, "Bearer token_B")
         XCTAssertEqual(AuthStubProtocol.receivedIfNoneMatch, [nil, nil, "\"vary-etag\""])
     }
+
+    func testCacheReadWithoutExplicitHeaderResolvesItFromTheProvider() async throws {
+        // Given a stored Vary: Authorization entry and a provider issuing the same credential
+        await Harbor.clearAllCache()
+        Harbor.setDefaultCacheType(.custom(HCache.Configuration(expirationTime: .oneHour)))
+        let token = HAuthorizationHeader(key: "Authorization", value: "Bearer token_A")
+        Harbor.setAuthProvider(SpyAuthProvider(headers: [token]))
+
+        let request = ClassAuthGetRequest(url: "https://example.com/vary-auto")
+        try await storeVaryAuthorizationEntry(Data("{\"quote\":\"cached\"}".utf8), for: request, authHeader: token)
+
+        // When the cache is read without an explicit header, the provider's header keys
+        // the vary lookup and the entry is served
+        let cached = await request.cache()
+        XCTAssertEqual(cached?.quote, "cached")
+    }
+
+    func testCacheReadWithoutExplicitHeaderMissesWhenProviderCredentialDiffers() async throws {
+        // Given a stored Vary: Authorization entry and a provider issuing a different credential
+        await Harbor.clearAllCache()
+        Harbor.setDefaultCacheType(.custom(HCache.Configuration(expirationTime: .oneHour)))
+        let storedToken = HAuthorizationHeader(key: "Authorization", value: "Bearer token_A")
+        let otherToken = HAuthorizationHeader(key: "Authorization", value: "Bearer token_B")
+        Harbor.setAuthProvider(SpyAuthProvider(headers: [otherToken]))
+
+        let request = ClassAuthGetRequest(url: "https://example.com/vary-auto")
+        try await storeVaryAuthorizationEntry(Data("{\"quote\":\"cached\"}".utf8), for: request, authHeader: storedToken)
+
+        // When the cache is read, the vary mismatch must not serve the stored variant
+        let cached = await request.cache()
+        XCTAssertNil(cached)
+    }
+
+    func testCacheReadWithoutExplicitHeaderMissesGracefullyWithoutProvider() async throws {
+        // Given a stored Vary: Authorization entry and no configured provider
+        await Harbor.clearAllCache()
+        Harbor.setDefaultCacheType(.custom(HCache.Configuration(expirationTime: .oneHour)))
+        Harbor.setAuthProvider(nil)
+        let token = HAuthorizationHeader(key: "Authorization", value: "Bearer token_A")
+
+        let request = ClassAuthGetRequest(url: "https://example.com/vary-auto")
+        try await storeVaryAuthorizationEntry(Data("{\"quote\":\"cached\"}".utf8), for: request, authHeader: token)
+
+        // When the cache is read, the lookup proceeds without a header and misses
+        let cached = await request.cache()
+        XCTAssertNil(cached)
+    }
+
+    /// Stores a body as a `Vary: Authorization` cache entry for the given request.
+    private func storeVaryAuthorizationEntry(_ data: Data, for request: ClassAuthGetRequest, authHeader: HAuthorizationHeader) async throws {
+        let url = try XCTUnwrap(URL(string: request.url))
+        let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: ["Vary": "Authorization"])
+        await request.saveCache(data, response: response, authHeader: authHeader)
+    }
 }

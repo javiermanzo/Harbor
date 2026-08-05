@@ -341,7 +341,7 @@ final class HarborTests: XCTestCase {
     
     func testMalformedRequest() async throws {
         // Given
-        let mock = await HMock(request: MalformedRequest.self, statusCode: 400, error: .malformedRequest)
+        let mock = await HMock(request: MalformedRequest.self, statusCode: 400, error: .malformedRequest())
         await Harbor.register(mock: mock)
         
         // When
@@ -535,7 +535,7 @@ private struct GetUsersRequest: HGetRequestProtocol {
     }
 }
 
-private final class CreateUserRequest: HPostRequestProtocol, @unchecked Sendable {
+private struct CreateUserRequest: HPostRequestProtocol, @unchecked Sendable {
     typealias Model = TestUser
     
     let name: String
@@ -551,7 +551,7 @@ private final class CreateUserRequest: HPostRequestProtocol, @unchecked Sendable
     }
 }
 
-private final class UploadFileRequest: HPostRequestProtocol, @unchecked Sendable {
+private struct UploadFileRequest: HPostRequestProtocol, @unchecked Sendable {
     typealias Model = FileUploadResponse
     
     let fileName: String
@@ -582,7 +582,7 @@ private struct AuthenticatedRequest: HGetRequestProtocol {
     var needsAuth: Bool { true }
 }
 
-private final class CustomHeadersRequest: HGetRequestProtocol, @unchecked Sendable {
+private struct CustomHeadersRequest: HGetRequestProtocol {
     typealias Model = TestUser
     
     var url: String { "https://api.example.com/users/1" }
@@ -602,7 +602,7 @@ private struct GetUserByIdRequest: HGetRequestProtocol {
     var pathParameters: [String: String]? { ["id": "\(id)"] }
 }
 
-private final class UpdateUserRequest: HPutRequestProtocol, @unchecked Sendable {
+private struct UpdateUserRequest: HPutRequestProtocol, @unchecked Sendable {
     let id: Int
     let name: String
     let email: String
@@ -618,7 +618,7 @@ private final class UpdateUserRequest: HPutRequestProtocol, @unchecked Sendable 
     }
 }
 
-private final class UpdateUserWithFileRequest: HPutRequestProtocol, @unchecked Sendable {
+private struct UpdateUserWithFileRequest: HPutRequestProtocol, @unchecked Sendable {
     let id: Int
     let name: String
     let avatar: Data
@@ -635,7 +635,7 @@ private final class UpdateUserWithFileRequest: HPutRequestProtocol, @unchecked S
     }
 }
 
-private final class PartialUpdateUserRequest: HPatchRequestProtocol, @unchecked Sendable {
+private struct PartialUpdateUserRequest: HPatchRequestProtocol, @unchecked Sendable {
     let id: Int
     let name: String
     var bodyParameters: [String: Any]?
@@ -649,7 +649,7 @@ private final class PartialUpdateUserRequest: HPatchRequestProtocol, @unchecked 
     }
 }
 
-private final class PartialUpdateUserWithJSONRequest: HPatchRequestProtocol, @unchecked Sendable {
+private struct PartialUpdateUserWithJSONRequest: HPatchRequestProtocol, @unchecked Sendable {
     let id: Int
     let email: String
     var bodyParameters: [String: Any]?

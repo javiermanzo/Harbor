@@ -92,9 +92,8 @@ final class HarborRealServiceTests: XCTestCase {
             XCTFail("Request failed: \(err)")
         }
         
-        // URLCache might need a moment to write to disk if it does so asynchronously
-        try await Task.sleep(nanoseconds: 500_000_000)
-        
+        await waitForCachedResponse(of: request, in: .shared)
+
         let cachedUser = await request.cache()
         XCTAssertNotNil(cachedUser)
         XCTAssertEqual(cachedUser?.login, "octocat")
@@ -124,10 +123,9 @@ final class HarborRealServiceTests: XCTestCase {
         
         // Populate cache
         let _ = await request.request()
-        
-        // Give URLCache time to persist
-        try await Task.sleep(nanoseconds: 500_000_000)
-        
+
+        await waitForCachedResponse(of: request, in: .shared)
+
         var resultsCount = 0
         do {
             for try await (response, _) in request.requestStream(source: .cacheAndRemote) {
@@ -180,10 +178,9 @@ final class HarborRealServiceTests: XCTestCase {
         
         // Populate cache
         let _ = await request.request()
-        
-        // Give URLCache time to persist
-        try await Task.sleep(nanoseconds: 500_000_000)
-        
+
+        await waitForCachedResponse(of: request, in: .shared)
+
         var resultsCount = 0
         do {
             for try await (response, origin) in request.requestStream(source: .cacheOnly) {
@@ -279,7 +276,7 @@ final class HarborRealServiceTests: XCTestCase {
             XCTFail("First request failed: \(err)")
         }
 
-        try await Task.sleep(nanoseconds: 500_000_000)
+        await waitForCachedResponse(of: request, in: urlCache)
 
         // Segunda request — URLSession envía If-None-Match automáticamente.
         // El servidor responde 304 y URLCache devuelve el cuerpo cacheado de forma transparente.
@@ -299,7 +296,7 @@ final class HarborRealServiceTests: XCTestCase {
 
         // Primera request — llena el cache
         let _ = await request.request()
-        try await Task.sleep(nanoseconds: 500_000_000)
+        await waitForCachedResponse(of: request, in: urlCache)
 
         var resultsCount = 0
         do {
@@ -361,5 +358,19 @@ final class HarborRealServiceTests: XCTestCase {
         case .error(let err):
             XCTFail("Second request (expected 304 handled by custom cache) failed: \(err)")
         }
+    }
+
+    /// Waits until `urlCache` serves a cached response for `request`. URLCache persists
+    /// responses asynchronously and exposes no completion barrier, so the wait polls
+    /// `cachedResponse(for:)` until the entry is visible or `timeout` elapses.
+    @discardableResult
+    private func waitForCachedResponse<Request: HGetRequestProtocol>(of request: Request, in urlCache: URLCache, timeout: TimeInterval = 2) async -> Bool {
+        guard let urlRequest = try? await HURLBuilder.buildUrlRequest(request: request) else { return false }
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if urlCache.cachedResponse(for: urlRequest) != nil { return true }
+            try? await Task.sleep(nanoseconds: 10_000_000)
+        }
+        return urlCache.cachedResponse(for: urlRequest) != nil
     }
 }

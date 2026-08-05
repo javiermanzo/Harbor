@@ -29,14 +29,14 @@ final class HarborSecurityTests: XCTestCase {
         Harbor.removeAllMocks()
         // Reset security configurations
         Harbor.setSSlPinningKeys(nil)
-        Harbor.setMTLS(nil)
+        Harbor.clearMTLS()
     }
     
     override func tearDown() async throws {
         Harbor.removeAllMocks()
         // Reset security configurations
         Harbor.setSSlPinningKeys(nil)
-        Harbor.setMTLS(nil)
+        Harbor.clearMTLS()
     }
     
     // MARK: - SSL Pinning Tests
@@ -101,7 +101,7 @@ final class HarborSecurityTests: XCTestCase {
         let mTLS = HmTLS(p12FileUrl: unwrappedP12URL, password: testPassword)
 
         // When
-        Harbor.setMTLS(mTLS)
+        try Harbor.setMTLS(mTLS)
         
         // Then
         let identity = HConfig.shared.mTLSIdentity
@@ -113,15 +113,59 @@ final class HarborSecurityTests: XCTestCase {
         let unwrappedP12URL = try XCTUnwrap(testP12URL, "certificate.p12 not found")
 
         let mTLS = HmTLS(p12FileUrl: unwrappedP12URL, password: testPassword)
-        Harbor.setMTLS(mTLS)
+        try Harbor.setMTLS(mTLS)
         
         // When
-        Harbor.setMTLS(nil)
+        Harbor.clearMTLS()
         
         // Then
         // mTLS should be disabled
         let identity = HConfig.shared.mTLSIdentity
         XCTAssertNil(identity)
+    }
+
+    // MARK: - mTLS Error Tests
+
+    func testMTLSExtractIdentityWithNonexistentFileThrowsFileNotFound() async throws {
+        // Given
+        let mTLS = HmTLS(p12FileUrl: URL(fileURLWithPath: "/tmp/harbor-definitely-missing.p12"), password: testPassword)
+
+        // When / Then
+        XCTAssertThrowsError(try mTLS.extractIdentity()) { error in
+            XCTAssertEqual(error as? HMTLSError, .fileNotFound)
+        }
+    }
+
+    func testMTLSExtractIdentityWithWrongPasswordThrowsInvalidPassword() async throws {
+        // Given
+        let unwrappedP12URL = try XCTUnwrap(testP12URL, "certificate.p12 not found")
+        let mTLS = HmTLS(p12FileUrl: unwrappedP12URL, password: "wrong-password")
+
+        // When / Then
+        XCTAssertThrowsError(try mTLS.extractIdentity()) { error in
+            XCTAssertEqual(error as? HMTLSError, .invalidPassword)
+        }
+    }
+
+    func testSetMTLSThrowsAndLeavesIdentityUnsetOnFailure() async throws {
+        // Given
+        let mTLS = HmTLS(p12FileUrl: URL(fileURLWithPath: "/tmp/harbor-definitely-missing.p12"), password: testPassword)
+
+        // Then
+        XCTAssertThrowsError(try Harbor.setMTLS(mTLS)) { error in
+            XCTAssertEqual(error as? HMTLSError, .fileNotFound)
+        }
+        XCTAssertNil(HConfig.shared.mTLSIdentity)
+    }
+
+    func testSetMTLSSucceedsAndConfiguresIdentity() async throws {
+        // Given
+        let unwrappedP12URL = try XCTUnwrap(testP12URL, "certificate.p12 not found")
+        let mTLS = HmTLS(p12FileUrl: unwrappedP12URL, password: testPassword)
+
+        // Then
+        XCTAssertNoThrow(try Harbor.setMTLS(mTLS))
+        XCTAssertNotNil(HConfig.shared.mTLSIdentity)
     }
     
     // MARK: - Combined Security Tests
@@ -130,11 +174,10 @@ final class HarborSecurityTests: XCTestCase {
         // Given
         let testSHA256 = "ABC123456789ABCDEF1234567890ABCDEF1234567890ABCDEF1234567890ABCDEF"
         Harbor.setSSlPinningKeys([testSHA256])
-        
-        let testP12URL = URL(fileURLWithPath: "/tmp/test.p12")
-        let testPassword = "test-password"
-        let mTLS = HmTLS(p12FileUrl: testP12URL, password: testPassword)
-        Harbor.setMTLS(mTLS)
+
+        let unwrappedP12URL = try XCTUnwrap(testP12URL, "certificate.p12 not found")
+        let mTLS = HmTLS(p12FileUrl: unwrappedP12URL, password: testPassword)
+        try Harbor.setMTLS(mTLS)
         
         let mockResponse = TestSecureData(secret: "fully-secured-data")
         let jsonData = try JSONEncoder().encode(mockResponse)
@@ -190,7 +233,7 @@ final class HarborSecurityTests: XCTestCase {
         let testP12URL = URL(fileURLWithPath: "/tmp/invalid.p12")
         let testPassword = "wrong-password"
         let mTLS = HmTLS(p12FileUrl: testP12URL, password: testPassword)
-        Harbor.setMTLS(mTLS)
+        try? Harbor.setMTLS(mTLS)
         
         // Mock a certificate-related error (using existing error types)
         let mock = HMock(request: MTLSGetRequest.self, statusCode: 403)
@@ -220,7 +263,7 @@ final class HarborSecurityTests: XCTestCase {
         // Given
         let unwrappedP12URL = try XCTUnwrap(testP12URL, "certificate.p12 not found")
         let mTLS = HmTLS(p12FileUrl: unwrappedP12URL, password: testPassword)
-        let identity = try XCTUnwrap(mTLS.extractIdentity())
+        let identity = try mTLS.extractIdentity()
         let certificate = try XCTUnwrap(identity.certificateChain?.first)
 
         // When
@@ -279,7 +322,7 @@ final class HarborSecurityTests: XCTestCase {
         // Given
         let unwrappedP12URL = try XCTUnwrap(testP12URL, "certificate.p12 not found")
         let mTLS = HmTLS(p12FileUrl: unwrappedP12URL, password: testPassword)
-        let identity = try XCTUnwrap(mTLS.extractIdentity())
+        let identity = try mTLS.extractIdentity()
         let certificate = try XCTUnwrap(identity.certificateChain?.first)
 
         // When
@@ -346,7 +389,7 @@ final class HarborSecurityTests: XCTestCase {
         let mTLS = HmTLS(p12FileUrl: unwrappedP12URL, password: testPassword)
 
         // When
-        let identity = try XCTUnwrap(mTLS.extractIdentity())
+        let identity = try mTLS.extractIdentity()
 
         // Then
         let certChain = try XCTUnwrap(identity.certificateChain)

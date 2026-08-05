@@ -16,7 +16,7 @@ final class HarborConfigurationTests: XCTestCase {
         await Harbor.setAuthProvider(nil)
         await Harbor.setCustomURLSession(URLSession.shared)
         await Harbor.setSSlPinningKeys(nil)
-        await Harbor.setMTLS(nil)
+        await Harbor.clearMTLS()
         await Harbor.setMocksOnlyInDebug(true)
         await Harbor.removeAllMocks()
     }
@@ -27,7 +27,7 @@ final class HarborConfigurationTests: XCTestCase {
         await Harbor.setAuthProvider(nil)
         await Harbor.setCustomURLSession(URLSession.shared)
         await Harbor.setSSlPinningKeys(nil)
-        await Harbor.setMTLS(nil)
+        await Harbor.clearMTLS()
         await Harbor.setMocksOnlyInDebug(true)
         await Harbor.removeAllMocks()
     }

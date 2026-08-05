@@ -32,8 +32,8 @@ public enum HJRPCRequestError: Error, Sendable {
     case codable(modelName: String, error: Error)
     /// No internet connection available.
     case noConnection
-    /// The request is malformed and cannot be processed.
-    case malformedRequest
+    /// The request is malformed and cannot be processed. The reason describes what failed.
+    case malformedRequest(reason: String? = nil)
     /// Request timed out.
     case timeout
     /// Cannot find the specified host.
@@ -44,6 +44,8 @@ public enum HJRPCRequestError: Error, Sendable {
     case cancelled
     /// No cached data found for cache-only request.
     case noCachedDataFound
+    /// A network error that does not map to a more specific case. Wraps the original `URLError`.
+    case networkFailure(URLError)
 }
 
 extension HJRPCRequestError {
@@ -63,8 +65,8 @@ extension HJRPCRequestError {
             return .codable(modelName: modelName, error: error)
         case .noConnection:
             return .noConnection
-        case .malformedRequest:
-            return .malformedRequest
+        case .malformedRequest(let reason):
+            return .malformedRequest(reason: reason)
         case .timeout:
             return .timeout
         case .cannotFindHost:
@@ -75,6 +77,8 @@ extension HJRPCRequestError {
             return .certificate
         case .noCachedDataFound:
             return .noCachedDataFound
+        case .networkFailure(let error):
+            return .networkFailure(error)
         }
     }
 }
@@ -108,8 +112,8 @@ extension HJRPCRequestError: LocalizedError {
             return "Failed to encode or decode the model \(modelName): \(error.localizedDescription)"
         case .noConnection:
             return "No internet connection available."
-        case .malformedRequest:
-            return "The request is malformed and cannot be processed."
+        case .malformedRequest(let reason):
+            return reason.map { "The request is malformed: \($0)" } ?? "The request is malformed and cannot be processed."
         case .timeout:
             return "The request timed out."
         case .cannotFindHost:
@@ -120,6 +124,8 @@ extension HJRPCRequestError: LocalizedError {
             return "The request was cancelled."
         case .noCachedDataFound:
             return "No cached data found for a cache-only request."
+        case .networkFailure(let error):
+            return "Network request failed (\(error.code.rawValue)): \(error.localizedDescription)"
         }
     }
 }

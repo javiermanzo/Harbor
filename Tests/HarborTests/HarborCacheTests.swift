@@ -135,24 +135,24 @@ final class HarborCacheTests: XCTestCase {
     
     // MARK: - Cache Key Generation Tests
     
-    func testCacheKeyGeneration() async {
+    func testCacheKeyGeneration() async throws {
         let request = TestCacheableRequest()
         let expectedKey = "https://cache.example.com/test"
-        let actualKey = await HURLBuilder.compositeURL(url: request.url, pathParameters: request.pathParameters, queryParameters: request.queryParameters)?.absoluteString
+        let actualKey = try HURLBuilder.compositeURL(url: request.url, pathParameters: request.pathParameters, queryParameters: request.queryParameters).absoluteString
         XCTAssertEqual(actualKey, expectedKey, "Cache key should match the URL")
     }
     
-    func testCacheKeyWithQueryParameters() async {
+    func testCacheKeyWithQueryParameters() async throws {
         let request = TestCacheableGetRequest()
         let expectedKey = "https://cache.example.com/test?limit=10&page=1"
-        let actualKey = await HURLBuilder.compositeURL(url: request.url, pathParameters: request.pathParameters, queryParameters: request.queryParameters)?.absoluteString
+        let actualKey = try HURLBuilder.compositeURL(url: request.url, pathParameters: request.pathParameters, queryParameters: request.queryParameters).absoluteString
         XCTAssertEqual(actualKey, expectedKey, "Cache key should include sorted query parameters")
     }
     
-    func testCacheKeyWithPathParameters() async {
+    func testCacheKeyWithPathParameters() async throws {
         let request = TestCacheablePathRequest()
         let expectedKey = "https://cache.example.com/users/123"
-        let actualKey = await HURLBuilder.compositeURL(url: request.url, pathParameters: request.pathParameters, queryParameters: request.queryParameters)?.absoluteString
+        let actualKey = try HURLBuilder.compositeURL(url: request.url, pathParameters: request.pathParameters, queryParameters: request.queryParameters).absoluteString
         XCTAssertEqual(actualKey, expectedKey, "Cache key should substitute path parameters")
     }
     
@@ -776,7 +776,7 @@ final class HarborCacheTests: XCTestCase {
         let jsonData = try JSONEncoder().encode(testData)
 
         let request = TestRevalidationRequest()
-        let key = try XCTUnwrap(HURLBuilder.compositeURL(url: request.url, pathParameters: request.pathParameters, queryParameters: request.queryParameters)?.absoluteString)
+        let key = try HURLBuilder.compositeURL(url: request.url, pathParameters: request.pathParameters, queryParameters: request.queryParameters).absoluteString
 
         // Pre-store an immediately expired entry that carries a validator
         let url = try XCTUnwrap(URL(string: request.url))
@@ -793,8 +793,8 @@ final class HarborCacheTests: XCTestCase {
         XCTAssertNil(cachedBefore, "Expired entries must not be served directly")
 
         // The outgoing request carries the stored validator as a conditional header
-        let urlRequest = await HURLBuilder.buildUrlRequest(request: request)
-        XCTAssertEqual(urlRequest?.value(forHTTPHeaderField: "If-None-Match"), "\"abc\"")
+        let urlRequest = try await HURLBuilder.buildUrlRequest(request: request)
+        XCTAssertEqual(urlRequest.value(forHTTPHeaderField: "If-None-Match"), "\"abc\"")
 
         let mock = await HMock(
             request: TestRevalidationRequest.self,
@@ -932,7 +932,7 @@ final class HarborCacheTests: XCTestCase {
         let jsonData = try JSONEncoder().encode(testData)
 
         let request = TestStaleOfflineRequest()
-        let key = try XCTUnwrap(HURLBuilder.compositeURL(url: request.url, pathParameters: request.pathParameters, queryParameters: request.queryParameters)?.absoluteString)
+        let key = try HURLBuilder.compositeURL(url: request.url, pathParameters: request.pathParameters, queryParameters: request.queryParameters).absoluteString
 
         let url = try XCTUnwrap(URL(string: request.url))
         let storeResponse = HTTPURLResponse(

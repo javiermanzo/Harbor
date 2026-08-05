@@ -52,11 +52,14 @@ final class HarborRequestManagerAuthTests: XCTestCase {
         let mockRequest = MockGetRequest<String>(needsAuth: true, url: "https://example.com/mock_endpoint")
 
         // When
-        let modifiedRequest = await HRequestManager.addAuthCredentialsIfNeeded(mockRequest)
+        let result = await HRequestManager.addAuthCredentialsIfNeeded(mockRequest)
 
         // Then
-        XCTAssertNotNil(modifiedRequest, "Expected modified request with auth credentials")
-        XCTAssertEqual(modifiedRequest?.headerParameters?["Authorization"], "Bearer mock_token", "Expected authorization header to be set correctly")
+        guard case .success(let modifiedRequest) = result else {
+            XCTFail("Expected modified request with auth credentials")
+            return
+        }
+        XCTAssertEqual(modifiedRequest.headerParameters?["Authorization"], "Bearer mock_token", "Expected authorization header to be set correctly")
     }
 
     func testAddAuthCredentialsIfNeededWithoutAuth() async throws {
@@ -67,10 +70,29 @@ final class HarborRequestManagerAuthTests: XCTestCase {
         let mockRequest = MockGetRequest<String>(needsAuth: false, url: "https://example.com/mock_endpoint")
 
         // When
-        let modifiedRequest = await HRequestManager.addAuthCredentialsIfNeeded(mockRequest)
+        let result = await HRequestManager.addAuthCredentialsIfNeeded(mockRequest)
 
         // Then
-        XCTAssertNotNil(modifiedRequest, "Expected original request since auth is not needed")
-        XCTAssertNil(modifiedRequest?.headerParameters?["Authorization"], "Expected no authorization header since auth is not needed")
+        guard case .success(let modifiedRequest) = result else {
+            XCTFail("Expected original request since auth is not needed")
+            return
+        }
+        XCTAssertNil(modifiedRequest.headerParameters?["Authorization"], "Expected no authorization header since auth is not needed")
+    }
+
+    func testAddAuthCredentialsIfNeededWithoutProviderFails() async throws {
+        // Given
+        HConfig.shared.authProvider = nil
+
+        let mockRequest = MockGetRequest<String>(needsAuth: true, url: "https://example.com/mock_endpoint")
+
+        // When
+        let result = await HRequestManager.addAuthCredentialsIfNeeded(mockRequest)
+
+        // Then
+        guard case .failure(let error) = result, case .authProviderNeeded = error else {
+            XCTFail("Expected .authProviderNeeded but got: \(result)")
+            return
+        }
     }
 }

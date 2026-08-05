@@ -21,11 +21,14 @@ struct HConfig: Sendable {
     /// Default headers applied to all requests.
     var defaultHeaderParameters: [String: String]?
     /// mTLS identity for client certificate authentication.
-    var mTLSIdentity: HMTLSIdentity?
+    var mTLSIdentity: HMTLSIdentity? {
+        didSet { HRequestManager.invalidateURLSession() }
+    }
     /// SSL pinning public key hashes for certificate validation.
     /// Malformed pins (not base64 SHA-256 hashes) log a warning when set and are ignored during validation.
     var sslPinningKeys: [String]? {
         didSet {
+            HRequestManager.invalidateURLSession()
             guard let sslPinningKeys else { return }
             for key in sslPinningKeys where !HSPKI.isValidPin(key) {
                 Self.logger.log("SSL pinning key \"\(key)\" is not a valid base64 SHA-256 hash and will never match. Pins must be base64(SHA256(SPKI)).", level: .warning)
@@ -49,7 +52,20 @@ struct HConfig: Sendable {
     /// Default cache type for requests without explicit cache settings. Default is `.urlCache`.
     var cacheType: HCache.CacheType = .urlCache()
     /// Default timeout interval for requests. Default is 15 seconds.
-    var timeoutInterval: TimeInterval = 15
+    var timeoutInterval: TimeInterval = 15 {
+        didSet { HRequestManager.invalidateURLSession() }
+    }
+    /// Backoff and jitter defaults used to build the effective retry policy of requests that
+    /// only specify `retries`. The number of attempts always comes from the request itself.
+    var defaultRetryPolicy: HRetryPolicy = HRetryPolicy()
+    /// Whether DEBUG/simulator builds assume network availability instead of trusting the
+    /// connectivity monitor. Default is true; set to false to exercise `.noConnection` flows in debug.
+    var assumeNetworkAvailableInDebug: Bool = true
+    /// URLProtocol classes injected into internally built sessions, allowing networking
+    /// to be stubbed per session instead of registering protocols globally.
+    var protocolClasses: [AnyClass]? {
+        didSet { HRequestManager.invalidateURLSession() }
+    }
 
     /// Whether mocks are currently enabled based on build configuration and `mocksOnlyInDebug`.
     var mocksEnabled: Bool {

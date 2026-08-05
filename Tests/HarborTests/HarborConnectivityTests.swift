@@ -77,6 +77,16 @@ final class HarborConnectivityTests: XCTestCase {
         XCTAssertTrue(HRequestManager.connectivityMonitor.isConnectedToNetwork())
     }
 
+    func testStopNetworkMonitorAllowsRestart() async {
+        // Stopping the monitor must leave it in a state where the next check starts it fresh.
+        HRequestManager.connectivityMonitor = HRequestManagerMonitor()
+        HRequestManager.connectivityMonitor.start()
+
+        await Harbor.stopNetworkMonitor()
+
+        XCTAssertTrue(HRequestManager.connectivityMonitor.isConnectedToNetwork())
+    }
+
     func testRequestFailsWithNoConnectionWhenMonitorReportsOffline() async {
         // Given a fake monitor that reports offline (bypasses the DEBUG fallback),
         // the request pipeline must short-circuit with .noConnection without hitting the network.

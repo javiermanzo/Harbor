@@ -23,6 +23,7 @@ final class HarborStreamTests: XCTestCase {
         // Clear all cache after each test
         await Harbor.clearAllCache()
         await Harbor.removeAllMocks()
+        await setStubbedProtocolClasses(nil)
     }
     
     // MARK: - Request Stream Tests
@@ -253,6 +254,43 @@ final class HarborStreamTests: XCTestCase {
         XCTAssertEqual(results.first?.0.value, "stream-cache-with-error-test")
         XCTAssertEqual(results.first?.1, .cache)
     }
+
+    func testRequestStreamCancellationCancelsUnderlyingRequest() async {
+        // Given a stubbed session whose response only arrives after a delay
+        await setStubbedProtocolClasses([DelayedResponseStubProtocol.self])
+        await Harbor.setAssumeNetworkAvailableInDebug(true)
+        DelayedResponseStubProtocol.reset()
+
+        let request = TestStreamRequest()
+
+        // When the stream is consumed in a child task that is cancelled mid-flight
+        let consumer = Task {
+            do {
+                for try await _ in request.requestStream(source: .remoteOnly) { }
+            } catch { }
+        }
+
+        let started = await waitUntil { DelayedResponseStubProtocol.startLoadingCalled }
+        XCTAssertTrue(started, "The stub should have started loading before cancelling")
+
+        consumer.cancel()
+
+        // Then the cancellation reaches URLSession, which calls stopLoading on the stub
+        let stopped = await waitUntil { DelayedResponseStubProtocol.stopLoadingCalled }
+        XCTAssertTrue(stopped, "Cancelling the stream consumer should cancel the underlying request")
+
+        _ = await consumer.value
+    }
+
+    /// Polls `condition` every 10ms until it holds or `timeout` elapses.
+    private func waitUntil(timeout: TimeInterval = 2, condition: @escaping @Sendable () -> Bool) async -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if condition() { return true }
+            try? await Task.sleep(nanoseconds: 10_000_000)
+        }
+        return condition()
+    }
 }
 
 // MARK: - Test Models and Requests
@@ -267,4 +305,70 @@ private struct TestStreamRequest: HGetRequestProtocol {
     
     let url: String = "https://stream.example.com/test"
     let cacheType: HCache.CacheType? = .custom(HCache.Configuration())
+}
+
+/// Mutates the actor-isolated `HConfig.protocolClasses` from nonisolated tests.
+@HRequestManagerActor
+private func setStubbedProtocolClasses(_ classes: [AnyClass]?) {
+    HConfig.shared.protocolClasses = classes
+}
+
+/// URLProtocol stub injected through `HConfig.protocolClasses` that answers after a
+/// delay, giving tests a window to cancel the request while it is in flight.
+/// `stopLoading` records that URLSession cancelled the underlying request.
+private final class DelayedResponseStubProtocol: URLProtocol {
+    private static let lock = NSLock()
+    nonisolated(unsafe) private static var _startLoadingCalled = false
+    nonisolated(unsafe) private static var _stopLoadingCalled = false
+
+    static var startLoadingCalled: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return _startLoadingCalled
+    }
+
+    static var stopLoadingCalled: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return _stopLoadingCalled
+    }
+
+    static func reset() {
+        lock.lock()
+        _startLoadingCalled = false
+        _stopLoadingCalled = false
+        lock.unlock()
+    }
+
+    override class func canInit(with request: URLRequest) -> Bool {
+        return true
+    }
+
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest {
+        return request
+    }
+
+    override func startLoading() {
+        Self.lock.lock()
+        Self._startLoadingCalled = true
+        Self.lock.unlock()
+
+        // Respond asynchronously so `stopLoading` can run while the request is in flight.
+        DispatchQueue.global().asyncAfter(deadline: .now() + 0.5) { [self] in
+            guard let url = request.url,
+                  let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil) else {
+                client?.urlProtocol(self, didFailWithError: URLError(.badURL))
+                return
+            }
+            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+            client?.urlProtocol(self, didLoad: Data())
+            client?.urlProtocolDidFinishLoading(self)
+        }
+    }
+
+    override func stopLoading() {
+        Self.lock.lock()
+        Self._stopLoadingCalled = true
+        Self.lock.unlock()
+    }
 }

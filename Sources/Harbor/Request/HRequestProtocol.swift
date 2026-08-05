@@ -50,7 +50,15 @@ public protocol HRequestBaseRequestProtocol: Sendable {
     /// Whether this request requires authentication. Default: `false`.
     var needsAuth: Bool { get }
     /// Optional number of retry attempts for failed requests. Default: `nil`.
+    /// Ignored when `retryPolicy` is set.
+    ///
+    /// - Warning: When both `retries` and `retryPolicy` are set, `retryPolicy` takes
+    ///   precedence and `retries` is silently ignored. Prefer `retryPolicy` for new code;
+    ///   this property may be removed in a future major release.
     var retries: Int? { get set }
+    /// Optional retry policy (backoff and jitter) for failed requests. Default: `nil`
+    /// (derived from `retries` and the configured default policy).
+    var retryPolicy: HRetryPolicy? { get }
     /// Path parameters to be substituted in the URL. Default: `nil`.
     var pathParameters: [String: String]? { get }
     /// Additional HTTP headers to include in the request. Default: `nil`.
@@ -63,6 +71,7 @@ public protocol HRequestBaseRequestProtocol: Sendable {
 public extension HRequestBaseRequestProtocol {
     var needsAuth: Bool { false }
     var retries: Int? { get { nil } set { } }
+    var retryPolicy: HRetryPolicy? { nil }
     var pathParameters: [String: String]? { nil }
     var headerParameters: [String: String]? { get { nil } set { } }
     var timeoutInterval: TimeInterval? { nil }
@@ -112,6 +121,9 @@ public protocol HRequestWithBodyProtocol: HRequestWithEmptyResponseProtocol {
     var bodyType: HRequestDataType { get }
     /// Parameters to include in the request body.
     var bodyParameters: [String: Any]? { get set }
+    /// Typed multipart form values. When set, a multipart body is built from these values
+    /// (text fields and files) instead of `bodyParameters`. Default: `nil`.
+    var multipartBody: [String: HFormValue]? { get }
     /// Raw HTTP body data. When set, it is sent as-is instead of `bodyParameters` (Content-Type application/json).
     var rawBody: Data? { get }
 }
@@ -146,47 +158,52 @@ public extension HGetRequestProtocol {
     /// - Returns: AsyncThrowingStream that yields (Model, HOriginType) tuples
     func requestStream(source: HRequestSource = .cacheAndRemote) -> AsyncThrowingStream<(response: Model, origin: HOriginType), Error> {
         return AsyncThrowingStream { continuation in
-            Task {
+            let task = Task {
                 await self.handleStreamRequest(source: source, continuation: continuation)
+            }
+            // Cancelling the consumer cancels the task running the underlying request.
+            continuation.onTermination = { @Sendable reason in
+                if case .cancelled = reason {
+                    task.cancel()
+                }
             }
         }
     }
     
-    /// Internal handler for stream request logic
+    /// Internal handler for stream request logic. Every path finishes the continuation exactly once.
     private func handleStreamRequest(
         source: HRequestSource,
         continuation: AsyncThrowingStream<(response: Model, origin: HOriginType), Error>.Continuation
     ) async {
-        defer {
-            continuation.finish()
-        }
-        
         switch source {
         case .cacheOnly:
             if let cachedData = await cache() {
                 continuation.yield((response: cachedData, origin: .cache))
+                continuation.finish()
             } else {
                 continuation.finish(throwing: HRequestError.noCachedDataFound)
             }
-            
+
         case .remoteOnly:
             let remoteResult = await request()
             switch remoteResult {
             case .success(let data):
                 continuation.yield((response: data, origin: .remote))
+                continuation.finish()
             case .error(let error):
                 continuation.finish(throwing: error)
             }
-            
+
         case .cacheAndRemote:
             if let cachedData = await cache() {
                 continuation.yield((response: cachedData, origin: .cache))
             }
-            
+
             let remoteResult = await request()
             switch remoteResult {
             case .success(let data):
                 continuation.yield((response: data, origin: .remote))
+                continuation.finish()
             case .error(let error):
                 continuation.finish(throwing: error)
             }
@@ -197,6 +214,7 @@ public extension HGetRequestProtocol {
 /// Default implementations for `HRequestWithBodyProtocol`.
 public extension HRequestWithBodyProtocol {
     var bodyType: HRequestDataType { .json }
+    var multipartBody: [String: HFormValue]? { nil }
     var rawBody: Data? { nil }
 }
 

@@ -7,7 +7,7 @@
 
 import Harbor
 
-final class MockGetRequest<T: HModel>: HGetRequestProtocol, @unchecked Sendable {
+struct MockGetRequest<T: HModel>: HGetRequestProtocol {
 
     typealias Model = T
     var headerParameters: [String: String]?
@@ -27,7 +27,7 @@ final class MockGetRequest<T: HModel>: HGetRequestProtocol, @unchecked Sendable 
     }
 }
 
-final class MockPostRequest: HPostRequestProtocol, @unchecked Sendable {
+struct MockPostRequest: HPostRequestProtocol, @unchecked Sendable {
     var headerParameters: [String: String]?
     var needsAuth: Bool
     var retries: Int?
@@ -48,7 +48,7 @@ final class MockPostRequest: HPostRequestProtocol, @unchecked Sendable {
     }
 }
 
-final class MockPostBodyRequest: HPostRequestProtocol, @unchecked Sendable {
+struct MockPostBodyRequest: HPostRequestProtocol, @unchecked Sendable {
     var headerParameters: [String: String]?
     var needsAuth: Bool
     var retries: Int?
@@ -56,8 +56,9 @@ final class MockPostBodyRequest: HPostRequestProtocol, @unchecked Sendable {
     var url: String
     var bodyParameters: [String: Any]?
     var bodyType: HRequestDataType
+    var multipartBody: [String: HFormValue]?
 
-    init(headerParameters: [String: String]? = nil, needsAuth: Bool = false, retries: Int? = nil, pathParameters: [String: String]? = nil, url: String, bodyParameters: [String: Any]? = nil, bodyType: HRequestDataType = .multipart) {
+    init(headerParameters: [String: String]? = nil, needsAuth: Bool = false, retries: Int? = nil, pathParameters: [String: String]? = nil, url: String, bodyParameters: [String: Any]? = nil, bodyType: HRequestDataType = .multipart, multipartBody: [String: HFormValue]? = nil) {
         self.headerParameters = headerParameters
         self.needsAuth = needsAuth
         self.retries = retries
@@ -65,10 +66,11 @@ final class MockPostBodyRequest: HPostRequestProtocol, @unchecked Sendable {
         self.url = url
         self.bodyParameters = bodyParameters
         self.bodyType = bodyType
+        self.multipartBody = multipartBody
     }
 }
 
-final class MockInvalidRequest: HRequestBaseRequestProtocol, @unchecked Sendable {
+struct MockInvalidRequest: HRequestBaseRequestProtocol, @unchecked Sendable {
     var headerParameters: [String: String]?
     var url: String
     var needsAuth: Bool = false
@@ -86,7 +88,7 @@ final class MockInvalidRequest: HRequestBaseRequestProtocol, @unchecked Sendable
     }
 }
 
-final class MockGetRequestWithRetries<T: HModel>: HGetRequestProtocol, @unchecked Sendable {
+struct MockGetRequestWithRetries<T: HModel>: HGetRequestProtocol {
     typealias Model = T
     var headerParameters: [String: String]?
     var needsAuth: Bool
@@ -105,7 +107,7 @@ final class MockGetRequestWithRetries<T: HModel>: HGetRequestProtocol, @unchecke
     }
 }
 
-final class MockPutRequest<T: HModel>: HPutRequestProtocol, @unchecked Sendable {
+struct MockPutRequest<T: HModel>: HPutRequestProtocol, @unchecked Sendable {
     typealias Model = T
     var headerParameters: [String: String]?
     var needsAuth: Bool
@@ -126,7 +128,7 @@ final class MockPutRequest<T: HModel>: HPutRequestProtocol, @unchecked Sendable 
     }
 }
 
-final class MockPatchRequest<T: HModel>: HPatchRequestProtocol, @unchecked Sendable {
+struct MockPatchRequest<T: HModel>: HPatchRequestProtocol, @unchecked Sendable {
     typealias Model = T
     var headerParameters: [String: String]?
     var needsAuth: Bool

@@ -102,7 +102,7 @@ final class HarborDebugTests: XCTestCase {
         let curl = await request.generateCurl(urlRequest: urlRequest)
         
         XCTAssertTrue(curl.contains("-X POST"))
-        XCTAssertTrue(curl.contains("-d \"{\\\"key\\\":\\\"value\\\"}\""))
+        XCTAssertTrue(curl.contains(#"-d '{"key":"value"}'"#))
     }
     
     func testGenerateCurlWithSpecialCharactersInBody() async {
@@ -111,15 +111,46 @@ final class HarborDebugTests: XCTestCase {
         urlRequest.httpMethod = "POST"
         let jsonData = "{\"message\":\"Hello \\\"world\\\" with quotes\"}".data(using: .utf8)!
         urlRequest.httpBody = jsonData
-        
+
         let curl = await request.generateCurl(urlRequest: urlRequest)
-        
+
         XCTAssertTrue(curl.contains("-X POST"))
         XCTAssertTrue(curl.contains("Hello"))
         XCTAssertTrue(curl.contains("world"))
         XCTAssertTrue(curl.contains("quotes"))
     }
-    
+
+    func testGenerateCurlEscapesShellSpecialsInHeaderValue() async {
+        let request = TestDebugRequest(debugType: .request)
+        var urlRequest = URLRequest(url: URL(string: "https://api.example.com/test")!)
+        urlRequest.setValue("va\"l$ue\\`tick`", forHTTPHeaderField: "X-Test")
+
+        let curl = await request.generateCurl(urlRequest: urlRequest)
+
+        XCTAssertTrue(curl.contains("-H \"X-Test: va\\\"l\\$ue\\\\\\`tick\\`\""))
+    }
+
+    func testGenerateCurlSingleQuotesAndEscapesBody() async {
+        let request = TestDebugRequest(debugType: .request)
+        var urlRequest = URLRequest(url: URL(string: "https://api.example.com/test")!)
+        urlRequest.httpMethod = "POST"
+        urlRequest.httpBody = #"{"msg":"it's $HOME `x`"}"#.data(using: .utf8)!
+
+        let curl = await request.generateCurl(urlRequest: urlRequest)
+
+        // Single-quoted body: only the embedded single quote is escaped ('\'').
+        XCTAssertTrue(curl.contains(#"-d '{"msg":"it'\''s $HOME `x`"}'"#))
+    }
+
+    func testGenerateCurlEscapesShellSpecialsInURL() async {
+        let request = TestDebugRequest(debugType: .request)
+        let urlRequest = URLRequest(url: URL(string: "https://api.example.com/test?price=$100")!)
+
+        let curl = await request.generateCurl(urlRequest: urlRequest)
+
+        XCTAssertTrue(curl.contains("\"https://api.example.com/test?price=\\$100\""))
+    }
+
     func testGenerateCurlInvalidURL() async {
         let request = TestDebugRequest(debugType: .request)
         let urlRequest = URLRequest(url: URL(string: "invalid-url")!)
@@ -147,7 +178,7 @@ final class HarborDebugTests: XCTestCase {
         XCTAssertTrue(curl.contains("-H \"Authorization: <redacted>\""))
         XCTAssertFalse(curl.contains("Bearer abc123"))
         XCTAssertTrue(curl.contains("-H \"Accept-Encoding: gzip, deflate\""))
-        XCTAssertTrue(curl.contains("-d \"{\\\"name\\\":\\\"John Doe\\\",\\\"age\\\":30}\""))
+        XCTAssertTrue(curl.contains(#"-d '{"name":"John Doe","age":30}'"#))
         XCTAssertTrue(curl.contains("https://api.example.com/users/123?include=profile"))
     }
 
@@ -371,12 +402,21 @@ final class HarborDebugTests: XCTestCase {
     
     func testDictionaryToJSONStringNilDictionary() async {
         let request = TestDebugRequest(debugType: .request)
-        
+
         let jsonString = await request.dictionaryToJSONString(nil)
-        
+
         XCTAssertNil(jsonString)
     }
-    
+
+    func testDictionaryToJSONStringSortsKeys() async {
+        let request = TestDebugRequest(debugType: .request)
+        let dictionary: [String: Any] = ["zebra": 1, "apple": 2, "mango": 3]
+
+        let jsonString = await request.dictionaryToJSONString(dictionary)
+
+        XCTAssertEqual(jsonString, #"{"apple":2,"mango":3,"zebra":1}"#)
+    }
+
     // MARK: - Print Methods Tests (Behavioral)
     
     func testPrintRequestWithRequestDebugType() async {
@@ -418,13 +458,13 @@ final class HarborDebugTests: XCTestCase {
 
     func testLogErrorResponseLogsEvenForNoneDebugType() async {
         await Harbor.setLoggingEnabled(true)
-        await HarborLogger.logger.clearLogs()
-        addTeardownBlock { await HarborLogger.logger.clearLogs() }
+        await HLogger.logger.clearLogs()
+        addTeardownBlock { await HLogger.logger.clearLogs() }
 
         let request = TestDebugRequest(debugType: .none)
         await request.logErrorResponse(error: .noConnection)
 
-        let logs = await HarborLogger.logger.logs
+        let logs = await HLogger.logger.logs
         guard let last = logs.last else {
             XCTFail("Expected an error log regardless of debugType")
             return
@@ -438,8 +478,8 @@ final class HarborDebugTests: XCTestCase {
     func testLogResponseRedactsSensitiveJSONBody() async {
         await Harbor.setLogSensitiveHeaders(false)
         await Harbor.setLoggingEnabled(true)
-        await HarborLogger.logger.clearLogs()
-        addTeardownBlock { await HarborLogger.logger.clearLogs() }
+        await HLogger.logger.clearLogs()
+        addTeardownBlock { await HLogger.logger.clearLogs() }
 
         let body = #"{"access_token":"abc123","refresh_token":"def456","user":"johndoe"}"#
         let data = body.data(using: .utf8)!
@@ -450,7 +490,7 @@ final class HarborDebugTests: XCTestCase {
         let request = TestDebugRequest(debugType: .response)
         await request.logResponse(httpResponse: response, data: data, duration: 12.0)
 
-        guard let last = await HarborLogger.logger.logs.last,
+        guard let last = await HLogger.logger.logs.last,
               let responseValue = last.extraMessages?.first(where: { $0.key == "Response Value" })?.value else {
             XCTFail("Expected a Response Value extra message")
             return
@@ -465,10 +505,10 @@ final class HarborDebugTests: XCTestCase {
     func testLogResponseDoesNotRedactBodyWhenSensitiveHeadersEnabled() async {
         await Harbor.setLogSensitiveHeaders(true)
         await Harbor.setLoggingEnabled(true)
-        await HarborLogger.logger.clearLogs()
+        await HLogger.logger.clearLogs()
         addTeardownBlock {
             await Harbor.setLogSensitiveHeaders(false)
-            await HarborLogger.logger.clearLogs()
+            await HLogger.logger.clearLogs()
         }
 
         let body = #"{"access_token":"abc123"}"#
@@ -480,7 +520,7 @@ final class HarborDebugTests: XCTestCase {
         let request = TestDebugRequest(debugType: .response)
         await request.logResponse(httpResponse: response, data: data, duration: 12.0)
 
-        guard let responseValue = await HarborLogger.logger.logs.last?
+        guard let responseValue = await HLogger.logger.logs.last?
             .extraMessages?.first(where: { $0.key == "Response Value" })?.value else {
             XCTFail("Expected a Response Value extra message")
             return
@@ -499,6 +539,62 @@ final class HarborDebugTests: XCTestCase {
 
         let result = await request.redactedResponseBody(data: data, httpResponse: response)
         XCTAssertEqual(result, body)
+    }
+
+    func testLogResponseRedactsNestedSensitiveJSONBody() async {
+        await Harbor.setLogSensitiveHeaders(false)
+        await Harbor.setLoggingEnabled(true)
+        await HLogger.logger.clearLogs()
+        addTeardownBlock { await HLogger.logger.clearLogs() }
+
+        let body = #"{"access_token":"secret-value","user":{"refresh_token":"x-refresh","name":"johndoe"}}"#
+        let data = body.data(using: .utf8)!
+        let response = HTTPURLResponse(url: URL(string: "https://api.example.com/login")!,
+                                       statusCode: 200, httpVersion: nil,
+                                       headerFields: ["Content-Type": "application/json"])!
+
+        let request = TestDebugRequest(debugType: .response)
+        await request.logResponse(httpResponse: response, data: data, duration: 12.0)
+
+        guard let responseValue = await HLogger.logger.logs.last?
+            .extraMessages?.first(where: { $0.key == "Response Value" })?.value else {
+            XCTFail("Expected a Response Value extra message")
+            return
+        }
+
+        XCTAssertFalse(responseValue.contains("secret-value"), "access_token value must not leak")
+        XCTAssertFalse(responseValue.contains("x-refresh"), "nested refresh_token value must not leak")
+        XCTAssertTrue(responseValue.contains("\"access_token\":\"<redacted>\""))
+        XCTAssertTrue(responseValue.contains("\"refresh_token\":\"<redacted>\""))
+        XCTAssertTrue(responseValue.contains("\"name\":\"johndoe\""), "Non-sensitive fields should be preserved")
+    }
+
+    func testRedactedResponseBodyReturnsBinaryPlaceholderForNonUTF8() async {
+        let request = TestDebugRequest(debugType: .response)
+        let data = Data([0xFF, 0xFE, 0xFD, 0x80])
+        let response = HTTPURLResponse(url: URL(string: "https://api.example.com/image")!,
+                                       statusCode: 200, httpVersion: nil,
+                                       headerFields: ["Content-Type": "application/octet-stream"])!
+
+        let result = await request.redactedResponseBody(data: data, httpResponse: response)
+
+        XCTAssertEqual(result, "<binary 4 bytes>")
+    }
+
+    func testRedactedResponseBodyTruncatesLargeBodies() async {
+        await Harbor.setLogSensitiveHeaders(false)
+        let request = TestDebugRequest(debugType: .response)
+        let body = String(repeating: "a", count: 20 * 1024)
+        let data = body.data(using: .utf8)!
+        let response = HTTPURLResponse(url: URL(string: "https://api.example.com/")!,
+                                       statusCode: 200, httpVersion: nil,
+                                       headerFields: ["Content-Type": "text/plain"])!
+
+        let result = await request.redactedResponseBody(data: data, httpResponse: response)
+
+        let marker = "… <truncated>"
+        XCTAssertEqual(result?.count, 16 * 1024 + marker.count)
+        XCTAssertTrue(result?.hasSuffix(marker) == true)
     }
 }
 

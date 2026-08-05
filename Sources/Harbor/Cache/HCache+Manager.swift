@@ -192,7 +192,7 @@ extension HCache {
             if written {
                 memoryCache.setObject(entry, forKey: NSString(string: key), cost: data.count)
             } else {
-                HarborLogger.log("Failed to persist cache entry on disk", level: .error)
+                HLogger.log("Failed to persist cache entry on disk", level: .error)
             }
         }
 
@@ -231,7 +231,7 @@ extension HCache {
             if written {
                 memoryCache.setObject(refreshed, forKey: nsKey, cost: refreshed.data.count)
             } else {
-                HarborLogger.log("Failed to persist refreshed cache entry on disk", level: .error)
+                HLogger.log("Failed to persist refreshed cache entry on disk", level: .error)
             }
         }
 

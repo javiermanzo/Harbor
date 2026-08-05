@@ -17,6 +17,8 @@ final class PKCS12 {
     var trust: SecTrust?
     var certChain: [SecCertificate]?
     var identity: SecIdentity?
+    /// Status returned by `SecPKCS12Import`; `errSecSuccess` when the import succeeded.
+    private(set) var importStatus: OSStatus
     var loggingEnabled: Bool
 
     init(p12Data: Data, password: String, loggingEnabled: Bool = false) {
@@ -26,6 +28,7 @@ final class PKCS12 {
         var items: CFArray?
 
         let status = SecPKCS12Import(p12Data as NSData, importPasswordOption, &items)
+        self.importStatus = status
 
         guard status == errSecSuccess else {
             if status == errSecAuthFailed {

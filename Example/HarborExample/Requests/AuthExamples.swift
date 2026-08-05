@@ -15,9 +15,9 @@ final class TokenAuthProvider: HAuthProviderProtocol, @unchecked Sendable {
     private var accessToken: String?
     private var tokenExpiration: Date?
 
-    func getAuthorizationHeader() async -> HAuthorizationHeader {
+    func getAuthorizationHeader() async -> HAuthorizationHeader? {
         guard let token = accessToken else {
-            return HAuthorizationHeader(key: "", value: "")
+            return nil
         }
         return HAuthorizationHeader(key: "Authorization", value: "Bearer \(token)")
     }
@@ -56,9 +56,9 @@ final class OAuth2AuthProvider: HAuthProviderProtocol, @unchecked Sendable {
         self.tokenEndpoint = tokenEndpoint
     }
 
-    func getAuthorizationHeader() async -> HAuthorizationHeader {
+    func getAuthorizationHeader() async -> HAuthorizationHeader? {
         guard let token = accessToken else {
-            return HAuthorizationHeader(key: "", value: "")
+            return nil
         }
         return HAuthorizationHeader(key: "Authorization", value: "Bearer \(token)")
     }
@@ -139,7 +139,7 @@ final class APIKeyAuthProvider: HAuthProviderProtocol, @unchecked Sendable {
         self.headerName = headerName
     }
 
-    func getAuthorizationHeader() async -> HAuthorizationHeader {
+    func getAuthorizationHeader() async -> HAuthorizationHeader? {
         return HAuthorizationHeader(key: headerName, value: apiKey)
     }
 
@@ -162,9 +162,9 @@ final class CustomAuthProvider: HAuthProviderProtocol, @unchecked Sendable {
         self.baseURL = baseURL
     }
 
-    func getAuthorizationHeader() async -> HAuthorizationHeader {
+    func getAuthorizationHeader() async -> HAuthorizationHeader? {
         guard let token = token else {
-            return HAuthorizationHeader(key: "", value: "")
+            return nil
         }
 
         return HAuthorizationHeader(
@@ -209,4 +209,96 @@ final class CustomAuthProvider: HAuthProviderProtocol, @unchecked Sendable {
         // Clear auth provider from Harbor
         await Harbor.setAuthProvider(nil)
     }
+}
+
+
+// MARK: - Token Refresh Demo
+
+/// Token the demo auth provider starts with; the demo stub server rejects it.
+private let expiredDemoToken = "expired_demo_token"
+/// Token the provider gets by refreshing; the demo stub server accepts it.
+private let validDemoToken = "valid_demo_token"
+
+/// Auth provider for the token-refresh demo.
+///
+/// It starts holding an expired access token. The demo stub server rejects that token
+/// with a 401 and Harbor asks for the authorization header again before retrying the
+/// request. Being asked again for the same token is the signal that the server rejected
+/// it, so the provider refreshes the token and Harbor's automatic retry succeeds.
+final class RefreshingAuthProvider: HAuthProviderProtocol, @unchecked Sendable {
+    private var accessToken = expiredDemoToken
+    private var currentTokenWasSent = false
+    private(set) var refreshCount = 0
+
+    func getAuthorizationHeader() async -> HAuthorizationHeader? {
+        if currentTokenWasSent {
+            refreshAccessToken()
+        }
+        currentTokenWasSent = true
+        return HAuthorizationHeader(key: "Authorization", value: "Bearer \(accessToken)")
+    }
+
+    func authFailed() async {
+        // Called when Harbor cannot recover the request with a refreshed token.
+        print("Authentication failed: no fresh token available")
+    }
+
+    private func refreshAccessToken() {
+        // A real provider would call its token endpoint here.
+        accessToken = validDemoToken
+        refreshCount += 1
+    }
+
+    /// Restores the initial state so the demo can run again with an expired token.
+    func reset() {
+        accessToken = expiredDemoToken
+        currentTokenWasSent = false
+        refreshCount = 0
+    }
+}
+
+/// Local stub server for the token-refresh demo.
+///
+/// Registered as a global URLProtocol, it answers requests to `auth-demo.local`
+/// without touching the network: the expired demo token gets a 401 and the refreshed
+/// token gets a 200 with a small JSON body. Requests to any other host are untouched.
+final class AuthDemoStubProtocol: URLProtocol {
+    static let host = "auth-demo.local"
+
+    override class func canInit(with request: URLRequest) -> Bool {
+        request.url?.host == host
+    }
+
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest {
+        request
+    }
+
+    override func startLoading() {
+        guard let url = request.url else {
+            client?.urlProtocol(self, didFailWithError: URLError(.badURL))
+            return
+        }
+
+        let authorization = request.value(forHTTPHeaderField: "Authorization")
+        let statusCode = authorization == "Bearer \(validDemoToken)" ? 200 : 401
+
+        guard let response = HTTPURLResponse(
+            url: url,
+            statusCode: statusCode,
+            httpVersion: nil,
+            headerFields: ["Content-Type": "application/json"]
+        ) else {
+            client?.urlProtocol(self, didFailWithError: URLError(.badServerResponse))
+            return
+        }
+
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        let body = statusCode == 200
+            ? "{\"message\": \"Secure data unlocked\"}"
+            : "{\"message\": \"Invalid or expired token\"}"
+        client?.urlProtocol(self, didLoad: Data(body.utf8))
+        client?.urlProtocolDidFinishLoading(self)
+    }
+
+    override func stopLoading() {}
 }

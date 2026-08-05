@@ -29,6 +29,7 @@ enum HRequestManager {
 
 // MARK: - Request With Result
 extension HRequestManager {
+    /// Executes a request that expects a typed model response.
     static func request<Model: HModel, Request: HRequestWithResultProtocol>(model: Model.Type, request: Request) async -> HResponseWithResult<Model> {
         let policy = effectiveRetryPolicy(for: request)
 
@@ -151,6 +152,7 @@ extension HRequestManager {
         }
     }
 
+    /// Processes the raw response for a model-returning request, decoding the payload or handling errors/revalidation.
     private static func processResponse<Model: HModel, Request: HRequestWithResultProtocol>(model: Model.Type, request: Request, statusCode: Int, data: Data, httpResponse: HTTPURLResponse? = nil, canRetry: Bool = false) async -> HAttemptOutcome<HResponseWithResult<Model>> {
         switch statusCode {
         case 200 ... 299:
@@ -199,6 +201,7 @@ extension HRequestManager {
 
 // MARK: - Request Without Result
 extension HRequestManager {
+    /// Executes a request that expects an empty response.
     static func request<Request: HRequestWithEmptyResponseProtocol>(request: Request) async -> HResponse {
         let policy = effectiveRetryPolicy(for: request)
 
@@ -303,6 +306,7 @@ extension HRequestManager {
         }
     }
 
+    /// Processes the raw response for an empty-response request, checking status codes and handling errors.
     private static func processResponse<Request: HRequestWithEmptyResponseProtocol>(request: Request, statusCode: Int, data: Data, canRetry: Bool = false) async -> HAttemptOutcome<HResponse> {
         switch statusCode {
         case 200 ... 299:
@@ -481,6 +485,7 @@ extension HRequestManager {
         return (try? HURLBuilder.compositeURL(url: request.url, pathParameters: request.pathParameters)) ?? URL(fileURLWithPath: "/")
     }
 
+    /// Logs an error that occurred during request execution if debug logging is enabled.
     static func logError(_ error: HRequestError, request: HRequestBaseRequestProtocol) async {
         if let request = request as? HDebugRequestProtocol {
             await request.logErrorResponse(error: error)
@@ -496,11 +501,15 @@ extension HRequestManager {
             case isolated
             case urlCache(ObjectIdentifier, URLRequest.CachePolicy)
         }
+        /// The timeout interval for the session.
         var timeoutInterval: TimeInterval
+        /// The cache configuration for the session.
         var cache: CacheSignature
     }
 
+    /// The currently cached URLSession for reuse.
     private static var cachedSession: URLSession?
+    /// The signature of the currently cached session.
     private static var cachedSessionSignature: SessionSignature?
 
     /// URLSession getter that handles mTLS and SSL pinning if needed.
@@ -537,6 +546,7 @@ extension HRequestManager {
         cachedSessionSignature = nil
     }
 
+    /// Computes the signature that uniquely identifies the required session configuration for the given request.
     private static func sessionSignature(for request: any HRequestBaseRequestProtocol) -> SessionSignature {
         let timeoutInterval = request.timeoutInterval ?? HConfig.shared.timeoutInterval
 
@@ -556,6 +566,7 @@ extension HRequestManager {
         return SessionSignature(timeoutInterval: timeoutInterval, cache: cache)
     }
 
+    /// Builds a new URLSession tailored to the request's configuration.
     private static func buildURLSession(for request: any HRequestBaseRequestProtocol) -> URLSession {
         let configuration = URLSessionConfiguration.default
         configuration.timeoutIntervalForRequest = request.timeoutInterval ?? HConfig.shared.timeoutInterval

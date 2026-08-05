@@ -69,11 +69,17 @@ public protocol HRequestBaseRequestProtocol: Sendable {
 
 /// Default implementations for `HRequestBaseRequestProtocol`.
 public extension HRequestBaseRequestProtocol {
+    /// Default: `false`.
     var needsAuth: Bool { false }
+    /// Default: `nil`.
     var retries: Int? { get { nil } set { } }
+    /// Default: `nil`.
     var retryPolicy: HRetryPolicy? { nil }
+    /// Default: `nil`.
     var pathParameters: [String: String]? { nil }
+    /// Default: `nil`.
     var headerParameters: [String: String]? { get { nil } set { } }
+    /// Default: `nil`.
     var timeoutInterval: TimeInterval? { nil }
 }
 
@@ -86,6 +92,7 @@ public protocol HRequestWithEmptyResponseProtocol: HRequestBaseRequestProtocol {
 
 /// Default implementation for `HRequestWithEmptyResponseProtocol`.
 public extension HRequestWithEmptyResponseProtocol {
+    /// Default implementation that routes through `HRequestManager`.
     func request() async -> HResponse {
         return await HRequestManager.request(request: self)
     }
@@ -104,10 +111,12 @@ public protocol HRequestWithResultProtocol: HRequestBaseRequestProtocol {
 
 /// Default implementation for `HRequestWithResultProtocol`.
 public extension HRequestWithResultProtocol {
+    /// Default implementation that routes through `HRequestManager`.
     func request() async -> HResponseWithResult<Model> {
         return await HRequestManager.request(model: Model.self, request: self)
     }
     
+    /// Default implementation using `JSONDecoder`.
     func parseData<Model: Codable> (data: Data, model: Model.Type) throws -> Model {
         let decoder = JSONDecoder()
         return try decoder.decode(Model.self, from: data)
@@ -149,8 +158,11 @@ public protocol HDeleteRequestProtocol: HRequestWithEmptyResponseProtocol {}
 
 /// Default implementations for `HGetRequestProtocol`.
 public extension HGetRequestProtocol {
+    /// The HTTP method for GET requests is `.get`.
     var httpMethod: HHttpMethod { .get }
+    /// Default: `nil`.
     var queryParameters: [String: String]? { nil }
+    /// Default: `nil`.
     var cacheType: HCache.CacheType? { nil }
     
     /// Creates an async throwing stream that emits responses from cache and/or remote sources.
@@ -213,27 +225,34 @@ public extension HGetRequestProtocol {
 
 /// Default implementations for `HRequestWithBodyProtocol`.
 public extension HRequestWithBodyProtocol {
+    /// Default: `.json`.
     var bodyType: HRequestDataType { .json }
+    /// Default: `nil`.
     var multipartBody: [String: HFormValue]? { nil }
+    /// Default: `nil`.
     var rawBody: Data? { nil }
 }
 
 /// Default implementations for `HPostRequestProtocol`.
 public extension HPostRequestProtocol {
+    /// The HTTP method for POST requests is `.post`.
     var httpMethod: HHttpMethod { .post }
 }
 
 /// Default implementations for `HPatchRequestProtocol`.
 public extension HPatchRequestProtocol {
+    /// The HTTP method for PATCH requests is `.patch`.
     var httpMethod: HHttpMethod { .patch }
 }
 
 /// Default implementations for `HPutRequestProtocol`.
 public extension HPutRequestProtocol {
+    /// The HTTP method for PUT requests is `.put`.
     var httpMethod: HHttpMethod { .put }
 }
 
 /// Default implementations for `HDeleteRequestProtocol`.
 public extension HDeleteRequestProtocol {
+    /// The HTTP method for DELETE requests is `.delete`.
     var httpMethod: HHttpMethod { .delete }
 }

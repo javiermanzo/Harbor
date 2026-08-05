@@ -35,8 +35,11 @@ extension HRequestManagerMonitorProtocol {
 final class HRequestManagerMonitor: HRequestManagerMonitorProtocol {
     /// A cancelled NWPathMonitor cannot be restarted, so the instance is recreated on each start.
     private var monitor: NWPathMonitor?
+    /// The dispatch queue used by the network monitor.
     private let monitorQueue = DispatchQueue(label: "com.harbor.networkMonitor")
+    /// Tracks if the monitor has been started to avoid multiple starts.
     private var isMonitorStarted = false
+    /// Tracks if the monitor has received its first path update.
     private var hasReceivedInitialUpdate = false
 
     /// Starts the network monitor if it is not already running.

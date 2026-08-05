@@ -22,10 +22,15 @@ public enum HMTLSError: Error, Sendable {
 
 /// A Sendable wrapper for SecIdentity
 public struct HMTLSIdentity: Sendable {
+    /// The core client identity.
     public let identity: SecIdentity
     /// Certificate chain extracted from the P12 file (including intermediates), sent alongside the identity.
     public let certificateChain: [SecCertificate]?
 
+    /// Creates a new identity wrapper.
+    /// - Parameters:
+    ///   - identity: The client identity.
+    ///   - certificateChain: The associated certificate chain, if any.
     public init(identity: SecIdentity, certificateChain: [SecCertificate]? = nil) {
         self.identity = identity
         self.certificateChain = certificateChain

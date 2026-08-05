@@ -8,11 +8,9 @@
 import Foundation
 import Security
 
-/**
- Harbor - Protocol-oriented networking framework for Swift.
-
- Features: Caching, Authentication, SSL/TLS Security, Mocking, Async/Await, Retry Logic
- */
+/// Harbor - Protocol-oriented networking framework for Swift.
+///
+/// Features: Caching, Authentication, SSL/TLS Security, Mocking, Async/Await, Retry Logic
 @HRequestManagerActor
 public enum Harbor {}
 

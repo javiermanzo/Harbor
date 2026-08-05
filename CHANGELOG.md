@@ -70,7 +70,7 @@
 - `generateCurl` reads cookies and additional headers from Harbor's actual `URLSession` instead of `URLSession.shared` (#56)
 - False `.noConnection` on the first request in Release (#55)
 - Auth header injection and the 401 retry flow no longer mutate the caller's request object: the authorization header is applied to the built `URLRequest`, which also fixes auth for class-conformed requests and for requests that do not persist `headerParameters`
-- `PKCS12` parsing is now the throwing `PKCS12.parse(...)` with a typed `PKCS12Error` instead of a half-initialized object on failure, and every `SecPKCS12Import` failure status is logged (with its error message) when logging is enabled
+- `PKCS12` parsing is now the throwing `PKCS12.parse(...)` with a typed `PKCS12Error` instead of a half-initialized object on failure, and every `SecPKCS12Import` failure status is logged (with its error message) in debug builds when logging is enabled
 
 ### ⚠️ Breaking Changes
 - `HAuthProviderProtocol.getAuthorizationHeader()` now returns `HAuthorizationHeader?`

@@ -117,7 +117,8 @@ struct MyApp: App {
                 }
                 
                 // Configure mTLS; the password is read from secure storage on demand
-                let mtls = HMTLS(p12FileUrl: certUrl) { try loadCertificatePassword() }
+                let certificatePassword = loadCertificatePassword()
+                let mtls = HMTLS(p12FileUrl: certUrl) { certificatePassword }
                 try await Harbor.setMTLS(mtls)
                 
                 print("mTLS configured successfully")
@@ -169,7 +170,7 @@ case .error(let error):
 let mtls = HMTLS(p12FileUrl: url) { "hardcoded-password" }
 
 // ✅ Good - read from Keychain on demand; the password is not retained by HMTLS
-let mtls = HMTLS(p12FileUrl: url) { try KeychainManager.getCertificatePassword() }
+let mtls = HMTLS(p12FileUrl: url) { KeychainManager.certificatePassword }
 ```
 
 2. **Certificate Rotation**
@@ -775,7 +776,10 @@ func testMTLS() async {
     }
     
     let response = await MTLSTest().request()
-    XCTAssertTrue(response.isSuccess)
+    guard case .success = response else {
+        XCTFail("Expected success but got: \(response)")
+        return
+    }
 }
 ```
 
@@ -786,12 +790,17 @@ func testSSLPinning() async {
     // Test with correct key
     await Harbor.setSSLPinningKeys(["correct-hash"])
     let response1 = await SecureRequest().request()
-    XCTAssertTrue(response1.isSuccess)
+    guard case .success = response1 else {
+        XCTFail("Expected success but got: \(response1)")
+        return
+    }
     
     // Test with wrong key (should fail)
     await Harbor.setSSLPinningKeys(["wrong-hash"])
     let response2 = await SecureRequest().request()
-    XCTAssertTrue(response2.isError)
+    if case .success = response2 {
+        XCTFail("Expected pinning failure but got success")
+    }
 }
 ```
 
@@ -809,7 +818,10 @@ func testAuthentication() async {
     }
     
     let response = await AuthRequest().request()
-    XCTAssertTrue(response.isSuccess)
+    guard case .success = response else {
+        XCTFail("Expected success but got: \(response)")
+        return
+    }
 }
 ```
 

@@ -142,7 +142,7 @@ final class HarborRequestRetryTests: XCTestCase {
     func testRetriesExhaustAllAttemptsOnServerError() async throws {
         // Given a stub that always answers 500 and a request with 2 retries
         HRequestStubProtocol.mode = .status(500)
-        let request = StubbedGetRequest(url: "https://example.com/flaky", retryPolicy: HRetryPolicy(maxAttempts: 3, baseDelay: 0.01, multiplier: 1, jitter: 0...0))
+        let request = StubbedGetRequest(url: "https://example.com/flaky", retryPolicy: HRetryPolicy(maxRetries: 2, baseDelay: 0.01, multiplier: 1, jitter: 0...0))
 
         // When
         let response = await request.request()
@@ -160,7 +160,7 @@ final class HarborRequestRetryTests: XCTestCase {
     func testTransientNetworkErrorIsRetried() async throws {
         // Given a stub that always times out and a request with 1 retry
         HRequestStubProtocol.mode = .error(URLError(.timedOut))
-        let request = StubbedGetRequest(url: "https://example.com/slow", retryPolicy: HRetryPolicy(maxAttempts: 2, baseDelay: 0.01, multiplier: 1, jitter: 0...0))
+        let request = StubbedGetRequest(url: "https://example.com/slow", retryPolicy: HRetryPolicy(maxRetries: 1, baseDelay: 0.01, multiplier: 1, jitter: 0...0))
 
         // When
         let response = await request.request()
@@ -196,7 +196,7 @@ final class HarborRequestRetryTests: XCTestCase {
 
     func testRetryPolicyBackoffProgression() async {
         // Given a policy with no jitter
-        let policy = HRetryPolicy(maxAttempts: 4, baseDelay: 0.5, multiplier: 2, jitter: 0...0)
+        let policy = HRetryPolicy(maxRetries: 3, baseDelay: 0.5, multiplier: 2, jitter: 0...0)
 
         // Then the delay doubles on every retry
         XCTAssertEqual(policy.delay(forRetry: 1), 0.5, accuracy: 0.0001)
@@ -206,7 +206,7 @@ final class HarborRequestRetryTests: XCTestCase {
 
     func testRetryPolicyJitterStaysWithinRange() async {
         // Given
-        let policy = HRetryPolicy(maxAttempts: 2, baseDelay: 0.3, multiplier: 1, jitter: 0...0.1)
+        let policy = HRetryPolicy(maxRetries: 1, baseDelay: 0.3, multiplier: 1, jitter: 0...0.1)
 
         // Then
         for _ in 0 ..< 100 {
@@ -218,7 +218,7 @@ final class HarborRequestRetryTests: XCTestCase {
 
     func testRetryPolicyDelayIsClamped() async {
         // Given a policy whose backoff would exceed the maximum
-        let policy = HRetryPolicy(maxAttempts: 3, baseDelay: 100, multiplier: 10, jitter: 0...0)
+        let policy = HRetryPolicy(maxRetries: 2, baseDelay: 100, multiplier: 10, jitter: 0...0)
 
         // Then
         XCTAssertEqual(policy.delay(forRetry: 2), HRetryPolicy.maxDelay, accuracy: 0.0001)
@@ -226,10 +226,10 @@ final class HarborRequestRetryTests: XCTestCase {
 
     func testRetryPolicyMaxAttemptsIsAtLeastOne() async {
         // Given
-        let policy = HRetryPolicy(maxAttempts: 0)
+        let policy = HRetryPolicy(maxRetries: -1)
 
         // Then
-        XCTAssertEqual(policy.maxAttempts, 1)
+        XCTAssertEqual(policy.maxRetries, 0)
     }
 
     // MARK: - Auth Retry Guard

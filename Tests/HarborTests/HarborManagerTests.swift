@@ -81,7 +81,7 @@ final class HarborManagerTests: XCTestCase {
         await Harbor.register(mock: mock)
         
         // When
-        let service = MockGetRequestWithRetries<MockModel>(retryPolicy: HRetryPolicy(maxAttempts: 3), url: "https://api.example.com/test")
+        let service = MockGetRequestWithRetries<MockModel>(retryPolicy: HRetryPolicy(maxRetries: 2), url: "https://api.example.com/test")
         let response = await service.request()
         
         // Then
@@ -114,7 +114,7 @@ final class HarborManagerTests: XCTestCase {
         await Harbor.register(mock: mock)
         
         // When
-        let service = MockGetRequestWithRetries<MockModel>(retryPolicy: HRetryPolicy(maxAttempts: 3), url: "https://api.example.com/test")
+        let service = MockGetRequestWithRetries<MockModel>(retryPolicy: HRetryPolicy(maxRetries: 2), url: "https://api.example.com/test")
         let response = await service.request()
         
         // Then

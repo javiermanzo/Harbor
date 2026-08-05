@@ -13,8 +13,8 @@ public struct HRetryPolicy: Sendable {
     /// Upper bound for a single backoff delay, in seconds.
     public static let maxDelay: TimeInterval = 60
 
-    /// Total number of attempts, including the initial one. A value of 1 disables retries.
-    public var maxAttempts: Int
+    /// Maximum number of retries to perform after the initial attempt fails. A value of 0 disables retries.
+    public var maxRetries: Int
     /// Delay before the first retry, in seconds. Subsequent retries scale it by `multiplier`.
     public var baseDelay: TimeInterval
     /// Factor applied to the backoff delay after each failed attempt.
@@ -24,12 +24,12 @@ public struct HRetryPolicy: Sendable {
 
     /// Creates a retry policy.
     /// - Parameters:
-    ///   - maxAttempts: Total number of attempts including the initial one. Defaults to 1 (no retries).
+    ///   - maxRetries: Maximum number of retries after initial failure. Defaults to 0 (no retries).
     ///   - baseDelay: Delay before the first retry in seconds. Defaults to 0.3. Negative values are clamped to 0.
     ///   - multiplier: Backoff growth factor. Defaults to 2.
     ///   - jitter: Random extra delay range in seconds. Defaults to 0...0.1. Inverted ranges are normalized.
-    public init(maxAttempts: Int = 1, baseDelay: TimeInterval = 0.3, multiplier: Double = 2, jitter: ClosedRange<TimeInterval> = 0...0.1) {
-        self.maxAttempts = max(1, maxAttempts)
+    public init(maxRetries: Int = 0, baseDelay: TimeInterval = 0.3, multiplier: Double = 2.0, jitter: ClosedRange<TimeInterval> = 0...0.1) {
+        self.maxRetries = max(0, maxRetries)
         self.baseDelay = max(0, baseDelay)
         self.multiplier = multiplier
         // Normalize inverted jitter ranges so TimeInterval.random(in:) cannot trap.

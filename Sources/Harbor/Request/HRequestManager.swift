@@ -31,7 +31,7 @@ enum HRequestManager {
 extension HRequestManager {
     /// Executes a request that expects a typed model response.
     static func request<Model: HModel, Request: HRequestWithResultProtocol>(model: Model.Type, request: Request) async -> HResponseWithResult<Model> {
-        let policy = request.retryPolicy
+        let retryPolicy = request.retryPolicy
 
         if let mock = HMocker.mock(request: request), HConfig.shared.mocksEnabled {
             if let delay = mock.delay {
@@ -47,7 +47,7 @@ extension HRequestManager {
             let mockResponse = HTTPURLResponse(url: mockURL(for: request), statusCode: mock.statusCode, httpVersion: nil, headerFields: mock.headers)
             return await runAttempts(
                 request: request,
-                policy: policy,
+                retryPolicy: retryPolicy,
                 errorResponse: { .error($0) }
             ) { currentRequest, canRetry in
                 return await processResponse(model: model, request: currentRequest, statusCode: mock.statusCode, data: data, httpResponse: mockResponse, canRetry: canRetry)
@@ -71,7 +71,7 @@ extension HRequestManager {
         case .success(let authedRequest):
             return await runAttempts(
                 request: authedRequest,
-                policy: policy,
+                retryPolicy: retryPolicy,
                 errorResponse: { .error($0) }
             ) { currentRequest, canRetry in
                 return await executeOnce(model: model, request: currentRequest, canRetry: canRetry)
@@ -203,7 +203,7 @@ extension HRequestManager {
 extension HRequestManager {
     /// Executes a request that expects an empty response.
     static func request<Request: HRequestWithEmptyResponseProtocol>(request: Request) async -> HResponse {
-        let policy = request.retryPolicy
+        let retryPolicy = request.retryPolicy
 
         if let mock = HMocker.mock(request: request), HConfig.shared.mocksEnabled {
             if let delay = mock.delay {
@@ -218,7 +218,7 @@ extension HRequestManager {
             let data = mock.jsonResponse?.data(using: .utf8) ?? Data()
             return await runAttempts(
                 request: request,
-                policy: policy,
+                retryPolicy: retryPolicy,
                 errorResponse: { .error($0) }
             ) { currentRequest, canRetry in
                 return await processResponse(request: currentRequest, statusCode: mock.statusCode, data: data, canRetry: canRetry)
@@ -238,7 +238,7 @@ extension HRequestManager {
         case .success(let authedRequest):
             return await runAttempts(
                 request: authedRequest,
-                policy: policy,
+                retryPolicy: retryPolicy,
                 errorResponse: { .error($0) }
             ) { currentRequest, canRetry in
                 return await executeOnce(request: currentRequest, canRetry: canRetry)
@@ -337,14 +337,14 @@ extension HRequestManager {
     /// so the executor closure receives the typed request without any existential cast.
     private static func runAttempts<TypedRequest: HRequestBaseRequestProtocol & Sendable, Response: Sendable>(
         request: TypedRequest,
-        policy: HRetryPolicy?,
+        retryPolicy: HRetryPolicy?,
         errorResponse: @escaping (HRequestError) -> Response,
         executeAttempt: @escaping (TypedRequest, Bool) async -> HAttemptOutcome<Response>
     ) async -> Response {
         var currentRequest = request
         var attempt = 1
         var authRetriesRemaining = maxAuthRetries
-        let maxAttempts = policy?.maxAttempts ?? 1
+        let maxRetries = retryPolicy?.maxRetries ?? 0
 
         while true {
             guard !Task.isCancelled else {
@@ -353,11 +353,11 @@ extension HRequestManager {
                 return errorResponse(hError)
             }
 
-            if attempt > 1, let policy {
-                await sleep(seconds: policy.delay(forRetry: attempt - 1))
+            if attempt > 1, let retryPolicy {
+                await sleep(seconds: retryPolicy.delay(forRetry: attempt - 1))
             }
 
-            let canRetry = attempt < maxAttempts
+            let canRetry = attempt <= maxRetries
 
             switch await executeAttempt(currentRequest, canRetry) {
             case .finish(let response):

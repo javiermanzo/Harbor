@@ -122,6 +122,42 @@ final class HURLSessionDelegateTests: XCTestCase {
         XCTAssertNil(result.credential)
     }
 
+    func testAsyncPinningEvaluationAnswersWithCredentialForValidPin() throws {
+        // Given a trusted server trust whose certificate matches the configured pin
+        let serverTrust = try makeServerTrust()
+        let delegate = HURLSessionDelegate(mTLSIdentity: nil, sslPinningKeys: [testPin])
+
+        let expectation = XCTestExpectation(description: "Async pinning evaluation answers the challenge")
+
+        // When the pinning flow evaluates the trust and answers through the completion handler
+        delegate.evaluateAndMatchPins(serverTrust: serverTrust, sslPinningKeys: [testPin]) { disposition, credential in
+            // Then the matching pin uses the credential
+            XCTAssertEqual(disposition, .useCredential)
+            XCTAssertNotNil(credential)
+            expectation.fulfill()
+        }
+
+        wait(for: [expectation], timeout: 2.0)
+    }
+
+    func testAsyncPinningEvaluationCancelsForUntrustedChain() throws {
+        // Given a server trust that does not evaluate as valid and a pin matching its certificate
+        let serverTrust = try makeUntrustedServerTrust()
+        let delegate = HURLSessionDelegate(mTLSIdentity: nil, sslPinningKeys: [testPin])
+
+        let expectation = XCTestExpectation(description: "Async pinning evaluation cancels the challenge")
+
+        // When
+        delegate.evaluateAndMatchPins(serverTrust: serverTrust, sslPinningKeys: [testPin]) { disposition, credential in
+            // Then the challenge is cancelled without matching pins against the untrusted chain
+            XCTAssertEqual(disposition, .cancelAuthenticationChallenge)
+            XCTAssertNil(credential)
+            expectation.fulfill()
+        }
+
+        wait(for: [expectation], timeout: 2.0)
+    }
+
     // MARK: - Per-Host SSL Pinning Tests
 
     func testSSLPinningIsEnforcedForConfiguredHost() throws {

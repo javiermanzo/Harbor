@@ -41,12 +41,9 @@ final class HURLSessionDelegate: NSObject, URLSessionDelegate, @unchecked Sendab
             // Host-scoped pins take precedence; hosts without scoped pins use the global
             // ones. When neither applies, the host is not pinned and gets default handling.
             let pinningKeys = sslPinningKeysByHost?[Self.normalizedHost(challenge.protectionSpace.host)] ?? sslPinningKeys
-            if let pinningKeys, let result = processSSLPinning(challenge, sslPinningKeys: pinningKeys) {
-                return completionHandler(result.disposition, result.credential)
-            }
-            // If SSL pinning applies to this host but validation fails, reject
-            if pinningKeys != nil {
-                return completionHandler(.cancelAuthenticationChallenge, nil)
+            if let pinningKeys {
+                processSSLPinning(challenge, sslPinningKeys: pinningKeys, completionHandler: completionHandler)
+                return
             }
         }
 
@@ -79,13 +76,51 @@ final class HURLSessionDelegate: NSObject, URLSessionDelegate, @unchecked Sendab
         return HChallengeResult(disposition: .useCredential, credential: credential)
     }
 
-    private func processSSLPinning(_ challenge: URLAuthenticationChallenge, sslPinningKeys: [String]) -> HChallengeResult? {
+    /// Concurrent queue for server trust evaluation, keeping the potentially slow
+    /// evaluation off the session's serial delegate queue.
+    private static let trustEvaluationQueue = DispatchQueue(label: "harbor.ssl.trust-evaluation", qos: .userInitiated, attributes: .concurrent)
+
+    /// Answers a server-trust challenge against the configured pins. A challenge without
+    /// a server trust is cancelled; otherwise the trust is evaluated off the session's
+    /// serial delegate queue before matching the pins.
+    private func processSSLPinning(_ challenge: URLAuthenticationChallenge, sslPinningKeys: [String], completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
         guard challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodServerTrust,
               let serverTrust = challenge.protectionSpace.serverTrust else {
-            return nil
+            return completionHandler(.cancelAuthenticationChallenge, nil)
         }
 
-        return matchPins(serverTrust: serverTrust, sslPinningKeys: sslPinningKeys)
+        evaluateAndMatchPins(serverTrust: serverTrust, sslPinningKeys: sslPinningKeys, completionHandler: completionHandler)
+    }
+
+    /// Evaluates the server trust asynchronously and answers with the pin-matching result:
+    /// `.cancelAuthenticationChallenge` when the trust chain is invalid, otherwise the
+    /// outcome of `matchPins(serverTrust:sslPinningKeys:)`. The synchronous evaluation
+    /// inside `matchPins` reuses the cached result of the asynchronous one.
+    func evaluateAndMatchPins(serverTrust: SecTrust, sslPinningKeys: [String], completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
+        let context = TrustEvaluationContext(serverTrust: serverTrust, completionHandler: completionHandler)
+
+        // SecTrustEvaluateAsyncWithError requires being invoked on the queue it is given.
+        Self.trustEvaluationQueue.async {
+            SecTrustEvaluateAsyncWithError(context.serverTrust, Self.trustEvaluationQueue) { serverTrust, success, error in
+                guard success else {
+                    if let error {
+                        Self.logger.log("SSL Trust Evaluation Failed", error: error, level: .error)
+                    }
+                    return context.completionHandler(.cancelAuthenticationChallenge, nil)
+                }
+
+                let result = self.matchPins(serverTrust: serverTrust, sslPinningKeys: sslPinningKeys)
+                context.completionHandler(result.disposition, result.credential)
+            }
+        }
+    }
+
+    /// Boxes the values handed to the trust-evaluation queue. Marked `@unchecked Sendable`:
+    /// a `SecTrust` is safe to evaluate from any queue and the challenge completion
+    /// handler may be invoked from any queue.
+    private struct TrustEvaluationContext: @unchecked Sendable {
+        let serverTrust: SecTrust
+        let completionHandler: (URLSession.AuthChallengeDisposition, URLCredential?) -> Void
     }
 
     /// Evaluates the server trust and checks its certificate chain against the configured

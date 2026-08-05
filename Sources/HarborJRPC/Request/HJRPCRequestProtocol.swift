@@ -27,16 +27,8 @@ public protocol HJRPCRequestProtocol: Sendable {
     /// Whether this request requires authentication. Default: `false`.
     var needsAuth: Bool { get }
 
-    /// Optional number of retry attempts for failed requests. Default: `nil`.
-    ///
-    /// - Warning: When both `retries` and `retryPolicy` are set, `retryPolicy` takes
-    ///   precedence and `retries` is silently ignored. Prefer `retryPolicy` for new code;
-    ///   this property may be removed in a future major release.
-    @available(*, deprecated, message: "Use retryPolicy instead.")
-    var retries: Int? { get }
-
-    /// Optional retry policy (backoff and jitter) for failed requests. Default: `nil`
-    /// (derived from `retries` and the configured default policy).
+    /// Optional retry policy (backoff and jitter) for failed requests. Default: `nil`.
+    /// When `nil`, the global `HConfig.shared.defaultRetryPolicy` is used.
     var retryPolicy: HRetryPolicy? { get }
 
     /// Additional HTTP headers to include in the request. Default: `nil`.
@@ -71,8 +63,6 @@ public protocol HJRPCRequestProtocol: Sendable {
 /// Default property implementations for `HJRPCRequestProtocol`.
 public extension HJRPCRequestProtocol {
     var needsAuth: Bool { false }
-    @available(*, deprecated, message: "Use retryPolicy instead.")
-    var retries: Int? { nil }
     var retryPolicy: HRetryPolicy? { nil }
     var headers: [String: String]? { nil }
     var parameters: HJRPCParams? { nil }
@@ -129,7 +119,7 @@ extension HJRPCRequestProtocol {
 
         let debugType: HDebugRequestType = (self as? HDebugRequestProtocol)?.debugType ?? .none
 
-        return HJRPCRequestWrapper<RawModel>(debugType: debugType, jsonBody: jsonBody, jrpcID: jrpcID, url: HJRPCRequestManager.config.url, needsAuth: needsAuth, retries: retries, retryPolicy: retryPolicy, pathParameters: nil, headerParameters: headers)
+        return HJRPCRequestWrapper<RawModel>(debugType: debugType, jsonBody: jsonBody, jrpcID: jrpcID, url: HJRPCRequestManager.config.url, needsAuth: needsAuth, retryPolicy: retryPolicy, pathParameters: nil, headerParameters: headers)
     }
 }
 
@@ -145,8 +135,6 @@ struct HJRPCRequestWrapper<RawModel: HModel>: Sendable, HPostRequestProtocol, HR
     let jrpcID: HJRPCId?
     let url: String
     let needsAuth: Bool
-    @available(*, deprecated, message: "Use retryPolicy instead.")
-    var retries: Int?
     var retryPolicy: HRetryPolicy?
     let pathParameters: [String: String]?
     var headerParameters: [String: String]?

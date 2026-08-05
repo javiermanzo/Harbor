@@ -28,8 +28,6 @@ struct HJRPCBatchWrapper: Sendable, HPostRequestProtocol, HRequestWithResultProt
     let requestIDs: [HJRPCId?]
     let url: String
     let needsAuth: Bool
-    @available(*, deprecated, message: "Use retryPolicy instead.")
-    var retries: Int?
     var retryPolicy: HRetryPolicy?
     let pathParameters: [String: String]?
     var headerParameters: [String: String]?

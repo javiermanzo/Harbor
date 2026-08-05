@@ -49,16 +49,8 @@ public protocol HRequestBaseRequestProtocol: Sendable {
     var httpMethod: HHttpMethod { get }
     /// Whether this request requires authentication. Default: `false`.
     var needsAuth: Bool { get }
-    /// Optional number of retry attempts for failed requests. Default: `nil`.
-    /// Ignored when `retryPolicy` is set.
-    ///
-    /// - Warning: When both `retries` and `retryPolicy` are set, `retryPolicy` takes
-    ///   precedence and `retries` is silently ignored. Prefer `retryPolicy` for new code;
-    ///   this property may be removed in a future major release.
-    @available(*, deprecated, message: "Use retryPolicy instead.")
-    var retries: Int? { get set }
-    /// Optional retry policy (backoff and jitter) for failed requests. Default: `nil`
-    /// (derived from `retries` and the configured default policy).
+    /// Optional retry policy (backoff and jitter) for failed requests. Default: `nil`.
+    /// When `nil`, the global `HConfig.shared.defaultRetryPolicy` is used.
     var retryPolicy: HRetryPolicy? { get }
     /// Path parameters to be substituted in the URL. Default: `nil`.
     var pathParameters: [String: String]? { get }
@@ -72,9 +64,6 @@ public protocol HRequestBaseRequestProtocol: Sendable {
 public extension HRequestBaseRequestProtocol {
     /// Default: `false`.
     var needsAuth: Bool { false }
-    /// Default: `nil`.
-    @available(*, deprecated, message: "Use retryPolicy instead.")
-    var retries: Int? { get { nil } set { } }
     /// Default: `nil`.
     var retryPolicy: HRetryPolicy? { nil }
     /// Default: `nil`.

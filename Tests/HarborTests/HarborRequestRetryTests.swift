@@ -98,14 +98,12 @@ private struct StubbedGetRequest: HGetRequestProtocol {
     typealias Model = MockModel
 
     var url: String
-    var retries: Int?
     var retryPolicy: HRetryPolicy?
     var headerParameters: [String: String]?
     var needsAuth: Bool = false
 
-    init(url: String, retries: Int? = nil, retryPolicy: HRetryPolicy? = nil, headerParameters: [String: String]? = nil, needsAuth: Bool = false) {
+    init(url: String, retryPolicy: HRetryPolicy? = nil, headerParameters: [String: String]? = nil, needsAuth: Bool = false) {
         self.url = url
-        self.retries = retries
         self.retryPolicy = retryPolicy
         self.headerParameters = headerParameters
         self.needsAuth = needsAuth
@@ -146,7 +144,7 @@ final class HarborRequestRetryTests: XCTestCase {
     func testRetriesExhaustAllAttemptsOnServerError() async throws {
         // Given a stub that always answers 500 and a request with 2 retries
         HRequestStubProtocol.mode = .status(500)
-        let request = StubbedGetRequest(url: "https://example.com/flaky", retries: 2)
+        let request = StubbedGetRequest(url: "https://example.com/flaky", retryPolicy: HRetryPolicy(maxAttempts: 3))
 
         // When
         let response = await request.request()
@@ -164,7 +162,7 @@ final class HarborRequestRetryTests: XCTestCase {
     func testTransientNetworkErrorIsRetried() async throws {
         // Given a stub that always times out and a request with 1 retry
         HRequestStubProtocol.mode = .error(URLError(.timedOut))
-        let request = StubbedGetRequest(url: "https://example.com/slow", retries: 1)
+        let request = StubbedGetRequest(url: "https://example.com/slow", retryPolicy: HRetryPolicy(maxAttempts: 2))
 
         // When
         let response = await request.request()

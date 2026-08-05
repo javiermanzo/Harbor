@@ -447,21 +447,12 @@ extension HRequestManager {
 
     /// Effective retry policy for a request, in priority order:
     /// 1. The request's own `retryPolicy` when set.
-    /// 2. A policy built from the request's `retries` (legacy) using the backoff parameters
-    ///    of `HConfig.shared.defaultRetryPolicy` (its `maxAttempts` is ignored in this branch).
-    /// 3. `HConfig.shared.defaultRetryPolicy` as-is, including its `maxAttempts`.
+    /// 2. `HConfig.shared.defaultRetryPolicy` as-is, including its `maxAttempts`.
     private static func effectiveRetryPolicy(for request: any HRequestBaseRequestProtocol) -> HRetryPolicy {
         if let retryPolicy = request.retryPolicy {
             return retryPolicy
         }
-        let defaults = HConfig.shared.defaultRetryPolicy
-        if let retries = request.retries {
-            return HRetryPolicy(maxAttempts: retries + 1,
-                                baseDelay: defaults.baseDelay,
-                                multiplier: defaults.multiplier,
-                                jitter: defaults.jitter)
-        }
-        return defaults
+        return HConfig.shared.defaultRetryPolicy
     }
 
     /// Sleeps for the given number of seconds. Negative values are treated as zero and the

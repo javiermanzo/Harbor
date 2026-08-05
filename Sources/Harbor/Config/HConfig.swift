@@ -55,7 +55,6 @@ struct HConfig: Sendable {
     /// Default timeout interval for requests. Default is 15 seconds.
     var timeoutInterval: TimeInterval = 15
     /// Backoff and jitter defaults used to build the effective retry policy of requests that
-    /// only specify `retries`. The number of attempts always comes from the request itself.
     var defaultRetryPolicy: HRetryPolicy = HRetryPolicy()
     /// Whether DEBUG/simulator builds assume network availability instead of trusting the
     /// connectivity monitor. Default is true; set to false to exercise `.noConnection` flows in debug.

@@ -56,9 +56,17 @@ extension HRequestManager {
         }
 
         if !connectivityMonitor.isConnectedToNetwork() {
-            if let getRequest = request as? any HGetRequestProtocol,
-               let stale = await getRequest.staleCacheOnError(authHeader: await cacheAuthHeader(for: request)) as? Model {
-                return .success(stale)
+            if let getRequest = request as? any HGetRequestProtocol {
+                // Two-step lookup: the first pass skips the auth provider, so entries not
+                // keyed by credential (the common case) are served without invoking provider
+                // code (e.g. a token refresh) while offline; only on a miss is the header
+                // resolved for credential-keyed (Vary: Authorization) variants.
+                if let stale = await getRequest.staleCacheOnErrorSkippingAuthResolution() as? Model {
+                    return .success(stale)
+                }
+                if let stale = await getRequest.staleCacheOnError(authHeader: await cacheAuthHeader(for: request)) as? Model {
+                    return .success(stale)
+                }
             }
             let hError: HRequestError = .noConnection
             await logError(hError, request: request)

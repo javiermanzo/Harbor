@@ -499,4 +499,72 @@ final class HarborRequestManagerAuthTests: XCTestCase {
         let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: ["Vary": "Authorization"])
         await request.saveCache(data, response: response, authHeader: authHeader)
     }
+
+    // MARK: - Offline Stale Cache Tests
+
+    func testOfflineStaleCacheHitDoesNotConsultTheAuthProvider() async throws {
+        // Given an offline monitor, a stale servable entry without Vary, and a provider
+        // configured only after storing (so the store itself cannot consult it)
+        HRequestManager.connectivityMonitor = FakeConnectivityMonitor(connected: false)
+        defer { HRequestManager.connectivityMonitor = HRequestManagerMonitor() }
+        await Harbor.clearAllCache()
+        Harbor.setDefaultCacheType(.custom(HCache.Configuration(expirationTime: .oneHour)))
+        Harbor.setAuthProvider(nil)
+
+        let request = ClassAuthGetRequest(url: "https://example.com/offline-stale")
+        try await storeStaleEntry(Data("{\"quote\":\"stale\"}".utf8), for: request, headers: ["Cache-Control": "max-age=0, stale-if-error=300"])
+
+        let provider = SpyAuthProvider(headers: [HAuthorizationHeader(key: "Authorization", value: "Bearer token_A")])
+        Harbor.setAuthProvider(provider)
+
+        // When
+        let response = await request.request()
+
+        // Then the stale body is served without consulting the provider
+        guard case .success(let model) = response else {
+            XCTFail("Expected the stale body but got: \(response)")
+            return
+        }
+        XCTAssertEqual(model.quote, "stale")
+        XCTAssertEqual(provider.headerCallCount, 0)
+    }
+
+    func testOfflineStaleCacheMissResolvesAuthHeaderAndRetriesLookup() async throws {
+        // Given an offline monitor and a stale servable Vary: Authorization entry stored
+        // under a credential
+        HRequestManager.connectivityMonitor = FakeConnectivityMonitor(connected: false)
+        defer { HRequestManager.connectivityMonitor = HRequestManagerMonitor() }
+        await Harbor.clearAllCache()
+        Harbor.setDefaultCacheType(.custom(HCache.Configuration(expirationTime: .oneHour)))
+        Harbor.setAuthProvider(nil)
+
+        let token = HAuthorizationHeader(key: "Authorization", value: "Bearer token_A")
+        let request = ClassAuthGetRequest(url: "https://example.com/offline-stale-vary")
+        try await storeStaleEntry(Data("{\"quote\":\"stale-vary\"}".utf8),
+                                  for: request,
+                                  headers: ["Cache-Control": "max-age=0, stale-if-error=300", "Vary": "Authorization"],
+                                  authHeader: token)
+
+        let provider = SpyAuthProvider(headers: [token])
+        Harbor.setAuthProvider(provider)
+
+        // When: the first lookup misses (no credential), so the header is resolved once
+        // and the second lookup hits
+        let response = await request.request()
+
+        // Then
+        guard case .success(let model) = response else {
+            XCTFail("Expected the stale body but got: \(response)")
+            return
+        }
+        XCTAssertEqual(model.quote, "stale-vary")
+        XCTAssertEqual(provider.headerCallCount, 1)
+    }
+
+    /// Stores a body as an immediately expired, stale servable cache entry for the given request.
+    private func storeStaleEntry(_ data: Data, for request: ClassAuthGetRequest, headers: [String: String], authHeader: HAuthorizationHeader? = nil) async throws {
+        let url = try XCTUnwrap(URL(string: request.url))
+        let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: headers)
+        await request.saveCache(data, response: response, authHeader: authHeader)
+    }
 }

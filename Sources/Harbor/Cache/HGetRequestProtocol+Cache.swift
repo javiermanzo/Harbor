@@ -123,6 +123,17 @@ public extension HGetRequestProtocol {
     }
 }
 
+extension HGetRequestProtocol {
+    /// Returns an expired cached body while its `stale-if-error` window still allows serving it,
+    /// keyed only by the headers already present on the request: the auth provider is not
+    /// consulted. Only works with custom cache type.
+    func staleCacheOnErrorSkippingAuthResolution() async -> Model? {
+        guard case .custom = await effectiveCacheType(),
+              let cacheKey = await cacheKey() else { return nil }
+        return await HCache.Manager.shared.getStaleOnErrorData(forKey: cacheKey, type: Model.self, requestHeaders: await effectiveRequestHeaders(authHeader: nil, resolvingAuthHeader: false))
+    }
+}
+
 private extension HGetRequestProtocol {
 
     /// Resolves the effective cache type for this request.
@@ -147,25 +158,26 @@ private extension HGetRequestProtocol {
     /// evaluate `Vary` consistently with what is actually sent on the wire. When `authHeader`
     /// is nil and the request needs auth, the header is resolved from the configured auth
     /// provider so the vary-key matches the one the network flow stores; without a provider
-    /// the lookup proceeds without a header. The credential is only used for vary-key
-    /// computation; it is never logged.
-    func effectiveRequestHeaders(authHeader: HAuthorizationHeader?) async -> [String: String]? {
+    /// the lookup proceeds without a header. Pass `resolvingAuthHeader: false` to skip the
+    /// provider entirely. The credential is only used for vary-key computation; it is never
+    /// logged.
+    func effectiveRequestHeaders(authHeader: HAuthorizationHeader?, resolvingAuthHeader: Bool = true) async -> [String: String]? {
         var headers = await HConfig.shared.defaultHeaderParameters ?? [:]
         if let own = headerParameters {
             headers.merge(own) { _, new in new }
         }
-        if let authHeader = await resolveAuthHeader(authHeader) {
+        if let authHeader = await resolveAuthHeader(authHeader, enabled: resolvingAuthHeader) {
             headers[authHeader.key] = authHeader.value
         }
         return headers.isEmpty ? nil : headers
     }
 
     /// Returns the given authorization header, or resolves it from the configured auth
-    /// provider when the request needs auth. Never fails: without a provider the cache
-    /// path proceeds without a header.
-    func resolveAuthHeader(_ authHeader: HAuthorizationHeader?) async -> HAuthorizationHeader? {
+    /// provider when the request needs auth and resolution is enabled. Never fails: without
+    /// a provider the cache path proceeds without a header.
+    func resolveAuthHeader(_ authHeader: HAuthorizationHeader?, enabled: Bool = true) async -> HAuthorizationHeader? {
         if let authHeader { return authHeader }
-        guard needsAuth else { return nil }
+        guard enabled, needsAuth else { return nil }
         return await HConfig.shared.authProvider?.getAuthorizationHeader()
     }
 

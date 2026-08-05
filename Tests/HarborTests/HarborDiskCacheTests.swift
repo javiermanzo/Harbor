@@ -36,7 +36,7 @@ final class HarborDiskCacheTests: XCTestCase {
         await HCache.Manager.shared.waitForPendingDiskOperations()
 
         // 3. Verify File Exists
-        let hash = key.sha256Hash
+        let hash = key.sha256Hex
         let cacheDir = HCache.Manager.shared.cacheDirectory
 
         // New format: .cache extension
@@ -61,7 +61,7 @@ final class HarborDiskCacheTests: XCTestCase {
 
         // 1. Manually write file to disk (simulating previous session) - use URL directly as key
         let key = request.url
-        let hash = key.sha256Hash
+        let hash = key.sha256Hex
         let cacheDir = HCache.Manager.shared.cacheDirectory
         let fileURL = cacheDir.appendingPathComponent(hash).appendingPathExtension("cache")
 
@@ -83,7 +83,7 @@ final class HarborDiskCacheTests: XCTestCase {
         let config = HCache.Configuration()
 
         let key = request.url
-        let hash = key.sha256Hash
+        let hash = key.sha256Hex
         let cacheDir = HCache.Manager.shared.cacheDirectory
         let fileURL = cacheDir.appendingPathComponent(hash).appendingPathExtension("cache")
 
@@ -109,7 +109,7 @@ final class HarborDiskCacheTests: XCTestCase {
         await HCache.Manager.shared.waitForPendingDiskOperations()
 
         // 3. Verify NOT in disk
-        let hash = key.sha256Hash
+        let hash = key.sha256Hex
         let fileURL = HCache.Manager.shared.cacheDirectory.appendingPathComponent(hash).appendingPathExtension("cache")
 
         XCTAssertFalse(FileManager.default.fileExists(atPath: fileURL.path), "Should not persist files larger than limit")
@@ -127,7 +127,7 @@ final class HarborDiskCacheTests: XCTestCase {
         await HCache.Manager.shared.waitForPendingDiskOperations()
 
         // 3. Verify IS in disk
-        let hash = key.sha256Hash
+        let hash = key.sha256Hex
         let fileURL = HCache.Manager.shared.cacheDirectory.appendingPathComponent(hash).appendingPathExtension("cache")
 
         XCTAssertTrue(FileManager.default.fileExists(atPath: fileURL.path), "Should persist files smaller than custom limit")
@@ -154,7 +154,7 @@ final class HarborDiskCacheTests: XCTestCase {
 
         // Pin deterministic modification dates instead of relying on write-order mtimes
         let cacheDir = HCache.Manager.shared.cacheDirectory
-        let fileURLs = keys.map { cacheDir.appendingPathComponent($0.sha256Hash).appendingPathExtension("cache") }
+        let fileURLs = keys.map { cacheDir.appendingPathComponent($0.sha256Hex).appendingPathExtension("cache") }
         let sentinelDates = [
             Date().addingTimeInterval(-3600),
             Date().addingTimeInterval(-1800),
@@ -169,7 +169,7 @@ final class HarborDiskCacheTests: XCTestCase {
         await HCache.Manager.shared.storeData(entryData, forKey: extraKey, config: config, response: nil)
         await HCache.Manager.shared.waitForPendingDiskOperations()
 
-        let extraURL = cacheDir.appendingPathComponent(extraKey.sha256Hash).appendingPathExtension("cache")
+        let extraURL = cacheDir.appendingPathComponent(extraKey.sha256Hex).appendingPathExtension("cache")
 
         XCTAssertFalse(FileManager.default.fileExists(atPath: fileURLs[0].path), "Oldest entry should be evicted to fit the disk capacity")
         XCTAssertTrue(FileManager.default.fileExists(atPath: fileURLs[1].path), "Middle entry should be kept")
@@ -206,7 +206,7 @@ final class HarborDiskCacheTests: XCTestCase {
 
     func testLegacyFilesAreRemovedOnStore() async throws {
         let key = "https://disk.test/legacy"
-        let hash = key.sha256Hash
+        let hash = key.sha256Hex
         let cacheDir = HCache.Manager.shared.cacheDirectory
 
         // Legacy format: data file without extension plus a .meta sidecar

@@ -84,7 +84,7 @@ private final class SpyAuthProvider: HAuthProviderProtocol {
     private(set) var headerCallCount = 0
     private(set) var authFailedCount = 0
 
-    func getAuthorizationHeader() async -> HAuthorizationHeader {
+    func getAuthorizationHeader() async -> HAuthorizationHeader? {
         headerCallCount += 1
         return HAuthorizationHeader(key: "Authorization", value: "Bearer token_\(headerCallCount)")
     }
@@ -111,6 +111,7 @@ private struct StubbedGetRequest: HGetRequestProtocol {
 }
 
 /// Request that needs auth but relies on the default `headerParameters`, which does not persist values.
+/// The authorization header is applied to the built URLRequest, so the flow works anyway.
 private struct HeaderlessAuthGetRequest: HGetRequestProtocol {
     typealias Model = MockModel
 
@@ -257,24 +258,27 @@ final class HarborRequestRetryTests: XCTestCase {
         }
     }
 
-    func testAuthInjectionFailsLoudlyWhenRequestCannotStoreHeaders() async throws {
+    func testAuthFlowWorksWhenRequestDoesNotPersistHeaders() async throws {
         // Given a valid provider and a request whose headerParameters are not persisted
         let provider = SpyAuthProvider()
         await Harbor.setAuthProvider(provider)
-        HRequestStubProtocol.mode = .status(200)
+        HRequestStubProtocol.mode = .status(401)
 
         let request = HeaderlessAuthGetRequest()
 
         // When
         let response = await request.request()
 
-        // Then the request fails before hitting the network instead of going out unauthenticated
-        guard case .error(let error) = response, case .malformedRequest = error else {
-            XCTFail("Expected .malformedRequest but got: \(response)")
+        // Then the request goes through the full auth flow (the header is applied to the
+        // URLRequest, not to the request type): 401, one refresh, then .authNeeded
+        XCTAssertEqual(HRequestStubProtocol.startLoadingCount, HRequestManager.maxAuthRetries + 1)
+        XCTAssertEqual(provider.headerCallCount, HRequestManager.maxAuthRetries + 1)
+        XCTAssertEqual(provider.authFailedCount, 1)
+
+        guard case .error(let error) = response, case .authNeeded = error else {
+            XCTFail("Expected .authNeeded but got: \(response)")
             return
         }
-        XCTAssertEqual(provider.headerCallCount, 1)
-        XCTAssertEqual(HRequestStubProtocol.startLoadingCount, 0)
     }
 
     // MARK: - URLSession Caching

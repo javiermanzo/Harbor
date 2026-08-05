@@ -39,9 +39,9 @@ final class HURLSessionDelegateTests: XCTestCase {
         wait(for: [expectation], timeout: 1.0)
     }
 
-    func testMTLSChallengeSendsCertificateChain() throws {
+    func testMTLSChallengeSendsCertificateChain() async throws {
         // Given
-        let identity = try loadTestIdentity()
+        let identity = try await loadTestIdentity()
         let expectedChainCount = try XCTUnwrap(identity.certificateChain, "Identity should include the certificate chain").count
         XCTAssertGreaterThan(expectedChainCount, 0)
 
@@ -60,7 +60,7 @@ final class HURLSessionDelegateTests: XCTestCase {
             expectation.fulfill()
         }
 
-        wait(for: [expectation], timeout: 1.0)
+        await fulfillment(of: [expectation], timeout: 1.0)
     }
 
     // MARK: - SSL Pinning Challenge Tests
@@ -83,9 +83,9 @@ final class HURLSessionDelegateTests: XCTestCase {
         wait(for: [expectation], timeout: 1.0)
     }
 
-    func testSSLPinningWithMatchingPinUsesCredential() throws {
+    func testSSLPinningWithMatchingPinUsesCredential() async throws {
         // Given a server trust whose leaf certificate matches the configured pin
-        let serverTrust = try makeServerTrust()
+        let serverTrust = try await makeServerTrust()
         let delegate = HURLSessionDelegate(mTLSIdentity: nil, sslPinningKeys: [testPin])
 
         // When
@@ -96,9 +96,9 @@ final class HURLSessionDelegateTests: XCTestCase {
         XCTAssertNotNil(result.credential)
     }
 
-    func testSSLPinningWithWrongPinCancels() throws {
+    func testSSLPinningWithWrongPinCancels() async throws {
         // Given a server trust whose certificate does not match the configured pin
-        let serverTrust = try makeServerTrust()
+        let serverTrust = try await makeServerTrust()
         let delegate = HURLSessionDelegate(mTLSIdentity: nil, sslPinningKeys: [wrongPin])
 
         // When
@@ -109,9 +109,9 @@ final class HURLSessionDelegateTests: XCTestCase {
         XCTAssertNil(result.credential)
     }
 
-    func testMatchPinsCancelsForUntrustedChainEvenWithMatchingPin() throws {
+    func testMatchPinsCancelsForUntrustedChainEvenWithMatchingPin() async throws {
         // Given a server trust that does not evaluate as valid and a pin matching its certificate
-        let serverTrust = try makeUntrustedServerTrust()
+        let serverTrust = try await makeUntrustedServerTrust()
         let delegate = HURLSessionDelegate(mTLSIdentity: nil, sslPinningKeys: [testPin])
 
         // When
@@ -122,9 +122,9 @@ final class HURLSessionDelegateTests: XCTestCase {
         XCTAssertNil(result.credential)
     }
 
-    func testAsyncPinningEvaluationAnswersWithCredentialForValidPin() throws {
+    func testAsyncPinningEvaluationAnswersWithCredentialForValidPin() async throws {
         // Given a trusted server trust whose certificate matches the configured pin
-        let serverTrust = try makeServerTrust()
+        let serverTrust = try await makeServerTrust()
         let delegate = HURLSessionDelegate(mTLSIdentity: nil, sslPinningKeys: [testPin])
 
         let expectation = XCTestExpectation(description: "Async pinning evaluation answers the challenge")
@@ -137,12 +137,12 @@ final class HURLSessionDelegateTests: XCTestCase {
             expectation.fulfill()
         }
 
-        wait(for: [expectation], timeout: 2.0)
+        await fulfillment(of: [expectation], timeout: 2.0)
     }
 
-    func testAsyncPinningEvaluationCancelsForUntrustedChain() throws {
+    func testAsyncPinningEvaluationCancelsForUntrustedChain() async throws {
         // Given a server trust that does not evaluate as valid and a pin matching its certificate
-        let serverTrust = try makeUntrustedServerTrust()
+        let serverTrust = try await makeUntrustedServerTrust()
         let delegate = HURLSessionDelegate(mTLSIdentity: nil, sslPinningKeys: [testPin])
 
         let expectation = XCTestExpectation(description: "Async pinning evaluation cancels the challenge")
@@ -155,7 +155,7 @@ final class HURLSessionDelegateTests: XCTestCase {
             expectation.fulfill()
         }
 
-        wait(for: [expectation], timeout: 2.0)
+        await fulfillment(of: [expectation], timeout: 2.0)
     }
 
     // MARK: - Per-Host SSL Pinning Tests
@@ -300,19 +300,19 @@ final class HURLSessionDelegateTests: XCTestCase {
                                           sender: MockURLSessionSender())
     }
 
-    private func loadTestIdentity() throws -> HMTLSIdentity {
+    private func loadTestIdentity() async throws -> HMTLSIdentity {
         let p12URL = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
             .appendingPathComponent("certificate.p12")
         let mTLS = HMTLS(p12FileUrl: p12URL, passwordProvider: { "notapassword" })
-        return try mTLS.extractIdentity()
+        return try await mTLS.extractIdentity()
     }
 
     /// Builds a synthetic SecTrust from the test certificate with the certificate installed
     /// as an anchor, so trust evaluation succeeds for the self-signed certificate.
-    private func makeServerTrust() throws -> SecTrust {
-        let serverTrust = try makeUntrustedServerTrust()
-        let identity = try loadTestIdentity()
+    private func makeServerTrust() async throws -> SecTrust {
+        let serverTrust = try await makeUntrustedServerTrust()
+        let identity = try await loadTestIdentity()
         let certificate = try XCTUnwrap(identity.certificateChain?.first)
         SecTrustSetAnchorCertificates(serverTrust, [certificate] as CFArray)
         SecTrustSetAnchorCertificatesOnly(serverTrust, false)
@@ -321,8 +321,8 @@ final class HURLSessionDelegateTests: XCTestCase {
 
     /// Builds a synthetic SecTrust from the test certificate. The trust is not anchored,
     /// so evaluating it fails on the self-signed certificate.
-    private func makeUntrustedServerTrust() throws -> SecTrust {
-        let identity = try loadTestIdentity()
+    private func makeUntrustedServerTrust() async throws -> SecTrust {
+        let identity = try await loadTestIdentity()
         let certificate = try XCTUnwrap(identity.certificateChain?.first)
         var serverTrust: SecTrust?
         let status = SecTrustCreateWithCertificates(certificate, SecPolicyCreateBasicX509(), &serverTrust)

@@ -12,6 +12,8 @@ import Foundation
 public enum HMTLSError: Error, Sendable {
     /// The P12 file does not exist or could not be read.
     case fileNotFound
+    /// The password provider failed to supply a password.
+    case passwordProviderFailed
     /// The P12 password is incorrect.
     case invalidPassword
     /// The P12 data is malformed or could not be imported.
@@ -50,14 +52,16 @@ public struct HMTLS: Sendable {
     let p12FileUrl: URL
     /// Supplies the P12 password on demand. It is called once when the identity is
     /// extracted and the returned password is not retained, so the password is not
-    /// kept alive for the lifetime of this value.
-    let passwordProvider: @Sendable () -> String
+    /// kept alive for the lifetime of this value. The async signature accommodates
+    /// password sources that are themselves asynchronous, such as keychain wrappers,
+    /// biometric prompts or remote vaults.
+    let passwordProvider: @Sendable () async throws -> String
 
     /// Creates a new mTLS configuration.
     /// - Parameters:
     ///   - p12FileUrl: The URL to the P12 certificate file.
     ///   - passwordProvider: A closure that returns the password for the P12 certificate file.
-    public init(p12FileUrl: URL, passwordProvider: @escaping @Sendable () -> String) {
+    public init(p12FileUrl: URL, passwordProvider: @escaping @Sendable () async throws -> String) {
         self.p12FileUrl = p12FileUrl
         self.passwordProvider = passwordProvider
     }
@@ -72,15 +76,21 @@ public struct HMTLS: Sendable {
     }
 
     /// Extracts the client identity from the P12 file.
-    /// - Throws: `HMTLSError.fileNotFound` when the file cannot be read, `.invalidPassword`
-    ///   when the password is rejected, `.invalidP12Format` when the import fails for any
-    ///   other reason, or `.noIdentity` when the file holds no identity.
-    func extractIdentity(loggingEnabled: Bool = false) throws(HMTLSError) -> HMTLSIdentity {
+    /// - Throws: `HMTLSError.fileNotFound` when the file cannot be read, `.passwordProviderFailed`
+    ///   when the password provider throws, `.invalidPassword` when the password is rejected,
+    ///   `.invalidP12Format` when the import fails for any other reason, or `.noIdentity`
+    ///   when the file holds no identity.
+    func extractIdentity(loggingEnabled: Bool = false) async throws(HMTLSError) -> HMTLSIdentity {
         guard let p12Data = try? Data(contentsOf: p12FileUrl) else {
             throw HMTLSError.fileNotFound
         }
 
-        let password = passwordProvider()
+        let password: String
+        do {
+            password = try await passwordProvider()
+        } catch {
+            throw HMTLSError.passwordProviderFailed
+        }
 
         let p12Contents: PKCS12
         do {

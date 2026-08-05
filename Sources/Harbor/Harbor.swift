@@ -37,7 +37,7 @@ public extension Harbor {
         let loggingEnabled = HConfig.shared.isLoggingEnabled
         do {
             let identity = try await Task.detached {
-                try mTLS.extractIdentity(loggingEnabled: loggingEnabled)
+                try await mTLS.extractIdentity(loggingEnabled: loggingEnabled)
             }.value
             HConfig.shared.mTLSIdentity = identity
             HRequestManager.invalidateURLSession()

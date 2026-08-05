@@ -28,7 +28,7 @@
 - `HarborJRPC.setURL(URL)` plus a validating `setURL(String)` overload that throws `HJRPCConfigurationError.invalidURL`, and `HarborJRPC.configure(url:jrpcVersion:)` to set both at once
 - `rawBody` in Harbor's `HRequestWithBodyProtocol` to send raw `Data` as the request body instead of `bodyParameters`
 - CocoaPods subspec `Harbor/JRPC` to integrate HarborJRPC via CocoaPods
-- `HMTLS` mTLS configuration taking a `passwordProvider` closure, so the P12 password is requested once when the identity is extracted instead of being retained; its description always redacts the password
+- `HMTLS` mTLS configuration taking an async throwing `passwordProvider` closure, so the P12 password is requested once when the identity is extracted instead of being retained; its description always redacts the password
 - `Harbor.setSSLPinningKeys(_:forHosts:)` to scope SSL pins to specific hosts; challenges from unconfigured hosts get the default URLSession handling
 - `Harbor.setHTTPShouldHandleCookies(_:)` to let requests handle cookies through the shared cookie storage (default `false`)
 
@@ -84,6 +84,7 @@
 - `HJRPCRequestProtocol.request()` now throws and returns the decoded `Model`; use `requestResult()` for the previous non-throwing `HJRPCResponse` behavior
 - `HJRPCRequestProtocol.retries` and `.headers` are now get-only
 - Internally built `URLSession`s now set `httpShouldSetCookies` from `Harbor.setHTTPShouldHandleCookies(_:)`; with the default `false`, `Set-Cookie` responses are not stored in the shared cookie storage unless cookie handling is enabled
+- `HMTLS.passwordProvider` is now `@Sendable () async throws -> String` (synchronous closures still satisfy the signature) and `extractIdentity` is `async`; a throwing provider surfaces as the new `HMTLSError.passwordProviderFailed`
 
 ## 3.0.0 - Response cases, Logging (2024-12-25)
 

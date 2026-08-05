@@ -27,11 +27,11 @@ Mutual TLS extends standard TLS by requiring both the server and client to authe
 ```swift
 struct HMTLS: Sendable, CustomStringConvertible {
     let p12FileUrl: URL
-    let passwordProvider: @Sendable () -> String
+    let passwordProvider: @Sendable () async throws -> String
 }
 ```
 
-The password is requested through `passwordProvider` once, when the identity is extracted; it is not retained by the configuration value. The `CustomStringConvertible` description always redacts the password. The older `HmTLS` spelling and the `init(p12FileUrl:password:)` initializer are deprecated.
+The password is requested through `passwordProvider` once, when the identity is extracted; it is not retained by the configuration value. The async signature accommodates password sources that are themselves asynchronous, such as keychain wrappers, biometric prompts or remote vaults; a provider failure surfaces as `HMTLSError.passwordProviderFailed`. The `CustomStringConvertible` description always redacts the password. The older `HmTLS` spelling and the `init(p12FileUrl:password:)` initializer are deprecated.
 
 ### Setting Up mTLS
 

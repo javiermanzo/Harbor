@@ -699,6 +699,8 @@ struct RequestsView: View {
                     switch mtlsError {
                     case .fileNotFound:
                         message = "certificate.p12 could not be read"
+                    case .passwordProviderFailed:
+                        message = "the P12 password could not be supplied"
                     case .invalidPassword:
                         message = "the P12 password was rejected"
                     case .invalidP12Format:

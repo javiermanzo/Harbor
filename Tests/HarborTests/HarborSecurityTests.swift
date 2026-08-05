@@ -131,7 +131,10 @@ final class HarborSecurityTests: XCTestCase {
         let mTLS = makeMTLS(url: URL(fileURLWithPath: "/tmp/harbor-definitely-missing.p12"), password: testPassword)
 
         // When / Then
-        XCTAssertThrowsError(try mTLS.extractIdentity()) { error in
+        do {
+            _ = try await mTLS.extractIdentity()
+            XCTFail("Expected extractIdentity to throw")
+        } catch {
             XCTAssertEqual(error as? HMTLSError, .fileNotFound)
         }
     }
@@ -142,8 +145,25 @@ final class HarborSecurityTests: XCTestCase {
         let mTLS = makeMTLS(url: unwrappedP12URL, password: "wrong-password")
 
         // When / Then
-        XCTAssertThrowsError(try mTLS.extractIdentity()) { error in
+        do {
+            _ = try await mTLS.extractIdentity()
+            XCTFail("Expected extractIdentity to throw")
+        } catch {
             XCTAssertEqual(error as? HMTLSError, .invalidPassword)
+        }
+    }
+
+    func testMTLSExtractIdentityWithThrowingPasswordProviderThrowsPasswordProviderFailed() async throws {
+        // Given a provider that fails to supply the password
+        let unwrappedP12URL = try XCTUnwrap(testP12URL, "certificate.p12 not found")
+        let mTLS = HMTLS(p12FileUrl: unwrappedP12URL) { throw URLError(.cannotLoadFromNetwork) }
+
+        // When / Then
+        do {
+            _ = try await mTLS.extractIdentity()
+            XCTFail("Expected extractIdentity to throw")
+        } catch {
+            XCTAssertEqual(error as? HMTLSError, .passwordProviderFailed)
         }
     }
 
@@ -266,7 +286,7 @@ final class HarborSecurityTests: XCTestCase {
         // Given
         let unwrappedP12URL = try XCTUnwrap(testP12URL, "certificate.p12 not found")
         let mTLS = makeMTLS(url: unwrappedP12URL, password: testPassword)
-        let identity = try mTLS.extractIdentity()
+        let identity = try await mTLS.extractIdentity()
         let certificate = try XCTUnwrap(identity.certificateChain?.first)
 
         // When
@@ -325,7 +345,7 @@ final class HarborSecurityTests: XCTestCase {
         // Given
         let unwrappedP12URL = try XCTUnwrap(testP12URL, "certificate.p12 not found")
         let mTLS = makeMTLS(url: unwrappedP12URL, password: testPassword)
-        let identity = try mTLS.extractIdentity()
+        let identity = try await mTLS.extractIdentity()
         let certificate = try XCTUnwrap(identity.certificateChain?.first)
 
         // When
@@ -444,7 +464,7 @@ final class HarborSecurityTests: XCTestCase {
         }
 
         // When
-        _ = try mTLS.extractIdentity()
+        _ = try await mTLS.extractIdentity()
 
         // Then
         XCTAssertEqual(callCount.value, 1)
@@ -456,7 +476,7 @@ final class HarborSecurityTests: XCTestCase {
         let mTLS = makeMTLS(url: unwrappedP12URL, password: testPassword)
 
         // When
-        let identity = try mTLS.extractIdentity()
+        let identity = try await mTLS.extractIdentity()
 
         // Then
         let certChain = try XCTUnwrap(identity.certificateChain)

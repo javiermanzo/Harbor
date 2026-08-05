@@ -7,7 +7,7 @@
 
 import Foundation
 
-/// Describes how a failed request is retried: how many attempts are made and how long
+/// Describes how a failed request is retried: how many retries are made and how long
 /// to wait between them, using exponential backoff with a random jitter.
 public struct HRetryPolicy: Sendable {
     /// Upper bound for a single backoff delay, in seconds.

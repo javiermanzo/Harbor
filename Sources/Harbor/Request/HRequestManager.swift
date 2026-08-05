@@ -29,7 +29,7 @@ enum HRequestManager {
 
 // MARK: - Request With Result
 extension HRequestManager {
-    static func request<Model: HModel>(model: Model.Type, request: any HRequestWithResultProtocol) async -> HResponseWithResult<Model> {
+    static func request<Model: HModel, Request: HRequestWithResultProtocol>(model: Model.Type, request: Request) async -> HResponseWithResult<Model> {
         let policy = effectiveRetryPolicy(for: request)
 
         if let mock = HMocker.mock(request: request), HConfig.shared.mocksEnabled {
@@ -49,10 +49,7 @@ extension HRequestManager {
                 policy: policy,
                 errorResponse: { .error($0) }
             ) { currentRequest, canRetry in
-                guard let typed = currentRequest as? any HRequestWithResultProtocol else {
-                    return .finish(.error(.malformedRequest(reason: "The request no longer conforms to HRequestWithResultProtocol")))
-                }
-                return await processResponse(model: model, request: typed, statusCode: mock.statusCode, data: data, httpResponse: mockResponse, canRetry: canRetry)
+                return await processResponse(model: model, request: currentRequest, statusCode: mock.statusCode, data: data, httpResponse: mockResponse, canRetry: canRetry)
             }
         }
 
@@ -76,10 +73,7 @@ extension HRequestManager {
                 policy: policy,
                 errorResponse: { .error($0) }
             ) { currentRequest, canRetry in
-                guard let typed = currentRequest as? any HRequestWithResultProtocol else {
-                    return .finish(.error(.malformedRequest(reason: "The request no longer conforms to HRequestWithResultProtocol")))
-                }
-                return await executeOnce(model: model, request: typed, canRetry: canRetry)
+                return await executeOnce(model: model, request: currentRequest, canRetry: canRetry)
             }
         }
     }
@@ -87,7 +81,7 @@ extension HRequestManager {
     /// Executes a single network attempt: builds the URLRequest, performs the call and
     /// processes the response. `canRetry` tells whether the loop can run another attempt,
     /// so retryable failures are reported as `.retry` only while attempts remain.
-    private static func executeOnce<Model: HModel>(model: Model.Type, request: any HRequestWithResultProtocol, canRetry: Bool) async -> HAttemptOutcome<HResponseWithResult<Model>> {
+    private static func executeOnce<Model: HModel, Request: HRequestWithResultProtocol>(model: Model.Type, request: Request, canRetry: Bool) async -> HAttemptOutcome<HResponseWithResult<Model>> {
         let urlRequest: URLRequest
         do {
             urlRequest = try await HURLBuilder.buildUrlRequest(request: request)
@@ -157,7 +151,7 @@ extension HRequestManager {
         }
     }
 
-    private static func processResponse<Model: HModel>(model: Model.Type, request: any HRequestWithResultProtocol, statusCode: Int, data: Data, httpResponse: HTTPURLResponse? = nil, canRetry: Bool = false) async -> HAttemptOutcome<HResponseWithResult<Model>> {
+    private static func processResponse<Model: HModel, Request: HRequestWithResultProtocol>(model: Model.Type, request: Request, statusCode: Int, data: Data, httpResponse: HTTPURLResponse? = nil, canRetry: Bool = false) async -> HAttemptOutcome<HResponseWithResult<Model>> {
         switch statusCode {
         case 200 ... 299:
             do {
@@ -205,7 +199,7 @@ extension HRequestManager {
 
 // MARK: - Request Without Result
 extension HRequestManager {
-    static func request(request: any HRequestWithEmptyResponseProtocol) async -> HResponse {
+    static func request<Request: HRequestWithEmptyResponseProtocol>(request: Request) async -> HResponse {
         let policy = effectiveRetryPolicy(for: request)
 
         if let mock = HMocker.mock(request: request), HConfig.shared.mocksEnabled {
@@ -224,10 +218,7 @@ extension HRequestManager {
                 policy: policy,
                 errorResponse: { .error($0) }
             ) { currentRequest, canRetry in
-                guard let typed = currentRequest as? any HRequestWithEmptyResponseProtocol else {
-                    return .finish(.error(.malformedRequest(reason: "The request no longer conforms to HRequestWithEmptyResponseProtocol")))
-                }
-                return await processResponse(request: typed, statusCode: mock.statusCode, data: data, canRetry: canRetry)
+                return await processResponse(request: currentRequest, statusCode: mock.statusCode, data: data, canRetry: canRetry)
             }
         }
 
@@ -247,10 +238,7 @@ extension HRequestManager {
                 policy: policy,
                 errorResponse: { .error($0) }
             ) { currentRequest, canRetry in
-                guard let typed = currentRequest as? any HRequestWithEmptyResponseProtocol else {
-                    return .finish(.error(.malformedRequest(reason: "The request no longer conforms to HRequestWithEmptyResponseProtocol")))
-                }
-                return await executeOnce(request: typed, canRetry: canRetry)
+                return await executeOnce(request: currentRequest, canRetry: canRetry)
             }
         }
     }
@@ -258,7 +246,7 @@ extension HRequestManager {
     /// Executes a single network attempt: builds the URLRequest, performs the call and
     /// processes the response. `canRetry` tells whether the loop can run another attempt,
     /// so retryable failures are reported as `.retry` only while attempts remain.
-    private static func executeOnce(request: any HRequestWithEmptyResponseProtocol, canRetry: Bool) async -> HAttemptOutcome<HResponse> {
+    private static func executeOnce<Request: HRequestWithEmptyResponseProtocol>(request: Request, canRetry: Bool) async -> HAttemptOutcome<HResponse> {
         let urlRequest: URLRequest
         do {
             urlRequest = try await HURLBuilder.buildUrlRequest(request: request)
@@ -315,7 +303,7 @@ extension HRequestManager {
         }
     }
 
-    private static func processResponse(request: any HRequestWithEmptyResponseProtocol, statusCode: Int, data: Data, canRetry: Bool = false) async -> HAttemptOutcome<HResponse> {
+    private static func processResponse<Request: HRequestWithEmptyResponseProtocol>(request: Request, statusCode: Int, data: Data, canRetry: Bool = false) async -> HAttemptOutcome<HResponse> {
         switch statusCode {
         case 200 ... 299:
             return .finish(.success)
@@ -340,11 +328,14 @@ extension HRequestManager {
     /// Runs the retry loop, delegating each attempt to `executeAttempt`. Mocks, connectivity
     /// checks and the initial auth injection are evaluated once by the caller, not per attempt.
     /// `errorResponse` builds the typed response for the cancellation and auth-giveup paths.
-    private static func runAttempts<Response: Sendable>(
-        request: any HRequestBaseRequestProtocol,
+    ///
+    /// `TypedRequest` preserves the concrete request type from the caller through the loop,
+    /// so the executor closure receives the typed request without any existential cast.
+    private static func runAttempts<TypedRequest: HRequestBaseRequestProtocol & Sendable, Response: Sendable>(
+        request: TypedRequest,
         policy: HRetryPolicy,
         errorResponse: @escaping (HRequestError) -> Response,
-        executeAttempt: @escaping (any HRequestBaseRequestProtocol, Bool) async -> HAttemptOutcome<Response>
+        executeAttempt: @escaping (TypedRequest, Bool) async -> HAttemptOutcome<Response>
     ) async -> Response {
         var currentRequest = request
         var attempt = 1
@@ -385,7 +376,10 @@ extension HRequestManager {
     /// Fails with `.authProviderNeeded` when no provider is configured and with
     /// `.malformedRequest` when the request type does not persist header parameters,
     /// which would otherwise send the request out unauthenticated.
-    static func addAuthCredentialsIfNeeded(_ request: any HRequestBaseRequestProtocol) async -> Result<any HRequestBaseRequestProtocol, HRequestError> {
+    ///
+    /// Generic over the request type so the caller preserves the concrete type and avoids
+    /// casting back through an existential.
+    static func addAuthCredentialsIfNeeded<P: HRequestBaseRequestProtocol>(_ request: P) async -> Result<P, HRequestError> {
         guard request.needsAuth else { return .success(request) }
 
         guard let authCredential = await HConfig.shared.authProvider?.getAuthorizationHeader() else {
@@ -410,7 +404,10 @@ extension HRequestManager {
     /// provider issued a different header. If the previously-injected header is absent the
     /// request type does not persist headers (programming error) and we surface it loudly
     /// instead of returning `.authNeeded`, which would hide the real cause.
-    private static func refreshAuthorization(for request: any HRequestBaseRequestProtocol, authRetriesRemaining: Int) async -> HAuthRefresh {
+    private static func refreshAuthorization<P: HRequestBaseRequestProtocol>(
+        for request: P,
+        authRetriesRemaining: Int
+    ) async -> HAuthRefresh<P> {
         guard authRetriesRemaining > 0, let authProvider = HConfig.shared.authProvider else {
             await HConfig.shared.authProvider?.authFailed()
             return .giveUp(.authNeeded)
@@ -604,10 +601,12 @@ private enum HAttemptOutcome<Response: Sendable> {
     case unauthorized
 }
 
-/// Outcome of evaluating a 401 response against the auth provider.
-private enum HAuthRefresh {
+/// Outcome of evaluating a 401 response against the auth provider. The retry case carries
+/// the request with the refreshed header applied, preserving the concrete request type so
+/// the loop does not need to cast back through an existential.
+private enum HAuthRefresh<Request: HRequestBaseRequestProtocol> {
     /// The provider issued a different authorization header; retry with it applied to the request.
-    case retry(any HRequestBaseRequestProtocol)
+    case retry(Request)
     /// No further attempt is possible; finish with the given error.
     case giveUp(HRequestError)
 }

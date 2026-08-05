@@ -57,7 +57,7 @@ extension HRequestManager {
 
         if !connectivityMonitor.isConnectedToNetwork() {
             if let getRequest = request as? any HGetRequestProtocol,
-               let stale = await getRequest.staleCacheOnError() as? Model {
+               let stale = await getRequest.staleCacheOnError(authHeader: await cacheAuthHeader(for: request)) as? Model {
                 return .success(stale)
             }
             let hError: HRequestError = .noConnection
@@ -127,12 +127,13 @@ extension HRequestManager {
                                          statusCode: httpResponse.statusCode,
                                          data: data,
                                          httpResponse: httpResponse,
-                                         canRetry: canRetry)
+                                         canRetry: canRetry,
+                                         authHeader: authHeader)
         } catch let error as URLError {
             let isCancelled = error.code == .cancelled || Task.isCancelled
             if !isCancelled,
                let getRequest = request as? any HGetRequestProtocol,
-               let stale = await getRequest.staleCacheOnError() as? Model {
+               let stale = await getRequest.staleCacheOnError(authHeader: authHeader) as? Model {
                 return .finish(.success(stale))
             }
             let hError = HRequestError.mapURLError(error)
@@ -155,14 +156,15 @@ extension HRequestManager {
     }
 
     /// Processes the raw response for a model-returning request, decoding the payload or handling errors/revalidation.
-    private static func processResponse<Model: HModel, Request: HRequestWithResultProtocol>(model: Model.Type, request: Request, statusCode: Int, data: Data, httpResponse: HTTPURLResponse? = nil, canRetry: Bool = false) async -> HAttemptOutcome<HResponseWithResult<Model>> {
+    /// `authHeader` keys the custom-cache reads and writes so `Vary: Authorization` entries are per-credential.
+    private static func processResponse<Model: HModel, Request: HRequestWithResultProtocol>(model: Model.Type, request: Request, statusCode: Int, data: Data, httpResponse: HTTPURLResponse? = nil, canRetry: Bool = false, authHeader: HAuthorizationHeader? = nil) async -> HAttemptOutcome<HResponseWithResult<Model>> {
         switch statusCode {
         case 200 ... 299:
             do {
                 let parsedResponse = try request.parseData(data: data, model: model)
 
                 if let request = request as? any HGetRequestProtocol {
-                    await request.saveCache(data, response: httpResponse)
+                    await request.saveCache(data, response: httpResponse, authHeader: authHeader)
                 }
 
                 return .finish(.success(parsedResponse))
@@ -175,7 +177,7 @@ extension HRequestManager {
             // Not Modified — serve the cached body and refresh the stored entry.
             // (URLCache revalidates transparently at URLSession level; this branch handles the custom cache.)
             if let getRequest = request as? any HGetRequestProtocol,
-               let cachedAny = await getRequest.revalidatedCache(response: httpResponse),
+               let cachedAny = await getRequest.revalidatedCache(response: httpResponse, authHeader: authHeader),
                let cachedModel = cachedAny as? Model {
                 return .finish(.success(cachedModel))
             } else {
@@ -191,7 +193,7 @@ extension HRequestManager {
             }
             if statusCode >= 500,
                let getRequest = request as? any HGetRequestProtocol,
-               let stale = await getRequest.staleCacheOnError() as? Model {
+               let stale = await getRequest.staleCacheOnError(authHeader: authHeader) as? Model {
                 return .finish(.success(stale))
             }
             let hError: HRequestError = .api(statusCode: statusCode, data: data)
@@ -372,7 +374,7 @@ extension HRequestManager {
             case .retry:
                 attempt += 1
             case .unauthorized:
-                switch await refreshAuthorization(usedHeader: currentAuthHeader, authRetriesRemaining: authRetriesRemaining) {
+                switch await refreshAuthorization(needsAuth: request.needsAuth, usedHeader: currentAuthHeader, authRetriesRemaining: authRetriesRemaining) {
                 case .retry(let freshHeader):
                     currentAuthHeader = freshHeader
                     authRetriesRemaining -= 1
@@ -398,14 +400,26 @@ extension HRequestManager {
         return .success(await authProvider.getAuthorizationHeader())
     }
 
+    /// Resolves the authorization header for cache vary-key computation without failing the
+    /// flow: a missing provider must not turn a cache lookup into an error.
+    private static func cacheAuthHeader<P: HRequestBaseRequestProtocol>(for request: P) async -> HAuthorizationHeader? {
+        guard case .success(let authHeader) = await authorizationHeaderIfNeeded(for: request) else { return nil }
+        return authHeader
+    }
+
     /// Fetches the provider's authorization header once and compares it with the one the
     /// failed attempt used. A retry is offered only when auth attempts remain and the
     /// provider issued a different header; a provider without credentials (a `nil` header)
     /// cannot satisfy a 401, so the flow gives up with `.authNeeded`.
     private static func refreshAuthorization(
+        needsAuth: Bool,
         usedHeader: HAuthorizationHeader?,
         authRetriesRemaining: Int
     ) async -> HAuthRefresh {
+        // A request that opted out of auth has no credential to refresh: give up
+        // without consulting the provider.
+        guard needsAuth else { return .giveUp(.authNeeded) }
+
         guard authRetriesRemaining > 0, let authProvider = HConfig.shared.authProvider else {
             await HConfig.shared.authProvider?.authFailed()
             return .giveUp(.authNeeded)
@@ -463,6 +477,8 @@ extension HRequestManager {
         var timeoutInterval: TimeInterval
         /// The cache configuration for the session.
         var cache: CacheSignature
+        /// Whether the session handles cookies through the shared cookie storage.
+        var httpShouldHandleCookies: Bool
     }
 
     /// The currently cached URLSession for reuse.
@@ -521,7 +537,7 @@ extension HRequestManager {
             }
         }
 
-        return SessionSignature(timeoutInterval: timeoutInterval, cache: cache)
+        return SessionSignature(timeoutInterval: timeoutInterval, cache: cache, httpShouldHandleCookies: HConfig.shared.httpShouldHandleCookies)
     }
 
     /// Builds a new URLSession tailored to the request's configuration.
@@ -529,6 +545,9 @@ extension HRequestManager {
         let configuration = URLSessionConfiguration.default
         configuration.timeoutIntervalForRequest = request.timeoutInterval ?? HConfig.shared.timeoutInterval
         configuration.timeoutIntervalForResource = request.timeoutInterval ?? HConfig.shared.timeoutInterval
+        // Cookie handling is governed at the session-configuration level on Darwin; the
+        // request-level flag set by HURLBuilder alone is not enough.
+        configuration.httpShouldSetCookies = HConfig.shared.httpShouldHandleCookies
 
         if let protocolClasses = HConfig.shared.protocolClasses {
             configuration.protocolClasses = protocolClasses

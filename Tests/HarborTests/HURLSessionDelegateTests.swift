@@ -109,6 +109,19 @@ final class HURLSessionDelegateTests: XCTestCase {
         XCTAssertNil(result.credential)
     }
 
+    func testMatchPinsCancelsForUntrustedChainEvenWithMatchingPin() throws {
+        // Given a server trust that does not evaluate as valid and a pin matching its certificate
+        let serverTrust = try makeUntrustedServerTrust()
+        let delegate = HURLSessionDelegate(mTLSIdentity: nil, sslPinningKeys: [testPin])
+
+        // When
+        let result = delegate.matchPins(serverTrust: serverTrust, sslPinningKeys: [testPin])
+
+        // Then pins are never matched against an untrusted chain
+        XCTAssertEqual(result.disposition, .cancelAuthenticationChallenge)
+        XCTAssertNil(result.credential)
+    }
+
     // MARK: - Per-Host SSL Pinning Tests
 
     func testSSLPinningIsEnforcedForConfiguredHost() throws {
@@ -163,6 +176,78 @@ final class HURLSessionDelegateTests: XCTestCase {
         wait(for: [expectation], timeout: 1.0)
     }
 
+    // MARK: - Host Normalization Tests
+
+    func testNormalizedHostLowercasesAndStripsTrailingRootDot() {
+        XCTAssertEqual(HURLSessionDelegate.normalizedHost("API.Example.COM"), "api.example.com")
+        XCTAssertEqual(HURLSessionDelegate.normalizedHost("api.example.com."), "api.example.com")
+        XCTAssertEqual(HURLSessionDelegate.normalizedHost("api.example.com"), "api.example.com")
+    }
+
+    func testSSLPinningIsEnforcedForHostWithDifferentCase() throws {
+        // Given pins stored for a lowercase host and a challenge using a different case;
+        // DNS names are case-insensitive, so pinning must still apply
+        let delegate = HURLSessionDelegate(mTLSIdentity: nil, sslPinningKeys: nil, sslPinningKeysByHost: ["secure.example.com": [testPin]])
+        let challenge = makeChallenge(host: "SECURE.Example.COM", authenticationMethod: NSURLAuthenticationMethodServerTrust)
+
+        let expectation = XCTestExpectation(description: "Pinning enforced for differently-cased host")
+
+        // When
+        delegate.urlSession(URLSession.shared, didReceive: challenge) { disposition, _ in
+            // Then pinning applies: without a serverTrust the challenge is cancelled, not passed through
+            XCTAssertEqual(disposition, .cancelAuthenticationChallenge)
+            expectation.fulfill()
+        }
+
+        wait(for: [expectation], timeout: 1.0)
+    }
+
+    func testSSLPinningIsEnforcedForHostWithTrailingRootDot() throws {
+        // Given pins stored for a host without a root-label dot and a challenge carrying it
+        let delegate = HURLSessionDelegate(mTLSIdentity: nil, sslPinningKeys: nil, sslPinningKeysByHost: ["secure.example.com": [testPin]])
+        let challenge = makeChallenge(host: "secure.example.com.", authenticationMethod: NSURLAuthenticationMethodServerTrust)
+
+        let expectation = XCTestExpectation(description: "Pinning enforced for host with trailing dot")
+
+        // When
+        delegate.urlSession(URLSession.shared, didReceive: challenge) { disposition, _ in
+            // Then pinning applies: without a serverTrust the challenge is cancelled, not passed through
+            XCTAssertEqual(disposition, .cancelAuthenticationChallenge)
+            expectation.fulfill()
+        }
+
+        wait(for: [expectation], timeout: 1.0)
+    }
+
+    @HRequestManagerActor
+    func testSetSSLPinningKeysForHostsStoresNormalizedKeys() async {
+        // Given pins registered for a mixed-case host with a trailing root-label dot
+        Harbor.setSSLPinningKeys([testPin], forHosts: ["STORED.Example.COM."])
+
+        // Then the stored key is normalized
+        let stored = HConfig.shared.sslPinningKeysByHost
+        XCTAssertEqual(stored?["stored.example.com"], [testPin])
+        XCTAssertNil(stored?["STORED.Example.COM."])
+
+        // Cleanup with a differently-cased spelling also removes the entry
+        Harbor.setSSLPinningKeys(nil, forHosts: ["stored.example.com."])
+        let afterRemoval = HConfig.shared.sslPinningKeysByHost
+        XCTAssertNil(afterRemoval?["stored.example.com"])
+    }
+
+    @HRequestManagerActor
+    func testSetSSLPinningKeysForHostsSkipsEmptyKeys() async {
+        // Given an empty host key
+        Harbor.setSSLPinningKeys([testPin], forHosts: ["   "])
+
+        // Then nothing is stored for it
+        let stored = HConfig.shared.sslPinningKeysByHost
+        XCTAssertTrue(stored?.isEmpty ?? true)
+
+        // Cleanup
+        Harbor.setSSLPinningKeys(nil, forHosts: ["   "])
+    }
+
     // MARK: - Helpers
 
     private func makeChallenge(host: String, authenticationMethod: String) -> URLAuthenticationChallenge {
@@ -187,9 +272,20 @@ final class HURLSessionDelegateTests: XCTestCase {
         return try mTLS.extractIdentity()
     }
 
-    /// Builds a synthetic SecTrust from the test certificate. The trust is not evaluated
-    /// here; pin matching only needs the certificate chain.
+    /// Builds a synthetic SecTrust from the test certificate with the certificate installed
+    /// as an anchor, so trust evaluation succeeds for the self-signed certificate.
     private func makeServerTrust() throws -> SecTrust {
+        let serverTrust = try makeUntrustedServerTrust()
+        let identity = try loadTestIdentity()
+        let certificate = try XCTUnwrap(identity.certificateChain?.first)
+        SecTrustSetAnchorCertificates(serverTrust, [certificate] as CFArray)
+        SecTrustSetAnchorCertificatesOnly(serverTrust, false)
+        return serverTrust
+    }
+
+    /// Builds a synthetic SecTrust from the test certificate. The trust is not anchored,
+    /// so evaluating it fails on the self-signed certificate.
+    private func makeUntrustedServerTrust() throws -> SecTrust {
         let identity = try loadTestIdentity()
         let certificate = try XCTUnwrap(identity.certificateChain?.first)
         var serverTrust: SecTrust?

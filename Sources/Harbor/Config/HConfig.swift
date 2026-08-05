@@ -38,6 +38,9 @@ struct HConfig: Sendable {
     /// SSL pinning public key hashes scoped to specific hosts. When a host is present here,
     /// its pins take precedence over the global `sslPinningKeys`; challenges from hosts
     /// absent from this map fall back to the global pins or, when none are set, to default handling.
+    /// Host keys are normalized (lowercased, without a trailing root-label dot) when stored
+    /// and when looked up, matching how DNS names are resolved. Malformed pins (not base64
+    /// SHA-256 hashes) log a warning when set and are ignored during validation.
     var sslPinningKeysByHost: [String: [String]]? {
         didSet {
             if let sslPinningKeysByHost {

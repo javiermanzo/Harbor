@@ -32,7 +32,23 @@ final class ServerCertificateFetcher: NSObject, URLSessionDelegate {
         return certificate
     }
 
-    private var serverCertificate: SecCertificate?
+    /// Guards `serverCertificateStorage`, which is written on the session's delegate queue
+    /// and read after the data task completes.
+    private let lock = NSLock()
+    private var serverCertificateStorage: SecCertificate?
+
+    private var serverCertificate: SecCertificate? {
+        get {
+            lock.lock()
+            defer { lock.unlock() }
+            return serverCertificateStorage
+        }
+        set {
+            lock.lock()
+            defer { lock.unlock() }
+            serverCertificateStorage = newValue
+        }
+    }
 
     func urlSession(
         _ session: URLSession,

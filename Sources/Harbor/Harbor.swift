@@ -67,6 +67,8 @@ public extension Harbor {
     /// validated against the given pins; hosts not configured here fall back to the
     /// global pins set with `setSSLPinningKeys(_:)` or, when none are set, to default handling.
     /// Passing `nil` removes the pins for the given hosts.
+    /// Host names are normalized (lowercased, without a trailing root-label dot) before
+    /// being stored and matched against `URLProtectionSpace.host`.
     /// - Parameters:
     ///   - sslPinningKeys: The pins for the hosts, or `nil` to stop pinning them.
     ///   - hosts: The hosts the pins apply to (matched against `URLProtectionSpace.host`).
@@ -74,13 +76,18 @@ public extension Harbor {
         if let sslPinningKeys {
             var keysByHost = HConfig.shared.sslPinningKeysByHost ?? [:]
             for host in hosts {
-                keysByHost[host] = sslPinningKeys
+                let normalizedHost = HURLSessionDelegate.normalizedHost(host)
+                guard !normalizedHost.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                    HLogger.log("SSL pinning host keys must not be empty", level: .warning)
+                    continue
+                }
+                keysByHost[normalizedHost] = sslPinningKeys
             }
             HConfig.shared.sslPinningKeysByHost = keysByHost
         } else {
             guard var keysByHost = HConfig.shared.sslPinningKeysByHost else { return }
             for host in hosts {
-                keysByHost.removeValue(forKey: host)
+                keysByHost.removeValue(forKey: HURLSessionDelegate.normalizedHost(host))
             }
             HConfig.shared.sslPinningKeysByHost = keysByHost.isEmpty ? nil : keysByHost
         }
@@ -170,6 +177,7 @@ public extension Harbor {
     /// Default is false.
     static func setHTTPShouldHandleCookies(_ enabled: Bool) {
         HConfig.shared.httpShouldHandleCookies = enabled
+        HRequestManager.invalidateURLSession()
     }
 
     /// Configures whether DEBUG/simulator builds assume network availability instead of

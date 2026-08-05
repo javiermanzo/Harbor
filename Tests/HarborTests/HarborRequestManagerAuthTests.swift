@@ -43,16 +43,28 @@ private final class SpyAuthProvider: HAuthProviderProtocol {
 
 /// URLProtocol stub injected through `HConfig.protocolClasses`. It answers with a scripted
 /// sequence of status codes (repeating the last one) and records the Authorization header
-/// of every request it sees.
+/// of every request it sees. Optionally it sends response headers (e.g. `Vary`, `ETag`),
+/// answers `304 Not Modified` when the request's `If-None-Match` matches the configured
+/// ETag, and echoes the Authorization header in the body.
 private final class AuthStubProtocol: URLProtocol {
     private static let lock = NSLock()
     nonisolated(unsafe) private static var _statusCodes: [Int] = [200]
     nonisolated(unsafe) private static var _receivedAuthorizations: [String?] = []
+    nonisolated(unsafe) private static var _receivedIfNoneMatch: [String?] = []
+    nonisolated(unsafe) private static var _responseHeaders: [String: String]?
+    nonisolated(unsafe) private static var _etag: String?
+    nonisolated(unsafe) private static var _bodyIncludesAuthorization = false
 
     static var receivedAuthorizations: [String?] {
         lock.lock()
         defer { lock.unlock() }
         return _receivedAuthorizations
+    }
+
+    static var receivedIfNoneMatch: [String?] {
+        lock.lock()
+        defer { lock.unlock() }
+        return _receivedIfNoneMatch
     }
 
     static var statusCodes: [Int] {
@@ -68,15 +80,59 @@ private final class AuthStubProtocol: URLProtocol {
         }
     }
 
+    static var responseHeaders: [String: String]? {
+        get {
+            lock.lock()
+            defer { lock.unlock() }
+            return _responseHeaders
+        }
+        set {
+            lock.lock()
+            _responseHeaders = newValue
+            lock.unlock()
+        }
+    }
+
+    static var etag: String? {
+        get {
+            lock.lock()
+            defer { lock.unlock() }
+            return _etag
+        }
+        set {
+            lock.lock()
+            _etag = newValue
+            lock.unlock()
+        }
+    }
+
+    static var bodyIncludesAuthorization: Bool {
+        get {
+            lock.lock()
+            defer { lock.unlock() }
+            return _bodyIncludesAuthorization
+        }
+        set {
+            lock.lock()
+            _bodyIncludesAuthorization = newValue
+            lock.unlock()
+        }
+    }
+
     static func reset() {
         lock.lock()
         _statusCodes = [200]
         _receivedAuthorizations = []
+        _receivedIfNoneMatch = []
+        _responseHeaders = nil
+        _etag = nil
+        _bodyIncludesAuthorization = false
         lock.unlock()
     }
 
     override class func canInit(with request: URLRequest) -> Bool {
-        return true
+        // Only stub the hosts the tests target; anything else fails loudly.
+        return request.url?.host == "example.com"
     }
 
     override class func canonicalRequest(for request: URLRequest) -> URLRequest {
@@ -86,18 +142,36 @@ private final class AuthStubProtocol: URLProtocol {
     override func startLoading() {
         Self.lock.lock()
         let index = Self._receivedAuthorizations.count
-        Self._receivedAuthorizations.append(request.value(forHTTPHeaderField: "Authorization"))
+        let authorization = request.value(forHTTPHeaderField: "Authorization")
+        let ifNoneMatch = request.value(forHTTPHeaderField: "If-None-Match")
+        Self._receivedAuthorizations.append(authorization)
+        Self._receivedIfNoneMatch.append(ifNoneMatch)
         let statusCodes = Self._statusCodes
+        let responseHeaders = Self._responseHeaders
+        let etag = Self._etag
+        let bodyIncludesAuthorization = Self._bodyIncludesAuthorization
         Self.lock.unlock()
 
-        let statusCode = statusCodes[min(index, statusCodes.count - 1)]
+        var statusCode = statusCodes[min(index, statusCodes.count - 1)]
+        if let etag, ifNoneMatch == etag {
+            statusCode = 304
+        }
+
+        var headerFields = responseHeaders ?? [:]
+        if let etag {
+            headerFields["ETag"] = etag
+        }
+
         guard let url = request.url,
-              let response = HTTPURLResponse(url: url, statusCode: statusCode, httpVersion: nil, headerFields: nil) else {
+              let response = HTTPURLResponse(url: url, statusCode: statusCode, httpVersion: nil, headerFields: headerFields) else {
             client?.urlProtocol(self, didFailWithError: URLError(.badURL))
             return
         }
         client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-        client?.urlProtocol(self, didLoad: Data("{\"quote\":\"ok\"}".utf8))
+        if statusCode != 304 {
+            let quote = bodyIncludesAuthorization ? (authorization ?? "none") : "ok"
+            client?.urlProtocol(self, didLoad: Data("{\"quote\":\"\(quote)\"}".utf8))
+        }
         client?.urlProtocolDidFinishLoading(self)
     }
 
@@ -158,6 +232,8 @@ final class HarborRequestManagerAuthTests: XCTestCase {
         Harbor.setAuthProvider(nil)
         HConfig.shared.customURLSession = nil
         Harbor.setProtocolClasses(nil)
+        Harbor.setDefaultCacheType(.urlCache())
+        await Harbor.clearAllCache()
         AuthStubProtocol.reset()
     }
 
@@ -303,5 +379,70 @@ final class HarborRequestManagerAuthTests: XCTestCase {
             return
         }
         XCTAssertEqual(AuthStubProtocol.receivedAuthorizations, [nil])
+    }
+
+    func test401OnRequestThatOptedOutOfAuthGivesUpWithoutConsultingTheProvider() async throws {
+        // Given a provider with credentials and a request that does not need auth, answered with a 401
+        let provider = SpyAuthProvider(headers: [HAuthorizationHeader(key: "Authorization", value: "Bearer token_1")])
+        Harbor.setAuthProvider(provider)
+        AuthStubProtocol.statusCodes = [401]
+
+        let request = ClassAuthGetRequest(url: "https://example.com/public", needsAuth: false)
+
+        // When
+        let response = await request.request()
+
+        // Then the flow gives up with .authNeeded and the provider is never consulted
+        guard case .error(let error) = response, case .authNeeded = error else {
+            XCTFail("Expected .authNeeded but got: \(response)")
+            return
+        }
+        XCTAssertEqual(provider.headerCallCount, 0)
+        XCTAssertEqual(provider.authFailedCount, 0)
+        XCTAssertEqual(AuthStubProtocol.receivedAuthorizations, [nil])
+    }
+
+    // MARK: - Vary: Authorization Cache Tests
+
+    func testVaryAuthorizationVariantsAreKeyedPerCredential() async throws {
+        // Given a custom cache and a server that varies on Authorization, tagging each
+        // body with the credential it was fetched with
+        await Harbor.clearAllCache()
+        Harbor.setDefaultCacheType(.custom(HCache.Configuration(expirationTime: .oneHour)))
+        AuthStubProtocol.responseHeaders = ["Vary": "Authorization"]
+        AuthStubProtocol.etag = "\"vary-etag\""
+        AuthStubProtocol.bodyIncludesAuthorization = true
+
+        let tokenA = HAuthorizationHeader(key: "Authorization", value: "Bearer token_A")
+        let tokenB = HAuthorizationHeader(key: "Authorization", value: "Bearer token_B")
+
+        let request = ClassAuthGetRequest(url: "https://example.com/vary")
+
+        // When user A fetches, the response is cached under A's credential
+        Harbor.setAuthProvider(SpyAuthProvider(headers: [tokenA]))
+        guard case .success(let modelA) = await request.request() else {
+            XCTFail("Expected success for the first request")
+            return
+        }
+        XCTAssertEqual(modelA.quote, "Bearer token_A")
+
+        // Then a request with B's credential must not be served A's cached variant: the
+        // vary mismatch withholds the validators, so the server answers a full 200
+        Harbor.setAuthProvider(SpyAuthProvider(headers: [tokenB]))
+        guard case .success(let modelB) = await request.request() else {
+            XCTFail("Expected success for the second request")
+            return
+        }
+        XCTAssertEqual(modelB.quote, "Bearer token_B")
+
+        // And repeating B's credential revalidates: the server answers 304 and the
+        // cached variant for B is served
+        Harbor.setAuthProvider(SpyAuthProvider(headers: [tokenB]))
+        guard case .success(let modelBAgain) = await request.request() else {
+            XCTFail("Expected success for the revalidation request")
+            return
+        }
+        XCTAssertEqual(modelBAgain.quote, "Bearer token_B")
+        XCTAssertEqual(AuthStubProtocol.receivedIfNoneMatch, [nil, nil, "\"vary-etag\""])
     }
 }

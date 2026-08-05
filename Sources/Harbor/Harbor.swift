@@ -87,11 +87,7 @@ public extension Harbor {
         HRequestManager.invalidateURLSession()
     }
 
-    /// Sets URLProtocol classes for internally built sessions.
-    static func setProtocolClasses(_ protocolClasses: [AnyClass]?) {
-        HConfig.shared.protocolClasses = protocolClasses
-        HRequestManager.invalidateURLSession()
-    }
+
 
     /// Configures whether mocks are only active in DEBUG builds.
     static func setMocksOnlyInDebug(_ value: Bool) {
@@ -191,5 +187,16 @@ public extension Harbor {
         if let sessionCache = HConfig.shared.customURLSession?.configuration.urlCache, sessionCache !== URLCache.shared {
             sessionCache.removeAllCachedResponses()
         }
+    }
+}
+
+// MARK: - Internal Configuration
+
+extension Harbor {
+    /// Sets URLProtocol classes for internally built sessions.
+    /// This is internal for testing purposes.
+    static func setProtocolClasses(_ protocolClasses: [AnyClass]?) {
+        HConfig.shared.protocolClasses = protocolClasses
+        HRequestManager.invalidateURLSession()
     }
 }

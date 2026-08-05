@@ -7,6 +7,7 @@
 
 import Foundation
 
+/// Namespace for caching-related types and functionality.
 public enum HCache {}
 
 extension HCache {
@@ -192,7 +193,7 @@ extension HCache {
             if written {
                 memoryCache.setObject(entry, forKey: NSString(string: key), cost: data.count)
             } else {
-                HarborLogger.log("Failed to persist cache entry on disk", level: .error)
+                HLogger.log("Failed to persist cache entry on disk", level: .error)
             }
         }
 
@@ -231,7 +232,7 @@ extension HCache {
             if written {
                 memoryCache.setObject(refreshed, forKey: nsKey, cost: refreshed.data.count)
             } else {
-                HarborLogger.log("Failed to persist refreshed cache entry on disk", level: .error)
+                HLogger.log("Failed to persist refreshed cache entry on disk", level: .error)
             }
         }
 
@@ -471,12 +472,14 @@ private extension HCache {
     /// Encapsulates low-level file system operations to avoid actor isolation conflicts.
     /// Being a separate struct, it does not inherit @HRequestManagerActor isolation.
     struct FileStorage {
+        /// Generates the file URL for a cache entry based on its key hash.
         static func url(for key: String, in directory: URL) -> URL {
             let hash = key.sha256Hash
             // Using .cache extension to distinguish from legacy files
             return directory.appendingPathComponent(hash).appendingPathExtension("cache")
         }
 
+        /// Generates URLs for legacy cache formats (data and metadata files).
         static func legacyUrls(for key: String, in directory: URL) -> (URL, URL) {
             let hash = key.sha256Hash
             let dataURL = directory.appendingPathComponent(hash)
@@ -484,6 +487,7 @@ private extension HCache {
             return (dataURL, metaURL)
         }
 
+        /// Cleans up expired cache files from the directory, keeping those with validators.
         static func cleanupExpiredFiles(at directory: URL) {
             guard let resourceKeys = try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil) else { return }
 
@@ -550,23 +554,37 @@ private extension HCache {
 /// Recognized `Cache-Control` directives. `public`/`private` are parsed for completeness;
 /// they do not change behavior because Harbor's custom cache is a private cache.
 struct CacheControlDirectives {
+    /// The maximum age in seconds specified by `max-age`.
     var maxAge: Int?
+    /// The maximum age in seconds specified by `s-maxage`.
     var sMaxAge: Int?
+    /// Whether `no-cache` is specified.
     var noCache = false
+    /// Whether `no-store` is specified.
     var noStore = false
+    /// Whether `must-revalidate` is specified.
     var mustRevalidate = false
+    /// Whether `proxy-revalidate` is specified.
     var proxyRevalidate = false
+    /// The window in seconds for `stale-while-revalidate`.
     var staleWhileRevalidate: Int?
+    /// The window in seconds for `stale-if-error`.
     var staleIfError: Int?
+    /// Whether `public` is specified.
     var isPublic = false
+    /// Whether `private` is specified.
     var isPrivate = false
 }
 
 /// Metadata required to decide whether an expired entry may be served on errors.
 private protocol HCacheStaleServing {
+    /// Indicates if the response must be revalidated and cannot be served stale.
     var mustRevalidate: Bool { get }
+    /// Time window during which the response can be served stale on errors.
     var staleIfError: TimeInterval? { get }
+    /// The vary header string from the original response.
     var vary: String? { get }
+    /// Checks if the provided vary key matches the stored vary key.
     func matchesVary(_ currentVaryKey: String?) -> Bool
 }
 
@@ -577,18 +595,27 @@ private struct DiskEntry: Codable, HCacheEntryInfo, HCacheStaleServing {
     /// Schema version of the current on-disk format.
     static let currentVersion = 1
 
+    /// The version of the schema when this entry was written.
     let version: Int
+    /// The raw payload data.
     let data: Data
+    /// The date the entry was stored or refreshed.
     let timestamp: Date
+    /// The calculated expiration date relative to `timestamp`.
     let expirationTime: TimeInterval?
     /// ETag header value stored for future If-None-Match requests.
     let etag: String?
     /// Last-Modified header value stored for future If-Modified-Since requests.
     let lastModified: String?
+    /// The original Vary header from the response.
     let vary: String?
+    /// The processed vary key matching request values against the Vary header.
     let varyKey: String?
+    /// Whether the entry is always considered stale (e.g. `no-cache`).
     let alwaysStale: Bool
+    /// Whether the entry must always be revalidated after expiration.
     let mustRevalidate: Bool
+    /// The grace period to serve this stale entry if a new request fails.
     let staleIfError: TimeInterval?
 
     init(entry: HCache.Manager.Entry) {
@@ -621,6 +648,7 @@ private struct DiskEntry: Codable, HCacheEntryInfo, HCacheStaleServing {
         self.staleIfError = try container.decodeIfPresent(TimeInterval.self, forKey: .staleIfError)
     }
 
+    /// Whether this entry has either an ETag or Last-Modified validator.
     var hasValidator: Bool {
         return etag != nil || lastModified != nil
     }
@@ -637,6 +665,7 @@ private struct DiskEntry: Codable, HCacheEntryInfo, HCacheStaleServing {
         return varyKey == currentVaryKey
     }
 
+    /// Converts this disk entry into a memory-ready entry.
     func toEntry() -> HCache.Manager.Entry {
         return HCache.Manager.Entry(
             data: data,

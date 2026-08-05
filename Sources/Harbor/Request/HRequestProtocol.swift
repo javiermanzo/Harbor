@@ -49,8 +49,9 @@ public protocol HRequestBaseRequestProtocol: Sendable {
     var httpMethod: HHttpMethod { get }
     /// Whether this request requires authentication. Default: `false`.
     var needsAuth: Bool { get }
-    /// Optional number of retry attempts for failed requests. Default: `nil`.
-    var retries: Int? { get set }
+    /// Optional retry policy (backoff and jitter) for failed requests. Default: `nil`.
+    /// When `nil`, no retries are performed.
+    var retryPolicy: HRetryPolicy? { get }
     /// Path parameters to be substituted in the URL. Default: `nil`.
     var pathParameters: [String: String]? { get }
     /// Additional HTTP headers to include in the request. Default: `nil`.
@@ -61,10 +62,15 @@ public protocol HRequestBaseRequestProtocol: Sendable {
 
 /// Default implementations for `HRequestBaseRequestProtocol`.
 public extension HRequestBaseRequestProtocol {
+    /// Default: `false`.
     var needsAuth: Bool { false }
-    var retries: Int? { get { nil } set { } }
+    /// Default: `nil`.
+    var retryPolicy: HRetryPolicy? { nil }
+    /// Default: `nil`.
     var pathParameters: [String: String]? { nil }
+    /// Default: `nil`.
     var headerParameters: [String: String]? { get { nil } set { } }
+    /// Default: `nil`.
     var timeoutInterval: TimeInterval? { nil }
 }
 
@@ -77,6 +83,7 @@ public protocol HRequestWithEmptyResponseProtocol: HRequestBaseRequestProtocol {
 
 /// Default implementation for `HRequestWithEmptyResponseProtocol`.
 public extension HRequestWithEmptyResponseProtocol {
+    /// Default implementation that routes through `HRequestManager`.
     func request() async -> HResponse {
         return await HRequestManager.request(request: self)
     }
@@ -95,10 +102,12 @@ public protocol HRequestWithResultProtocol: HRequestBaseRequestProtocol {
 
 /// Default implementation for `HRequestWithResultProtocol`.
 public extension HRequestWithResultProtocol {
+    /// Default implementation that routes through `HRequestManager`.
     func request() async -> HResponseWithResult<Model> {
         return await HRequestManager.request(model: Model.self, request: self)
     }
     
+    /// Default implementation using `JSONDecoder`.
     func parseData<Model: Codable> (data: Data, model: Model.Type) throws -> Model {
         let decoder = JSONDecoder()
         return try decoder.decode(Model.self, from: data)
@@ -112,6 +121,9 @@ public protocol HRequestWithBodyProtocol: HRequestWithEmptyResponseProtocol {
     var bodyType: HRequestDataType { get }
     /// Parameters to include in the request body.
     var bodyParameters: [String: Any]? { get set }
+    /// Typed multipart form values. When set, a multipart body is built from these values
+    /// (text fields and files) instead of `bodyParameters`. Default: `nil`.
+    var multipartBody: [String: HFormValue]? { get }
     /// Raw HTTP body data. When set, it is sent as-is instead of `bodyParameters` (Content-Type application/json).
     var rawBody: Data? { get }
 }
@@ -137,8 +149,11 @@ public protocol HDeleteRequestProtocol: HRequestWithEmptyResponseProtocol {}
 
 /// Default implementations for `HGetRequestProtocol`.
 public extension HGetRequestProtocol {
+    /// The HTTP method for GET requests is `.get`.
     var httpMethod: HHttpMethod { .get }
+    /// Default: `nil`.
     var queryParameters: [String: String]? { nil }
+    /// Default: `nil`.
     var cacheType: HCache.CacheType? { nil }
     
     /// Creates an async throwing stream that emits responses from cache and/or remote sources.
@@ -146,47 +161,52 @@ public extension HGetRequestProtocol {
     /// - Returns: AsyncThrowingStream that yields (Model, HOriginType) tuples
     func requestStream(source: HRequestSource = .cacheAndRemote) -> AsyncThrowingStream<(response: Model, origin: HOriginType), Error> {
         return AsyncThrowingStream { continuation in
-            Task {
+            let task = Task {
                 await self.handleStreamRequest(source: source, continuation: continuation)
+            }
+            // Cancelling the consumer cancels the task running the underlying request.
+            continuation.onTermination = { @Sendable reason in
+                if case .cancelled = reason {
+                    task.cancel()
+                }
             }
         }
     }
     
-    /// Internal handler for stream request logic
+    /// Internal handler for stream request logic. Every path finishes the continuation exactly once.
     private func handleStreamRequest(
         source: HRequestSource,
         continuation: AsyncThrowingStream<(response: Model, origin: HOriginType), Error>.Continuation
     ) async {
-        defer {
-            continuation.finish()
-        }
-        
         switch source {
         case .cacheOnly:
             if let cachedData = await cache() {
                 continuation.yield((response: cachedData, origin: .cache))
+                continuation.finish()
             } else {
                 continuation.finish(throwing: HRequestError.noCachedDataFound)
             }
-            
+
         case .remoteOnly:
             let remoteResult = await request()
             switch remoteResult {
             case .success(let data):
                 continuation.yield((response: data, origin: .remote))
+                continuation.finish()
             case .error(let error):
                 continuation.finish(throwing: error)
             }
-            
+
         case .cacheAndRemote:
             if let cachedData = await cache() {
                 continuation.yield((response: cachedData, origin: .cache))
             }
-            
+
             let remoteResult = await request()
             switch remoteResult {
             case .success(let data):
                 continuation.yield((response: data, origin: .remote))
+                continuation.finish()
             case .error(let error):
                 continuation.finish(throwing: error)
             }
@@ -196,26 +216,34 @@ public extension HGetRequestProtocol {
 
 /// Default implementations for `HRequestWithBodyProtocol`.
 public extension HRequestWithBodyProtocol {
+    /// Default: `.json`.
     var bodyType: HRequestDataType { .json }
+    /// Default: `nil`.
+    var multipartBody: [String: HFormValue]? { nil }
+    /// Default: `nil`.
     var rawBody: Data? { nil }
 }
 
 /// Default implementations for `HPostRequestProtocol`.
 public extension HPostRequestProtocol {
+    /// The HTTP method for POST requests is `.post`.
     var httpMethod: HHttpMethod { .post }
 }
 
 /// Default implementations for `HPatchRequestProtocol`.
 public extension HPatchRequestProtocol {
+    /// The HTTP method for PATCH requests is `.patch`.
     var httpMethod: HHttpMethod { .patch }
 }
 
 /// Default implementations for `HPutRequestProtocol`.
 public extension HPutRequestProtocol {
+    /// The HTTP method for PUT requests is `.put`.
     var httpMethod: HHttpMethod { .put }
 }
 
 /// Default implementations for `HDeleteRequestProtocol`.
 public extension HDeleteRequestProtocol {
+    /// The HTTP method for DELETE requests is `.delete`.
     var httpMethod: HHttpMethod { .delete }
 }

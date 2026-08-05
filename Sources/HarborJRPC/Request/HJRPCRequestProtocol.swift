@@ -27,8 +27,9 @@ public protocol HJRPCRequestProtocol: Sendable {
     /// Whether this request requires authentication. Default: `false`.
     var needsAuth: Bool { get }
 
-    /// Optional number of retry attempts for failed requests. Default: `nil`.
-    var retries: Int? { get }
+    /// Optional retry policy (backoff and jitter) for failed requests. Default: `nil`.
+    /// When `nil`, no retries are performed.
+    var retryPolicy: HRetryPolicy? { get }
 
     /// Additional HTTP headers to include in the request. Default: `nil`.
     var headers: [String: String]? { get }
@@ -62,7 +63,7 @@ public protocol HJRPCRequestProtocol: Sendable {
 /// Default property implementations for `HJRPCRequestProtocol`.
 public extension HJRPCRequestProtocol {
     var needsAuth: Bool { false }
-    var retries: Int? { nil }
+    var retryPolicy: HRetryPolicy? { nil }
     var headers: [String: String]? { nil }
     var parameters: HJRPCParams? { nil }
     var isNotification: Bool { false }
@@ -118,7 +119,7 @@ extension HJRPCRequestProtocol {
 
         let debugType: HDebugRequestType = (self as? HDebugRequestProtocol)?.debugType ?? .none
 
-        return HJRPCRequestWrapper<RawModel>(debugType: debugType, jsonBody: jsonBody, jrpcID: jrpcID, url: HJRPCRequestManager.config.url, needsAuth: needsAuth, retries: retries, pathParameters: nil, headerParameters: headers)
+        return HJRPCRequestWrapper<RawModel>(debugType: debugType, jsonBody: jsonBody, jrpcID: jrpcID, url: HJRPCRequestManager.config.url, needsAuth: needsAuth, retryPolicy: retryPolicy, pathParameters: nil, headerParameters: headers)
     }
 }
 
@@ -134,7 +135,7 @@ struct HJRPCRequestWrapper<RawModel: HModel>: Sendable, HPostRequestProtocol, HR
     let jrpcID: HJRPCId?
     let url: String
     let needsAuth: Bool
-    var retries: Int?
+    var retryPolicy: HRetryPolicy?
     let pathParameters: [String: String]?
     var headerParameters: [String: String]?
 

@@ -129,7 +129,7 @@ private extension HGetRequestProtocol {
     /// Builds a URLRequest for this request.
     /// - Returns: The configured URLRequest, or nil if the request cannot be built.
     func urlRequest() async -> URLRequest? {
-        await HURLBuilder.buildUrlRequest(request: self)
+        try? await HURLBuilder.buildUrlRequest(request: self)
     }
 
     /// Resolves the headers that will effectively be sent with this request: the global default
@@ -146,7 +146,7 @@ private extension HGetRequestProtocol {
     /// Generates a cache key for this request based on the complete URL.
     /// - Returns: The cache key string, or nil if the URL cannot be built.
     func cacheKey() async -> String? {
-        let compositeURL: URL? = await HURLBuilder.compositeURL(url: url,
+        let compositeURL: URL? = try? HURLBuilder.compositeURL(url: url,
                                                           pathParameters: pathParameters,
                                                           queryParameters: queryParameters)
 

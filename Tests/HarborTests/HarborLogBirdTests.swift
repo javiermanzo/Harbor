@@ -14,13 +14,13 @@ final class HarborLogBirdTests: XCTestCase {
 
     override func setUp() async throws {
         await Harbor.setLoggingEnabled(true)
-        await HarborLogger.logger.clearLogs()
+        await HLogger.logger.clearLogs()
         await Harbor.loggingSensitiveKeys(.reset)
     }
 
     override func tearDown() async throws {
         await Harbor.setLoggingEnabled(true)
-        await HarborLogger.logger.clearLogs()
+        await HLogger.logger.clearLogs()
         await Harbor.loggingSensitiveKeys(.reset)
         cancellables.removeAll()
     }
@@ -31,7 +31,7 @@ final class HarborLogBirdTests: XCTestCase {
         // Harbor no longer registers its own keys: LogBird 2.1's expanded global
         // defaults (password, token, authorization, auth, secret, apikey, cookie,
         // bearer, credentials, privatekey) already cover HTTP auth fields.
-        let keys = await HarborLogger.sensitiveKeys
+        let keys = await HLogger.sensitiveKeys
         XCTAssertTrue(LogBird.defaultSensitiveKeys.isSubset(of: keys))
     }
 
@@ -40,7 +40,7 @@ final class HarborLogBirdTests: XCTestCase {
     func testSetReplacesEntireSensitiveKeySet() async {
         await Harbor.loggingSensitiveKeys(.set(["only_this"]))
 
-        let keys = await HarborLogger.sensitiveKeys
+        let keys = await HLogger.sensitiveKeys
         // Keys are normalized at insertion (lowercased, stripping -, _ and whitespace).
         XCTAssertEqual(keys, Set(["onlythis"]))
         XCTAssertFalse(keys.contains("token"), "Defaults should not be merged back in")
@@ -57,9 +57,9 @@ final class HarborLogBirdTests: XCTestCase {
             "password": .string("P@ssw0rd123!")
         ]
 
-        await HarborLogger.log("Authentication Attempt", additionalInfo: info)
+        await HLogger.log("Authentication Attempt", additionalInfo: info)
 
-        let logs = await HarborLogger.logger.logs
+        let logs = await HLogger.logger.logs
         guard let lastLog = logs.last, let stored = lastLog.additionalInfo else {
             XCTFail("Expected a recorded log with additionalInfo")
             return
@@ -77,7 +77,7 @@ final class HarborLogBirdTests: XCTestCase {
     func testAddExtendsActiveSensitiveKeySet() async {
         await Harbor.loggingSensitiveKeys(.add(["trace_id", "token"])) // "token" is already a default
 
-        let keys = await HarborLogger.sensitiveKeys
+        let keys = await HLogger.sensitiveKeys
         // Inserted keys are normalized (lowercased, stripping -, _ and whitespace).
         XCTAssertTrue(keys.contains("traceid"), "trace_id should be normalized to traceid")
         // Defaults are preserved when extending.
@@ -90,7 +90,7 @@ final class HarborLogBirdTests: XCTestCase {
         await Harbor.loggingSensitiveKeys(.set(["custom"]))
         await Harbor.loggingSensitiveKeys(.reset)
 
-        let keys = await HarborLogger.sensitiveKeys
+        let keys = await HLogger.sensitiveKeys
         XCTAssertEqual(keys, LogBird.defaultSensitiveKeys)
         XCTAssertTrue(keys.contains("auth"))
         XCTAssertFalse(keys.contains("custom"))
@@ -98,7 +98,7 @@ final class HarborLogBirdTests: XCTestCase {
 
     // MARK: - Redaction reaches Harbor's logger (bug-fix coverage)
 
-    func testHarborLoggerRedactsHTTPAuthFields() async {
+    func testHLoggerRedactsHTTPAuthFields() async {
         // LogBird 2.1's global defaults + separator-insensitive matching cover
         // these HTTP fields, and Harbor's logger inherits them — so they are
         // redacted on the same instance Harbor logs through.
@@ -110,9 +110,9 @@ final class HarborLogBirdTests: XCTestCase {
             "refresh_token": .string("rt_abcdef")
         ]
 
-        await HarborLogger.log("Outbound Request", additionalInfo: info)
+        await HLogger.log("Outbound Request", additionalInfo: info)
 
-        let logs = await HarborLogger.logger.logs
+        let logs = await HLogger.logger.logs
         guard let lastLog = logs.last, let stored = lastLog.additionalInfo else {
             XCTFail("Expected a recorded log with additionalInfo")
             return
@@ -136,9 +136,9 @@ final class HarborLogBirdTests: XCTestCase {
         ]
         let extra = [LBExtraMessage(key: "Headers", value: "Content-Type: application/json")]
 
-        await HarborLogger.log("API Log", extraMessages: extra, additionalInfo: metadata, level: .info)
+        await HLogger.log("API Log", extraMessages: extra, additionalInfo: metadata, level: .info)
 
-        let logs = await HarborLogger.logger.logs
+        let logs = await HLogger.logger.logs
         guard let log = logs.last else {
             XCTFail("Log should exist")
             return
@@ -164,7 +164,7 @@ final class HarborLogBirdTests: XCTestCase {
     func testLogsPublisherEmitsLogEvents() async {
         let expectation = expectation(description: "Receive LBLogEvent.recorded event")
 
-        await HarborLogger.logger.logsPublisher
+        await HLogger.logger.logsPublisher
             .sink { event in
                 switch event {
                 case .recorded(let log):
@@ -177,7 +177,7 @@ final class HarborLogBirdTests: XCTestCase {
             }
             .store(in: &cancellables)
 
-        await HarborLogger.log("Publisher Test Log", level: .warning)
+        await HLogger.log("Publisher Test Log", level: .warning)
 
         await fulfillment(of: [expectation], timeout: 2.0)
     }
@@ -186,9 +186,9 @@ final class HarborLogBirdTests: XCTestCase {
 
     func testLoggingDisabledSuppressesLogOutput() async {
         await Harbor.setLoggingEnabled(false)
-        await HarborLogger.log("Should not be logged", level: .info)
+        await HLogger.log("Should not be logged", level: .info)
 
-        let logs = await HarborLogger.logger.logs
+        let logs = await HLogger.logger.logs
         XCTAssertTrue(logs.isEmpty, "No logs should be recorded when logging is disabled")
     }
 

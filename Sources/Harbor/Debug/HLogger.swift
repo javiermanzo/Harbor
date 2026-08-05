@@ -1,5 +1,5 @@
 //
-//  HarborLogger.swift
+//  HLogger.swift
 //  Harbor
 //
 //  Created by Javier Manzo on 01/08/2026.
@@ -19,7 +19,7 @@ import LogBird
 /// entry point, which takes an `HLoggingSensitiveKeyAction` (`.set`, `.add`,
 /// `.reset`, `.clear`).
 @HRequestManagerActor
-enum HarborLogger {
+enum HLogger {
 
     // MARK: - Logger
 

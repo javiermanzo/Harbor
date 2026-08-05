@@ -49,7 +49,7 @@ final class HURLSessionDelegateTests: XCTestCase {
             .deletingLastPathComponent()
             .appendingPathComponent("certificate.p12")
         let mTLS = HmTLS(p12FileUrl: p12URL, password: "notapassword")
-        let identity = try XCTUnwrap(mTLS.extractIdentity(), "Failed to extract identity from certificate.p12")
+        let identity = try mTLS.extractIdentity()
         let expectedChainCount = try XCTUnwrap(identity.certificateChain, "Identity should include the certificate chain").count
         XCTAssertGreaterThan(expectedChainCount, 0)
 

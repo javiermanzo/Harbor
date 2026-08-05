@@ -8,6 +8,10 @@
 import Foundation
 import LogBird
 
+/// Internal configuration state for Harbor.
+///
+/// This struct holds all the global configuration options used by the library.
+/// Access is serialized via `@HRequestManagerActor` to ensure thread safety.
 @HRequestManagerActor
 struct HConfig: Sendable {
     /// Shared singleton instance of the configuration.
@@ -50,6 +54,12 @@ struct HConfig: Sendable {
     var cacheType: HCache.CacheType = .urlCache()
     /// Default timeout interval for requests. Default is 15 seconds.
     var timeoutInterval: TimeInterval = 15
+    /// Whether DEBUG/simulator builds assume network availability instead of trusting the
+    /// connectivity monitor. Default is true; set to false to exercise `.noConnection` flows in debug.
+    var assumeNetworkAvailableInDebug: Bool = true
+    /// URLProtocol classes injected into internally built sessions, allowing networking
+    /// to be stubbed per session instead of registering protocols globally.
+    var protocolClasses: [AnyClass]?
 
     /// Whether mocks are currently enabled based on build configuration and `mocksOnlyInDebug`.
     var mocksEnabled: Bool {

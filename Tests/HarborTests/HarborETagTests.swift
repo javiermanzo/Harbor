@@ -141,8 +141,7 @@ final class HarborETagTests: XCTestCase {
         let dedicatedCache = URLCache(memoryCapacity: 1024 * 1024, diskCapacity: 0)
         let request = GetUsersCustomURLCacheRequest(urlCache: dedicatedCache)
 
-        let builtRequest = await HURLBuilder.buildUrlRequest(request: request)
-        let urlRequest = try XCTUnwrap(builtRequest)
+        let urlRequest = try await HURLBuilder.buildUrlRequest(request: request)
         let url = try XCTUnwrap(urlRequest.url)
 
         let user = TestUser(id: 1, name: "John", email: "john@example.com")

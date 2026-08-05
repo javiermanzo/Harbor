@@ -8,11 +8,9 @@
 import Foundation
 import Security
 
-/**
- Harbor - Protocol-oriented networking framework for Swift.
-
- Features: Caching, Authentication, SSL/TLS Security, Mocking, Async/Await, Retry Logic
- */
+/// Harbor - Protocol-oriented networking framework for Swift.
+///
+/// Features: Caching, Authentication, SSL/TLS Security, Mocking, Async/Await, Retry Logic
 @HRequestManagerActor
 public enum Harbor {}
 
@@ -31,8 +29,25 @@ public extension Harbor {
     }
 
     /// Configures mutual TLS for client certificate authentication.
-    static func setMTLS(_ mTLS: HmTLS?) {
-        HConfig.shared.mTLSIdentity = mTLS?.extractIdentity(loggingEnabled: HConfig.shared.isLoggingEnabled)
+    /// - Parameter mTLS: The mTLS configuration.
+    /// - Throws: `HMTLSError` when the identity could not be extracted from the P12
+    ///   (file missing, wrong password, malformed, no identity). mTLS stays disabled in that case.
+    static func setMTLS(_ mTLS: HmTLS) throws {
+        do {
+            HConfig.shared.mTLSIdentity = try mTLS.extractIdentity(loggingEnabled: HConfig.shared.isLoggingEnabled)
+            HRequestManager.invalidateURLSession()
+        } catch {
+            HConfig.shared.mTLSIdentity = nil
+            HRequestManager.invalidateURLSession()
+            HLogger.log("mTLS identity could not be configured", error: error, level: .error)
+            throw error
+        }
+    }
+
+    /// Disables mutual TLS by clearing any configured client identity.
+    static func clearMTLS() {
+        HConfig.shared.mTLSIdentity = nil
+        HRequestManager.invalidateURLSession()
     }
 
     /// Enables SSL pinning with SHA256 hashes of the certificate's SubjectPublicKeyInfo (SPKI),
@@ -40,6 +55,7 @@ public extension Harbor {
     /// Use `Harbor.computePin(for:)` to generate pins from a certificate.
     static func setSSlPinningKeys(_ sslPinningKeys: [String]?) {
         HConfig.shared.sslPinningKeys = sslPinningKeys
+        HRequestManager.invalidateURLSession()
     }
 
     /// Computes the SSL pin for a certificate: `base64(SHA256(SPKI))`.
@@ -66,7 +82,10 @@ public extension Harbor {
     /// Default is 15 seconds.
     static func setDefaultTimeoutInterval(_ timeout: TimeInterval) {
         HConfig.shared.timeoutInterval = timeout
+        HRequestManager.invalidateURLSession()
     }
+
+
 
     /// Configures whether mocks are only active in DEBUG builds.
     static func setMocksOnlyInDebug(_ value: Bool) {
@@ -99,7 +118,7 @@ public extension Harbor {
     ///
     /// - Parameter action: The update to apply to the sensitive-key set.
     static func loggingSensitiveKeys(_ action: HLoggingSensitiveKeyAction) {
-        HarborLogger.sensitiveKeys(action)
+        HLogger.sensitiveKeys(action)
     }
 
     /// Configures whether sensitive header values (Authorization, Cookie, Set-Cookie, X-API-Key,
@@ -108,6 +127,24 @@ public extension Harbor {
     /// - Parameter enabled: If true, real values are printed. If false (default), values are redacted as `<redacted>`.
     static func setLogSensitiveHeaders(_ enabled: Bool) {
         HConfig.shared.logSensitiveHeaders = enabled
+    }
+
+    /// Configures whether DEBUG/simulator builds assume network availability instead of
+    /// trusting the connectivity monitor. Default is true; set to false to exercise
+    /// `.noConnection` flows in debug builds.
+    static func setAssumeNetworkAvailableInDebug(_ value: Bool) {
+        HConfig.shared.assumeNetworkAvailableInDebug = value
+    }
+}
+
+// MARK: - Network Monitoring
+
+public extension Harbor {
+
+    /// Stops the internal network connectivity monitor and resets its state.
+    /// The monitor restarts lazily on the next connectivity check. Useful for tests and resets.
+    static func stopNetworkMonitor() {
+        HRequestManager.connectivityMonitor.stop()
     }
 }
 
@@ -148,5 +185,16 @@ public extension Harbor {
         if let sessionCache = HConfig.shared.customURLSession?.configuration.urlCache, sessionCache !== URLCache.shared {
             sessionCache.removeAllCachedResponses()
         }
+    }
+}
+
+// MARK: - Internal Configuration
+
+extension Harbor {
+    /// Sets URLProtocol classes for internally built sessions.
+    /// This is internal for testing purposes.
+    static func setProtocolClasses(_ protocolClasses: [AnyClass]?) {
+        HConfig.shared.protocolClasses = protocolClasses
+        HRequestManager.invalidateURLSession()
     }
 }

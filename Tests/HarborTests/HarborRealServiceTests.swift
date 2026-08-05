@@ -10,27 +10,27 @@ import XCTest
 
 final class HarborRealServiceTests: XCTestCase {
     
-    struct GithubUser: HModel {
-        let login: String
+    struct TestResource: HModel {
+        let name: String
         let id: Int
     }
     
-    struct GetGithubUserCustomCache: HGetRequestProtocol {
-        typealias Model = GithubUser
-        let url = "https://api.github.com/users/octocat"
+    struct GetTestResourceCustomCache: HGetRequestProtocol {
+        typealias Model = TestResource
+        let url = "https://pokeapi.co/api/v2/pokemon/ditto"
         let cacheType: HCache.CacheType? = .custom(HCache.Configuration(expirationTime: 60))
     }
     
-    struct GetGithubUserURLCache: HGetRequestProtocol {
-        typealias Model = GithubUser
-        let url = "https://api.github.com/users/octocat"
+    struct GetTestResourceURLCache: HGetRequestProtocol {
+        typealias Model = TestResource
+        let url = "https://pokeapi.co/api/v2/pokemon/ditto"
         let queryParameters: [String: String]? = ["v": UUID().uuidString]
         let cacheType: HCache.CacheType? = .urlCache()
     }
 
-    struct GetGithubUserETag: HGetRequestProtocol {
-        typealias Model = GithubUser
-        let url = "https://api.github.com/users/octocat"
+    struct GetTestResourceETag: HGetRequestProtocol {
+        typealias Model = TestResource
+        let url = "https://pokeapi.co/api/v2/pokemon/ditto"
         let cacheType: HCache.CacheType?
 
         init(urlCache: URLCache) {
@@ -39,9 +39,9 @@ final class HarborRealServiceTests: XCTestCase {
     }
 
     /// Request con custom cache de larga duración para pruebas de ETag.
-    struct GetGithubUserCustomCacheETag: HGetRequestProtocol {
-        typealias Model = GithubUser
-        let url = "https://api.github.com/users/octocat"
+    struct GetTestResourceCustomCacheETag: HGetRequestProtocol {
+        typealias Model = TestResource
+        let url = "https://pokeapi.co/api/v2/pokemon/ditto"
         // Expiration larga para que no expire durante el test
         let cacheType: HCache.CacheType? = .custom(HCache.Configuration(expirationTime: 3600))
     }
@@ -59,7 +59,7 @@ final class HarborRealServiceTests: XCTestCase {
     }
     
     func testCustomCacheWithRealService() async throws {
-        let request = GetGithubUserCustomCache()
+        let request = GetTestResourceCustomCache()
         
         let initialCache = await request.cache()
         XCTAssertNil(initialCache)
@@ -67,7 +67,7 @@ final class HarborRealServiceTests: XCTestCase {
         let response = await request.request()
         switch response {
         case .success(let user):
-            XCTAssertEqual(user.login, "octocat")
+            XCTAssertEqual(user.name, "ditto")
         case .error(let err):
             XCTFail("Request failed: \(err)")
         }
@@ -75,11 +75,11 @@ final class HarborRealServiceTests: XCTestCase {
         // Fetch from cache
         let cachedUser = await request.cache()
         XCTAssertNotNil(cachedUser)
-        XCTAssertEqual(cachedUser?.login, "octocat")
+        XCTAssertEqual(cachedUser?.name, "ditto")
     }
     
     func testURLCacheWithRealService() async throws {
-        let request = GetGithubUserURLCache()
+        let request = GetTestResourceURLCache()
         
         let initialCache = await request.cache()
         XCTAssertNil(initialCache)
@@ -87,7 +87,7 @@ final class HarborRealServiceTests: XCTestCase {
         let response = await request.request()
         switch response {
         case .success(let user):
-            XCTAssertEqual(user.login, "octocat")
+            XCTAssertEqual(user.name, "ditto")
         case .error(let err):
             XCTFail("Request failed: \(err)")
         }
@@ -96,11 +96,11 @@ final class HarborRealServiceTests: XCTestCase {
 
         let cachedUser = await request.cache()
         XCTAssertNotNil(cachedUser)
-        XCTAssertEqual(cachedUser?.login, "octocat")
+        XCTAssertEqual(cachedUser?.name, "ditto")
     }
     
     func testCustomCacheRequestStream() async throws {
-        let request = GetGithubUserCustomCache()
+        let request = GetTestResourceCustomCache()
         
         // Populate cache
         let _ = await request.request()
@@ -108,7 +108,7 @@ final class HarborRealServiceTests: XCTestCase {
         var resultsCount = 0
         do {
             for try await (response, _) in request.requestStream(source: .cacheAndRemote) {
-                XCTAssertEqual(response.login, "octocat")
+                XCTAssertEqual(response.name, "ditto")
                 resultsCount += 1
             }
         } catch {
@@ -119,7 +119,7 @@ final class HarborRealServiceTests: XCTestCase {
     }
     
     func testURLCacheRequestStream() async throws {
-        let request = GetGithubUserURLCache()
+        let request = GetTestResourceURLCache()
         
         // Populate cache
         let _ = await request.request()
@@ -129,7 +129,7 @@ final class HarborRealServiceTests: XCTestCase {
         var resultsCount = 0
         do {
             for try await (response, _) in request.requestStream(source: .cacheAndRemote) {
-                XCTAssertEqual(response.login, "octocat")
+                XCTAssertEqual(response.name, "ditto")
                 resultsCount += 1
             }
         } catch {
@@ -140,14 +140,14 @@ final class HarborRealServiceTests: XCTestCase {
     }
     
     func testCustomCacheRequestStreamCacheOnly() async throws {
-        let request = GetGithubUserCustomCache()
+        let request = GetTestResourceCustomCache()
         
         let _ = await request.request()
         
         var resultsCount = 0
         do {
             for try await (response, origin) in request.requestStream(source: .cacheOnly) {
-                XCTAssertEqual(response.login, "octocat")
+                XCTAssertEqual(response.name, "ditto")
                 XCTAssertEqual(origin, .cache)
                 resultsCount += 1
             }
@@ -158,12 +158,12 @@ final class HarborRealServiceTests: XCTestCase {
     }
 
     func testCustomCacheRequestStreamRemoteOnly() async throws {
-        let request = GetGithubUserCustomCache()
+        let request = GetTestResourceCustomCache()
         
         var resultsCount = 0
         do {
             for try await (response, origin) in request.requestStream(source: .remoteOnly) {
-                XCTAssertEqual(response.login, "octocat")
+                XCTAssertEqual(response.name, "ditto")
                 XCTAssertEqual(origin, .remote)
                 resultsCount += 1
             }
@@ -174,7 +174,7 @@ final class HarborRealServiceTests: XCTestCase {
     }
 
     func testURLCacheRequestStreamCacheOnly() async throws {
-        let request = GetGithubUserURLCache()
+        let request = GetTestResourceURLCache()
         
         // Populate cache
         let _ = await request.request()
@@ -184,7 +184,7 @@ final class HarborRealServiceTests: XCTestCase {
         var resultsCount = 0
         do {
             for try await (response, origin) in request.requestStream(source: .cacheOnly) {
-                XCTAssertEqual(response.login, "octocat")
+                XCTAssertEqual(response.name, "ditto")
                 XCTAssertEqual(origin, .cache)
                 resultsCount += 1
             }
@@ -195,12 +195,12 @@ final class HarborRealServiceTests: XCTestCase {
     }
     
     func testURLCacheRequestStreamRemoteOnly() async throws {
-        let request = GetGithubUserURLCache()
+        let request = GetTestResourceURLCache()
         
         var resultsCount = 0
         do {
             for try await (response, origin) in request.requestStream(source: .remoteOnly) {
-                XCTAssertEqual(response.login, "octocat")
+                XCTAssertEqual(response.name, "ditto")
                 XCTAssertEqual(origin, .remote)
                 resultsCount += 1
             }
@@ -214,7 +214,7 @@ final class HarborRealServiceTests: XCTestCase {
 
     /// 1. Verifica que la GitHub API devuelve un header ETag en la primera respuesta.
     func testETagHeaderIsReceivedFromRealService() async throws {
-        let url = URL(string: "https://api.github.com/users/octocat")!
+        let url = URL(string: "https://pokeapi.co/api/v2/pokemon/ditto")!
         var urlRequest = URLRequest(url: url)
         urlRequest.cachePolicy = .reloadIgnoringLocalCacheData
 
@@ -233,7 +233,7 @@ final class HarborRealServiceTests: XCTestCase {
     /// 2. Verifica que el servidor responde 304 Not Modified cuando se envía el ETag
     ///    recibido mediante el header If-None-Match.
     func testETag304NotModifiedWithRealService() async throws {
-        let url = URL(string: "https://api.github.com/users/octocat")!
+        let url = URL(string: "https://pokeapi.co/api/v2/pokemon/ditto")!
 
         // Primera request — obtener ETag
         var firstRequest = URLRequest(url: url)
@@ -265,13 +265,13 @@ final class HarborRealServiceTests: XCTestCase {
     ///    de forma transparente: la segunda request debe devolver datos correctamente.
     func testETagCacheHitWithRealService() async throws {
         let urlCache = URLCache(memoryCapacity: 10 * 1024 * 1024, diskCapacity: 50 * 1024 * 1024)
-        let request = GetGithubUserETag(urlCache: urlCache)
+        let request = GetTestResourceETag(urlCache: urlCache)
 
         // Primera request — llena el cache con la respuesta y el ETag
         let firstResponse = await request.request()
         switch firstResponse {
         case .success(let user):
-            XCTAssertEqual(user.login, "octocat")
+            XCTAssertEqual(user.name, "ditto")
         case .error(let err):
             XCTFail("First request failed: \(err)")
         }
@@ -283,7 +283,7 @@ final class HarborRealServiceTests: XCTestCase {
         let secondResponse = await request.request()
         switch secondResponse {
         case .success(let user):
-            XCTAssertEqual(user.login, "octocat", "La segunda request (304 manejado por URLCache) debe devolver los mismos datos")
+            XCTAssertEqual(user.name, "ditto", "La segunda request (304 manejado por URLCache) debe devolver los mismos datos")
         case .error(let err):
             XCTFail("Second request (expected transparent 304 cache hit) failed: \(err)")
         }
@@ -292,7 +292,7 @@ final class HarborRealServiceTests: XCTestCase {
     /// 4. Verifica que requestStream funciona correctamente con URLCache y ETag.
     func testETagURLCacheRequestStream() async throws {
         let urlCache = URLCache(memoryCapacity: 10 * 1024 * 1024, diskCapacity: 50 * 1024 * 1024)
-        let request = GetGithubUserETag(urlCache: urlCache)
+        let request = GetTestResourceETag(urlCache: urlCache)
 
         // Primera request — llena el cache
         let _ = await request.request()
@@ -301,7 +301,7 @@ final class HarborRealServiceTests: XCTestCase {
         var resultsCount = 0
         do {
             for try await (response, _) in request.requestStream(source: .remoteOnly) {
-                XCTAssertEqual(response.login, "octocat")
+                XCTAssertEqual(response.name, "ditto")
                 resultsCount += 1
             }
         } catch {
@@ -315,12 +315,12 @@ final class HarborRealServiceTests: XCTestCase {
 
     /// Verifica que Harbor guarda el ETag de la respuesta cuando se usa custom cache.
     func testCustomCacheStoresETag() async throws {
-        let request = GetGithubUserCustomCacheETag()
+        let request = GetTestResourceCustomCacheETag()
 
         let response = await request.request()
         switch response {
         case .success(let user):
-            XCTAssertEqual(user.login, "octocat")
+            XCTAssertEqual(user.name, "ditto")
         case .error(let err):
             XCTFail("Request failed: \(err)")
         }
@@ -334,13 +334,13 @@ final class HarborRealServiceTests: XCTestCase {
     /// Verifica que Harbor envía If-None-Match en la segunda request y maneja el 304 correctamente:
     /// el servidor responde 304 y Harbor devuelve los datos del custom cache de forma transparente.
     func testCustomCacheETag304HandledTransparently() async throws {
-        let request = GetGithubUserCustomCacheETag()
+        let request = GetTestResourceCustomCacheETag()
 
         // Primera request — llena el cache y guarda el ETag
         let firstResponse = await request.request()
         switch firstResponse {
         case .success(let user):
-            XCTAssertEqual(user.login, "octocat")
+            XCTAssertEqual(user.name, "ditto")
         case .error(let err):
             XCTFail("First request failed: \(err)")
         }
@@ -354,7 +354,7 @@ final class HarborRealServiceTests: XCTestCase {
         let secondResponse = await request.request()
         switch secondResponse {
         case .success(let user):
-            XCTAssertEqual(user.login, "octocat", "La segunda request (304 + custom cache) debe devolver los mismos datos")
+            XCTAssertEqual(user.name, "ditto", "La segunda request (304 + custom cache) debe devolver los mismos datos")
         case .error(let err):
             XCTFail("Second request (expected 304 handled by custom cache) failed: \(err)")
         }

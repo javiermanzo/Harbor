@@ -50,7 +50,7 @@ public protocol HRequestBaseRequestProtocol: Sendable {
     /// Whether this request requires authentication. Default: `false`.
     var needsAuth: Bool { get }
     /// Optional retry policy (backoff and jitter) for failed requests. Default: `nil`.
-    /// When `nil`, the global `HConfig.shared.defaultRetryPolicy` is used.
+    /// When `nil`, no retries are performed.
     var retryPolicy: HRetryPolicy? { get }
     /// Path parameters to be substituted in the URL. Default: `nil`.
     var pathParameters: [String: String]? { get }

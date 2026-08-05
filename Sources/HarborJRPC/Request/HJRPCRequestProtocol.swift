@@ -28,7 +28,7 @@ public protocol HJRPCRequestProtocol: Sendable {
     var needsAuth: Bool { get }
 
     /// Optional retry policy (backoff and jitter) for failed requests. Default: `nil`.
-    /// When `nil`, the global `HConfig.shared.defaultRetryPolicy` is used.
+    /// When `nil`, no retries are performed.
     var retryPolicy: HRetryPolicy? { get }
 
     /// Additional HTTP headers to include in the request. Default: `nil`.

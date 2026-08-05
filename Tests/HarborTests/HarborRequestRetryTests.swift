@@ -126,7 +126,6 @@ final class HarborRequestRetryTests: XCTestCase {
         await Harbor.setAuthProvider(nil)
         HConfig.shared.customURLSession = nil
         Harbor.setProtocolClasses([HRequestStubProtocol.self])
-        HConfig.shared.defaultRetryPolicy = HRetryPolicy(baseDelay: 0.01, multiplier: 1, jitter: 0...0)
         HRequestStubProtocol.reset()
     }
 
@@ -135,7 +134,6 @@ final class HarborRequestRetryTests: XCTestCase {
         await Harbor.setAuthProvider(nil)
         HConfig.shared.customURLSession = nil
         Harbor.setProtocolClasses(nil)
-        HConfig.shared.defaultRetryPolicy = HRetryPolicy()
         HRequestStubProtocol.reset()
     }
 
@@ -144,7 +142,7 @@ final class HarborRequestRetryTests: XCTestCase {
     func testRetriesExhaustAllAttemptsOnServerError() async throws {
         // Given a stub that always answers 500 and a request with 2 retries
         HRequestStubProtocol.mode = .status(500)
-        let request = StubbedGetRequest(url: "https://example.com/flaky", retryPolicy: HRetryPolicy(maxAttempts: 3))
+        let request = StubbedGetRequest(url: "https://example.com/flaky", retryPolicy: HRetryPolicy(maxAttempts: 3, baseDelay: 0.01, multiplier: 1, jitter: 0...0))
 
         // When
         let response = await request.request()
@@ -162,7 +160,7 @@ final class HarborRequestRetryTests: XCTestCase {
     func testTransientNetworkErrorIsRetried() async throws {
         // Given a stub that always times out and a request with 1 retry
         HRequestStubProtocol.mode = .error(URLError(.timedOut))
-        let request = StubbedGetRequest(url: "https://example.com/slow", retryPolicy: HRetryPolicy(maxAttempts: 2))
+        let request = StubbedGetRequest(url: "https://example.com/slow", retryPolicy: HRetryPolicy(maxAttempts: 2, baseDelay: 0.01, multiplier: 1, jitter: 0...0))
 
         // When
         let response = await request.request()

@@ -310,7 +310,7 @@ private struct TestStreamRequest: HGetRequestProtocol {
 /// Mutates the actor-isolated `HConfig.protocolClasses` from nonisolated tests.
 @HRequestManagerActor
 private func setStubbedProtocolClasses(_ classes: [AnyClass]?) {
-    HConfig.shared.protocolClasses = classes
+    Harbor.setProtocolClasses(classes)
 }
 
 /// URLProtocol stub injected through `HConfig.protocolClasses` that answers after a

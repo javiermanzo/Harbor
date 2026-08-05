@@ -127,7 +127,7 @@ final class HarborRequestRetryTests: XCTestCase {
         await Harbor.removeAllMocks()
         await Harbor.setAuthProvider(nil)
         HConfig.shared.customURLSession = nil
-        HConfig.shared.protocolClasses = [HRequestStubProtocol.self]
+        Harbor.setProtocolClasses([HRequestStubProtocol.self])
         HConfig.shared.defaultRetryPolicy = HRetryPolicy(baseDelay: 0.01, multiplier: 1, jitter: 0...0)
         HRequestStubProtocol.reset()
     }
@@ -136,7 +136,7 @@ final class HarborRequestRetryTests: XCTestCase {
         await Harbor.removeAllMocks()
         await Harbor.setAuthProvider(nil)
         HConfig.shared.customURLSession = nil
-        HConfig.shared.protocolClasses = nil
+        Harbor.setProtocolClasses(nil)
         HConfig.shared.defaultRetryPolicy = HRetryPolicy()
         HRequestStubProtocol.reset()
     }

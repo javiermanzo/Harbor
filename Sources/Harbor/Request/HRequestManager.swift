@@ -31,7 +31,7 @@ enum HRequestManager {
 extension HRequestManager {
     /// Executes a request that expects a typed model response.
     static func request<Model: HModel, Request: HRequestWithResultProtocol>(model: Model.Type, request: Request) async -> HResponseWithResult<Model> {
-        let policy = effectiveRetryPolicy(for: request)
+        let policy = request.retryPolicy
 
         if let mock = HMocker.mock(request: request), HConfig.shared.mocksEnabled {
             if let delay = mock.delay {
@@ -203,7 +203,7 @@ extension HRequestManager {
 extension HRequestManager {
     /// Executes a request that expects an empty response.
     static func request<Request: HRequestWithEmptyResponseProtocol>(request: Request) async -> HResponse {
-        let policy = effectiveRetryPolicy(for: request)
+        let policy = request.retryPolicy
 
         if let mock = HMocker.mock(request: request), HConfig.shared.mocksEnabled {
             if let delay = mock.delay {
@@ -337,13 +337,14 @@ extension HRequestManager {
     /// so the executor closure receives the typed request without any existential cast.
     private static func runAttempts<TypedRequest: HRequestBaseRequestProtocol & Sendable, Response: Sendable>(
         request: TypedRequest,
-        policy: HRetryPolicy,
+        policy: HRetryPolicy?,
         errorResponse: @escaping (HRequestError) -> Response,
         executeAttempt: @escaping (TypedRequest, Bool) async -> HAttemptOutcome<Response>
     ) async -> Response {
         var currentRequest = request
         var attempt = 1
         var authRetriesRemaining = maxAuthRetries
+        let maxAttempts = policy?.maxAttempts ?? 1
 
         while true {
             guard !Task.isCancelled else {
@@ -352,11 +353,11 @@ extension HRequestManager {
                 return errorResponse(hError)
             }
 
-            if attempt > 1 {
+            if attempt > 1, let policy {
                 await sleep(seconds: policy.delay(forRetry: attempt - 1))
             }
 
-            let canRetry = attempt < policy.maxAttempts
+            let canRetry = attempt < maxAttempts
 
             switch await executeAttempt(currentRequest, canRetry) {
             case .finish(let response):
@@ -445,10 +446,7 @@ extension HRequestManager {
         return .retry(modifiedRequest)
     }
 
-    /// The request's own `retryPolicy` when set, otherwise a default policy with no retries.
-    private static func effectiveRetryPolicy(for request: any HRequestBaseRequestProtocol) -> HRetryPolicy {
-        return request.retryPolicy ?? HRetryPolicy()
-    }
+
 
     /// Sleeps for the given number of seconds. Negative values are treated as zero and the
     /// delay is clamped to `HRetryPolicy.maxDelay` before converting to nanoseconds.

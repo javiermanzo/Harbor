@@ -25,11 +25,13 @@ Mutual TLS extends standard TLS by requiring both the server and client to authe
 **Location**: `Sources/Harbor/Request/HmTLS.swift`
 
 ```swift
-struct HmTLS: Sendable {
+struct HMTLS: Sendable, CustomStringConvertible {
     let p12FileUrl: URL
-    let password: String
+    let passwordProvider: @Sendable () async throws -> String
 }
 ```
+
+The password is requested through `passwordProvider` once, when the identity is extracted; it is not retained by the configuration value. The async signature accommodates password sources that are themselves asynchronous, such as keychain wrappers, biometric prompts or remote vaults; a provider failure surfaces as `HMTLSError.passwordProviderFailed`. The `CustomStringConvertible` description always redacts the password. The older `HmTLS` spelling and the `init(p12FileUrl:password:)` initializer are deprecated.
 
 ### Setting Up mTLS
 
@@ -55,8 +57,8 @@ Task {
         return
     }
     
-    let mtls = HmTLS(p12FileUrl: p12Url, password: "your-certificate-password")
-    await Harbor.setMTLS(mtls)
+    let mtls = HMTLS(p12FileUrl: p12Url) { "your-certificate-password" }
+    try await Harbor.setMTLS(mtls)
 }
 ```
 
@@ -86,10 +88,10 @@ Harbor internally handles:
 
 **Error Handling:**
 ```swift
-// Harbor logs errors if certificate loading fails
-// Check console for messages like:
-// "Failed to load PKCS12 file"
-// "Failed to import PKCS12 data"
+// PKCS12.parse throws a typed PKCS12Error and logs failures when logging is enabled:
+// - .importFailed(status): SecPKCS12Import rejected the archive (errSecAuthFailed = wrong password)
+// - .malformedContents: the imported items could not be read
+// Harbor.setMTLS surfaces these as HMTLSError (fileNotFound, invalidPassword, invalidP12Format, noIdentity)
 ```
 
 ### Example: Complete Setup
@@ -114,12 +116,10 @@ struct MyApp: App {
                     throw NSError(domain: "Certificate not found", code: 1)
                 }
                 
-                // Read password from secure storage (example)
-                let password = try loadCertificatePassword()
-                
-                // Configure mTLS
-                let mtls = HmTLS(p12FileUrl: certUrl, password: password)
-                await Harbor.setMTLS(mtls)
+                // Configure mTLS; the password is read from secure storage on demand
+                let certificatePassword = loadCertificatePassword()
+                let mtls = HMTLS(p12FileUrl: certUrl) { certificatePassword }
+                try await Harbor.setMTLS(mtls)
                 
                 print("mTLS configured successfully")
             } catch {
@@ -167,19 +167,18 @@ case .error(let error):
 ```swift
 // Don't hardcode passwords
 // ❌ Bad
-let mtls = HmTLS(p12FileUrl: url, password: "hardcoded-password")
+let mtls = HMTLS(p12FileUrl: url) { "hardcoded-password" }
 
-// ✅ Good - use Keychain
-let password = try KeychainManager.getCertificatePassword()
-let mtls = HmTLS(p12FileUrl: url, password: password)
+// ✅ Good - read from Keychain on demand; the password is not retained by HMTLS
+let mtls = HMTLS(p12FileUrl: url) { KeychainManager.certificatePassword }
 ```
 
 2. **Certificate Rotation**
 ```swift
 // Support certificate updates
-func updateClientCertificate(newCertUrl: URL, password: String) async {
-    let mtls = HmTLS(p12FileUrl: newCertUrl, password: password)
-    await Harbor.setMTLS(mtls)
+func updateClientCertificate(newCertUrl: URL, password: String) async throws {
+    let mtls = HMTLS(p12FileUrl: newCertUrl) { password }
+    try await Harbor.setMTLS(mtls)
 }
 ```
 
@@ -219,7 +218,7 @@ SSL Pinning uses SHA256 hashes of the certificate's **SubjectPublicKeyInfo (SPKI
 ```swift
 // Compute the pin from any SecCertificate (e.g. extracted from a P12 or a server trust)
 if let pin = await Harbor.computePin(for: certificate) {
-    await Harbor.setSSlPinningKeys([pin])
+    await Harbor.setSSLPinningKeys([pin])
 }
 ```
 
@@ -246,7 +245,7 @@ openssl pkey -pubin -in publickey.pem -outform DER | \
 3. Export certificate
 4. Use OpenSSL commands above
 
-> **Note**: Pins must be valid base64-encoded SHA-256 hashes (32 bytes, 44 chars with `=` padding or 43 without). Malformed pins log a warning when calling `setSSlPinningKeys` and are ignored during validation.
+> **Note**: Pins must be valid base64-encoded SHA-256 hashes (32 bytes, 44 chars with `=` padding or 43 without). Malformed pins log a warning when calling `setSSLPinningKeys` and are ignored during validation.
 
 ### Setting Up SSL Pinning
 
@@ -255,7 +254,7 @@ openssl pkey -pubin -in publickey.pem -outform DER | \
 ```swift
 // In app initialization
 let publicKeyHash = "YLh1dUR9y6Kja30RrAn7JKnbQG/uEtLMkBgFF2Fuihg="
-await Harbor.setSSlPinningKeys([publicKeyHash])
+await Harbor.setSSLPinningKeys([publicKeyHash])
 ```
 
 #### Multiple Keys (Recommended)
@@ -270,7 +269,19 @@ let primaryKey = "YLh1dUR9y6Kja30RrAn7JKnbQG/uEtLMkBgFF2Fuihg="
 let backupKey = "GNKGcGj1ue3yRYvqr9t/lz2nkzMU5VZK3QBILcvPJ8U="
 let rotationKey = "X2aKNRD8aZ4hJ+5tT6uAzYa1WePqC4p7k9mKp2kYvHg="
 
-await Harbor.setSSlPinningKeys([primaryKey, backupKey, rotationKey])
+await Harbor.setSSLPinningKeys([primaryKey, backupKey, rotationKey])
+```
+
+#### Per-Host Pinning
+
+Pins can be scoped to specific hosts with `setSSLPinningKeys(_:forHosts:)`. Challenges from the configured hosts are validated against their pins; any other host falls back to the global pins or, when none are set, to the default URLSession handling:
+
+```swift
+// Only api.example.com is pinned; every other host uses default handling
+await Harbor.setSSLPinningKeys([apiKey, apiBackupKey], forHosts: ["api.example.com"])
+
+// Stop pinning a host
+await Harbor.setSSLPinningKeys(nil, forHosts: ["api.example.com"])
 ```
 
 ### How SSL Pinning Works
@@ -330,7 +341,7 @@ class AppConfiguration {
                 // Next rotation (valid from Jan 2027)
                 "X2aKNRD8aZ4hJ+5tT6uAzYa1WePqC4p7k9mKp2kYvHg="
             ]
-            await Harbor.setSSlPinningKeys(apiKeys)
+            await Harbor.setSSLPinningKeys(apiKeys)
             
             print("SSL Pinning configured with \(apiKeys.count) keys")
         }
@@ -361,7 +372,7 @@ case .error(let error):
 1. **Pin Multiple Keys**
 ```swift
 // Pin current + future certificates
-await Harbor.setSSlPinningKeys([
+await Harbor.setSSLPinningKeys([
     currentCertHash,
     nextCertHash,
     backupCertHash
@@ -385,7 +396,7 @@ struct PinningConfig: Codable {
 
 // Fetch and update
 if let config = await fetchPinningConfig() {
-    await Harbor.setSSlPinningKeys(config.keys)
+    await Harbor.setSSLPinningKeys(config.keys)
 }
 ```
 
@@ -393,10 +404,10 @@ if let config = await fetchPinningConfig() {
 ```swift
 #if DEBUG
 // Allow network debugging tools in development
-// await Harbor.setSSlPinningKeys([])
+// await Harbor.setSSLPinningKeys([])
 #else
 // Enable pinning in production
-await Harbor.setSSlPinningKeys(productionKeys)
+await Harbor.setSSLPinningKeys(productionKeys)
 #endif
 ```
 
@@ -444,7 +455,7 @@ await Harbor.setLogSensitiveHeaders(true)
 
 ```swift
 protocol HAuthProviderProtocol: Sendable {
-    func getAuthorizationHeader() async -> HAuthorizationHeader
+    func getAuthorizationHeader() async -> HAuthorizationHeader?
     func authFailed() async
 }
 
@@ -454,7 +465,7 @@ struct HAuthorizationHeader: Sendable, Equatable {
 }
 ```
 
-Harbor calls `getAuthorizationHeader()` before every request with `needsAuth = true` and sets the returned key-value pair as a header. On a 401 response, Harbor asks for the header again: if the value changed (e.g. the provider refreshed its token), the request is retried automatically; otherwise `authFailed()` is called and the request fails with `.authNeeded`. There is no built-in expiration check — return the freshest header you have from `getAuthorizationHeader()` and use `authFailed()` to trigger re-authentication.
+Harbor calls `getAuthorizationHeader()` before every request with `needsAuth = true` and sets the returned key-value pair as a header; a `nil` header means no credentials are available and the request is sent without an authorization header. On a 401 response, Harbor asks for the header again: if the value changed (e.g. the provider refreshed its token), the request is retried automatically; if it is unchanged or `nil`, `authFailed()` is called and the request fails with `.authNeeded`. There is no built-in expiration check — return the freshest header you have from `getAuthorizationHeader()` and use `authFailed()` to trigger re-authentication.
 
 ### Implementing Auth Provider
 
@@ -464,8 +475,9 @@ Harbor calls `getAuthorizationHeader()` before every request with `needsAuth = t
 final class TokenAuthProvider: HAuthProviderProtocol, @unchecked Sendable {
     private var accessToken: String?
 
-    func getAuthorizationHeader() async -> HAuthorizationHeader {
-        HAuthorizationHeader(key: "Authorization", value: "Bearer \(accessToken ?? "")")
+    func getAuthorizationHeader() async -> HAuthorizationHeader? {
+        guard let accessToken else { return nil }
+        return HAuthorizationHeader(key: "Authorization", value: "Bearer \(accessToken)")
     }
 
     func authFailed() async {
@@ -502,12 +514,13 @@ final class OAuth2AuthProvider: HAuthProviderProtocol, @unchecked Sendable {
         self.tokenEndpoint = tokenEndpoint
     }
 
-    func getAuthorizationHeader() async -> HAuthorizationHeader {
+    func getAuthorizationHeader() async -> HAuthorizationHeader? {
         // Refresh proactively when the token is about to expire
         if isTokenExpired() {
             try? await refreshTokens()
         }
-        return HAuthorizationHeader(key: "Authorization", value: "Bearer \(accessToken ?? "")")
+        guard let accessToken else { return nil }
+        return HAuthorizationHeader(key: "Authorization", value: "Bearer \(accessToken)")
     }
 
     func authFailed() async {
@@ -572,7 +585,7 @@ final class APIKeyAuthProvider: HAuthProviderProtocol, @unchecked Sendable {
         self.headerName = headerName
     }
 
-    func getAuthorizationHeader() async -> HAuthorizationHeader {
+    func getAuthorizationHeader() async -> HAuthorizationHeader? {
         HAuthorizationHeader(key: headerName, value: apiKey)
     }
 
@@ -618,7 +631,7 @@ Check if auth provider is set
     └─ Yes
         │
         ▼
-    Call getAuthorizationHeader() → Add header → Execute request
+    Call getAuthorizationHeader() → Add header (if any) → Execute request
         │
         ▼
 Request completes
@@ -633,7 +646,7 @@ Request completes
         ├─ Header changed (provider refreshed credentials)
         │   → Retry request once with the new header
         │
-        └─ Header unchanged
+        └─ Header unchanged or nil
             → Call authFailed() → Return authNeeded error
 ```
 
@@ -701,11 +714,12 @@ default:
 ```swift
 // Refresh the token inside getAuthorizationHeader() when it is close to expiring,
 // so Harbor always gets a valid header
-func getAuthorizationHeader() async -> HAuthorizationHeader {
+func getAuthorizationHeader() async -> HAuthorizationHeader? {
     if tokenIsCloseToExpiring {
         try? await refreshTokens()
     }
-    return HAuthorizationHeader(key: "Authorization", value: "Bearer \(accessToken ?? "")")
+    guard let accessToken else { return nil }
+    return HAuthorizationHeader(key: "Authorization", value: "Bearer \(accessToken)")
 }
 ```
 
@@ -723,20 +737,20 @@ func logout() async {
 ### mTLS + SSL Pinning + Auth
 
 ```swift
-func configureFullSecurity() async {
+func configureFullSecurity() async throws {
     // 1. Configure mTLS
     guard let certUrl = Bundle.main.url(forResource: "client", withExtension: "p12") else {
         return
     }
-    let mtls = HmTLS(p12FileUrl: certUrl, password: getSecurePassword())
-    await Harbor.setMTLS(mtls)
+    let mtls = HMTLS(p12FileUrl: certUrl) { getSecurePassword() }
+    try await Harbor.setMTLS(mtls)
     
     // 2. Configure SSL Pinning
     let pinnedKeys = [
         "YLh1dUR9y6Kja30RrAn7JKnbQG/uEtLMkBgFF2Fuihg=",
         "GNKGcGj1ue3yRYvqr9t/lz2nkzMU5VZK3QBILcvPJ8U="
     ]
-    await Harbor.setSSlPinningKeys(pinnedKeys)
+    await Harbor.setSSLPinningKeys(pinnedKeys)
     
     // 3. Configure Authentication
     let authProvider = OAuth2AuthProvider(
@@ -762,7 +776,10 @@ func testMTLS() async {
     }
     
     let response = await MTLSTest().request()
-    XCTAssertTrue(response.isSuccess)
+    guard case .success = response else {
+        XCTFail("Expected success but got: \(response)")
+        return
+    }
 }
 ```
 
@@ -771,14 +788,19 @@ func testMTLS() async {
 ```swift
 func testSSLPinning() async {
     // Test with correct key
-    await Harbor.setSSlPinningKeys(["correct-hash"])
+    await Harbor.setSSLPinningKeys(["correct-hash"])
     let response1 = await SecureRequest().request()
-    XCTAssertTrue(response1.isSuccess)
+    guard case .success = response1 else {
+        XCTFail("Expected success but got: \(response1)")
+        return
+    }
     
     // Test with wrong key (should fail)
-    await Harbor.setSSlPinningKeys(["wrong-hash"])
+    await Harbor.setSSLPinningKeys(["wrong-hash"])
     let response2 = await SecureRequest().request()
-    XCTAssertTrue(response2.isError)
+    if case .success = response2 {
+        XCTFail("Expected pinning failure but got success")
+    }
 }
 ```
 
@@ -796,7 +818,10 @@ func testAuthentication() async {
     }
     
     let response = await AuthRequest().request()
-    XCTAssertTrue(response.isSuccess)
+    guard case .success = response else {
+        XCTFail("Expected success but got: \(response)")
+        return
+    }
 }
 ```
 

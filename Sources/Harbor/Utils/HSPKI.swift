@@ -83,7 +83,7 @@ enum HSPKI {
         guard let spkiData = spkiData(for: certificate) else {
             return nil
         }
-        return SHA256.sha256(data: spkiData)
+        return SHA256.sha256Base64(data: spkiData)
     }
 
     /// Validates that a pin string is base64 decoding to exactly 32 bytes (SHA-256),

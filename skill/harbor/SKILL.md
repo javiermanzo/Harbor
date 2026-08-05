@@ -104,11 +104,14 @@ await Harbor.setAuthProvider(MyAuthProvider())
 await Harbor.setDefaultHeaderParameters(["X-API-Key": "secret"])
 
 // Enable SSL Pinning
-await Harbor.setSSlPinningKeys(["sha256hash1", "sha256hash2"])
+await Harbor.setSSLPinningKeys(["sha256hash1", "sha256hash2"])
 
-// Configure mTLS
-let mtls = HmTLS(p12FileUrl: certUrl, password: "password")
-await Harbor.setMTLS(mtls)
+// Enable SSL Pinning only for specific hosts
+await Harbor.setSSLPinningKeys(["sha256hash1"], forHosts: ["api.example.com"])
+
+// Configure mTLS (the password is requested on demand, not retained)
+let mtls = HMTLS(p12FileUrl: certUrl) { "password" }
+try await Harbor.setMTLS(mtls)
 
 // Set default cache type
 await Harbor.setDefaultCacheType(.custom(HCache.Configuration(expirationTime: .oneDay)))
@@ -277,7 +280,7 @@ See the `examples/` directory for:
 
 ### Configuring Authentication
 1. Implement `HAuthProviderProtocol`
-2. Return the current header in `getAuthorizationHeader()` (an `HAuthorizationHeader` key-value pair)
+2. Return the current header in `getAuthorizationHeader()` (an `HAuthorizationHeader` key-value pair, or `nil` when no credentials are available — the request then goes out without an auth header)
 3. Handle credential failures in `authFailed()` (called after a 401 when no new header is available; Harbor retries automatically when the header changes)
 4. Set globally: `await Harbor.setAuthProvider(provider)`
 

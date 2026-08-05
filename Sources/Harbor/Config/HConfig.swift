@@ -30,9 +30,23 @@ struct HConfig: Sendable {
     /// Malformed pins (not base64 SHA-256 hashes) log a warning when set and are ignored during validation.
     var sslPinningKeys: [String]? {
         didSet {
-            guard let sslPinningKeys else { return }
-            for key in sslPinningKeys where !HSPKI.isValidPin(key) {
-                Self.logger.log("SSL pinning key \"\(key)\" is not a valid base64 SHA-256 hash and will never match. Pins must be base64(SHA256(SPKI)).", level: .warning)
+            if let sslPinningKeys {
+                Self.validatePins(sslPinningKeys)
+            }
+        }
+    }
+    /// SSL pinning public key hashes scoped to specific hosts. When a host is present here,
+    /// its pins take precedence over the global `sslPinningKeys`; challenges from hosts
+    /// absent from this map fall back to the global pins or, when none are set, to default handling.
+    /// Host keys are normalized (lowercased, without a trailing root-label dot) when stored
+    /// and when looked up, matching how DNS names are resolved. Malformed pins (not base64
+    /// SHA-256 hashes) log a warning when set and are ignored during validation.
+    var sslPinningKeysByHost: [String: [String]]? {
+        didSet {
+            if let sslPinningKeysByHost {
+                for keys in sslPinningKeysByHost.values {
+                    Self.validatePins(keys)
+                }
             }
         }
     }
@@ -57,6 +71,8 @@ struct HConfig: Sendable {
     /// Whether DEBUG/simulator builds assume network availability instead of trusting the
     /// connectivity monitor. Default is true; set to false to exercise `.noConnection` flows in debug.
     var assumeNetworkAvailableInDebug: Bool = true
+    /// Whether URLRequests handle cookies through the shared cookie storage. Default is false.
+    var httpShouldHandleCookies: Bool = false
     /// URLProtocol classes injected into internally built sessions, allowing networking
     /// to be stubbed per session instead of registering protocols globally.
     var protocolClasses: [AnyClass]?
@@ -68,5 +84,12 @@ struct HConfig: Sendable {
         #else
         return !mocksOnlyInDebug
         #endif
+    }
+
+    /// Logs a warning for every pin that is not a valid base64 SHA-256 hash.
+    private static func validatePins(_ keys: [String]) {
+        for key in keys where !HSPKI.isValidPin(key) {
+            Self.logger.log("SSL pinning key \"\(key)\" is not a valid base64 SHA-256 hash and will never match. Pins must be base64(SHA256(SPKI)).", level: .warning)
+        }
     }
 }

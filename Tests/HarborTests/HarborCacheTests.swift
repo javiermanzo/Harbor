@@ -653,7 +653,7 @@ final class HarborCacheTests: XCTestCase {
         await HCache.Manager.shared.waitForPendingDiskOperations()
 
         let fileURL = HCache.Manager.shared.cacheDirectory
-            .appendingPathComponent(key.sha256Hash)
+            .appendingPathComponent(key.sha256Hex)
             .appendingPathExtension("cache")
         XCTAssertTrue(FileManager.default.fileExists(atPath: fileURL.path), "Data of exactly maxObjectSizeInBytes should be cached")
     }
@@ -835,7 +835,7 @@ final class HarborCacheTests: XCTestCase {
         await HCache.Manager.shared.waitForPendingDiskOperations()
 
         let fileURL = HCache.Manager.shared.cacheDirectory
-            .appendingPathComponent(key.sha256Hash)
+            .appendingPathComponent(key.sha256Hex)
             .appendingPathExtension("cache")
         XCTAssertTrue(FileManager.default.fileExists(atPath: fileURL.path), "Entry should be persisted on disk")
 

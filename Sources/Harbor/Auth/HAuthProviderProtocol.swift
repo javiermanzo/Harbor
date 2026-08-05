@@ -11,8 +11,10 @@ import Foundation
 /// Implement this protocol to provide custom authentication logic.
 public protocol HAuthProviderProtocol: Sendable {
     /// Returns the authorization header for the current request.
-    /// - Returns: An `HAuthorizationHeader` containing the key-value pair for authorization.
-    func getAuthorizationHeader() async -> HAuthorizationHeader
+    /// - Returns: An `HAuthorizationHeader` containing the key-value pair for authorization,
+    ///   or `nil` when no credentials are available. In that case the request is sent
+    ///   without an authorization header.
+    func getAuthorizationHeader() async -> HAuthorizationHeader?
     
     /// Called when authentication fails, allowing the provider to handle the failure.
     /// This method can be used to refresh tokens, show login screens, etc.

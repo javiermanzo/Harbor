@@ -15,7 +15,7 @@ final class HarborConfigurationTests: XCTestCase {
         await Harbor.setDefaultHeaderParameters(nil)
         await Harbor.setAuthProvider(nil)
         await Harbor.setCustomURLSession(URLSession.shared)
-        await Harbor.setSSlPinningKeys(nil)
+        await Harbor.setSSLPinningKeys(nil)
         await Harbor.clearMTLS()
         await Harbor.setMocksOnlyInDebug(true)
         await Harbor.removeAllMocks()
@@ -26,7 +26,7 @@ final class HarborConfigurationTests: XCTestCase {
         await Harbor.setDefaultHeaderParameters(nil)
         await Harbor.setAuthProvider(nil)
         await Harbor.setCustomURLSession(URLSession.shared)
-        await Harbor.setSSlPinningKeys(nil)
+        await Harbor.setSSLPinningKeys(nil)
         await Harbor.clearMTLS()
         await Harbor.setMocksOnlyInDebug(true)
         await Harbor.removeAllMocks()
@@ -319,7 +319,7 @@ private struct TestConfigData: HModel {
 // MARK: - Test Auth Provider
 
 private final class TestAuthProvider: HAuthProviderProtocol, @unchecked Sendable {
-    func getAuthorizationHeader() async -> HAuthorizationHeader {
+    func getAuthorizationHeader() async -> HAuthorizationHeader? {
         return HAuthorizationHeader(key: "Authorization", value: "Bearer test-token")
     }
     

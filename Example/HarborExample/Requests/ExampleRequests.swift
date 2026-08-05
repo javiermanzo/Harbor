@@ -250,6 +250,20 @@ struct GetPrivateDataRequest: HGetRequestProtocol {
     let needsAuth: Bool = true
 }
 
+/// Response of the token-refresh demo stub server.
+struct SecureDemoData: Codable, Sendable {
+    let message: String
+}
+
+/// Request to the token-refresh demo stub server; requires auth and skips the cache
+/// so every run exercises the full 401, refresh and retry flow.
+struct GetSecureDemoDataRequest: HGetRequestProtocol {
+    typealias Model = SecureDemoData
+    let url: String = "https://\(AuthDemoStubProtocol.host)/secure-data"
+    let needsAuth: Bool = true
+    let cacheType: HCache.CacheType? = .disabled
+}
+
 /// Request with custom headers
 struct GetDataWithHeadersRequest: HGetRequestProtocol {
     typealias Model = [User]

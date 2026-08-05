@@ -164,8 +164,9 @@ You need to create a class that implements `HAuthProviderProtocol`:
 
 ```swift
 class MyAuthProvider: HAuthProviderProtocol {
-    func getAuthorizationHeader() async -> HAuthorizationHeader {
-        // Return a HAuthorizationHeader instance
+    func getAuthorizationHeader() async -> HAuthorizationHeader? {
+        // Return a HAuthorizationHeader instance, or nil when no credentials are
+        // available (the request is then sent without an authorization header)
     }
     
     func authFailed() async {
@@ -214,11 +215,11 @@ struct MyRequest: HGetRequestProtocol {
 #### mTLS Support
 Harbor supports mutual TLS (mTLS) for enhanced security in API requests. This feature allows clients to present certificates to the server, ensuring both the client and server authenticate each other.
 
-To set up mTLS, use the `setMTLS` method:
+To set up mTLS, use the `setMTLS` method. The P12 password is supplied through a provider closure, so it is requested once when the identity is extracted instead of being retained:
 
 ```swift
-let mTLS = HmTLS(p12FileUrl: yourP12FileUrl, password: "yourPassword")
-await Harbor.setMTLS(mTLS)
+let mTLS = HMTLS(p12FileUrl: yourP12FileUrl) { "yourPassword" }
+try await Harbor.setMTLS(mTLS)
 ```
 
 #### SSL Pinning
@@ -230,7 +231,7 @@ To generate a pin from a certificate you can use `Harbor.computePin(for:)`:
 
 ```swift
 if let pin = await Harbor.computePin(for: certificate) {
-    await Harbor.setSSlPinningKeys([pin])
+    await Harbor.setSSLPinningKeys([pin])
 }
 ```
 
@@ -244,14 +245,20 @@ openssl s_client -connect api.example.com:443 -servername api.example.com < /dev
   openssl base64
 ```
 
-To configure SSL Pinning, use the `setSSlPinningKeys` method. You can provide multiple keys to support key rotation. Malformed pins log a warning and are ignored during validation:
+To configure SSL Pinning, use the `setSSLPinningKeys` method. You can provide multiple keys to support key rotation. Malformed pins log a warning and are ignored during validation:
 
 ```swift
 let sslPinningKeys = [
     "YLh1dUR9y6Kja30RrAn7JKnbQG/uEtLMkBgFF2Fuihg=", // current certificate
     "GNKGcGj1ue3yRYvqr9t/lz2nkzMU5VZK3QBILcvPJ8U="  // backup / next rotation
 ]
-await Harbor.setSSlPinningKeys(sslPinningKeys)
+await Harbor.setSSLPinningKeys(sslPinningKeys)
+```
+
+Pins can also be scoped to specific hosts; unconfigured hosts get the default URLSession handling:
+
+```swift
+await Harbor.setSSLPinningKeys(sslPinningKeys, forHosts: ["api.example.com"])
 ```
 
 #### Retry Configuration

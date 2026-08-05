@@ -48,33 +48,43 @@ extension HRequestManager {
             return await runAttempts(
                 request: request,
                 retryPolicy: retryPolicy,
+                authHeader: nil,
                 errorResponse: { .error($0) }
-            ) { currentRequest, canRetry in
+            ) { currentRequest, _, canRetry in
                 return await processResponse(model: model, request: currentRequest, statusCode: mock.statusCode, data: data, httpResponse: mockResponse, canRetry: canRetry)
             }
         }
 
         if !connectivityMonitor.isConnectedToNetwork() {
-            if let getRequest = request as? any HGetRequestProtocol,
-               let stale = await getRequest.staleCacheOnError() as? Model {
-                return .success(stale)
+            if let getRequest = request as? any HGetRequestProtocol {
+                // Two-step lookup: the first pass skips the auth provider, so entries not
+                // keyed by credential (the common case) are served without invoking provider
+                // code (e.g. a token refresh) while offline; only on a miss is the header
+                // resolved for credential-keyed (Vary: Authorization) variants.
+                if let stale = await getRequest.staleCacheOnErrorSkippingAuthResolution() as? Model {
+                    return .success(stale)
+                }
+                if let stale = await getRequest.staleCacheOnError(authHeader: await cacheAuthHeader(for: request)) as? Model {
+                    return .success(stale)
+                }
             }
             let hError: HRequestError = .noConnection
             await logError(hError, request: request)
             return .error(hError)
         }
 
-        switch await addAuthCredentialsIfNeeded(request) {
+        switch await authorizationHeaderIfNeeded(for: request) {
         case .failure(let hError):
             await logError(hError, request: request)
             return .error(hError)
-        case .success(let authedRequest):
+        case .success(let authHeader):
             return await runAttempts(
-                request: authedRequest,
+                request: request,
                 retryPolicy: retryPolicy,
+                authHeader: authHeader,
                 errorResponse: { .error($0) }
-            ) { currentRequest, canRetry in
-                return await executeOnce(model: model, request: currentRequest, canRetry: canRetry)
+            ) { currentRequest, currentAuthHeader, canRetry in
+                return await executeOnce(model: model, request: currentRequest, authHeader: currentAuthHeader, canRetry: canRetry)
             }
         }
     }
@@ -82,10 +92,10 @@ extension HRequestManager {
     /// Executes a single network attempt: builds the URLRequest, performs the call and
     /// processes the response. `canRetry` tells whether the loop can run another attempt,
     /// so retryable failures are reported as `.retry` only while attempts remain.
-    private static func executeOnce<Model: HModel, Request: HRequestWithResultProtocol>(model: Model.Type, request: Request, canRetry: Bool) async -> HAttemptOutcome<HResponseWithResult<Model>> {
+    private static func executeOnce<Model: HModel, Request: HRequestWithResultProtocol>(model: Model.Type, request: Request, authHeader: HAuthorizationHeader?, canRetry: Bool) async -> HAttemptOutcome<HResponseWithResult<Model>> {
         let urlRequest: URLRequest
         do {
-            urlRequest = try await HURLBuilder.buildUrlRequest(request: request)
+            urlRequest = try await HURLBuilder.buildUrlRequest(request: request, authHeader: authHeader)
         } catch let hError as HRequestError {
             await logError(hError, request: request)
             return .finish(.error(hError))
@@ -125,12 +135,13 @@ extension HRequestManager {
                                          statusCode: httpResponse.statusCode,
                                          data: data,
                                          httpResponse: httpResponse,
-                                         canRetry: canRetry)
+                                         canRetry: canRetry,
+                                         authHeader: authHeader)
         } catch let error as URLError {
             let isCancelled = error.code == .cancelled || Task.isCancelled
             if !isCancelled,
                let getRequest = request as? any HGetRequestProtocol,
-               let stale = await getRequest.staleCacheOnError() as? Model {
+               let stale = await getRequest.staleCacheOnError(authHeader: authHeader) as? Model {
                 return .finish(.success(stale))
             }
             let hError = HRequestError.mapURLError(error)
@@ -153,14 +164,15 @@ extension HRequestManager {
     }
 
     /// Processes the raw response for a model-returning request, decoding the payload or handling errors/revalidation.
-    private static func processResponse<Model: HModel, Request: HRequestWithResultProtocol>(model: Model.Type, request: Request, statusCode: Int, data: Data, httpResponse: HTTPURLResponse? = nil, canRetry: Bool = false) async -> HAttemptOutcome<HResponseWithResult<Model>> {
+    /// `authHeader` keys the custom-cache reads and writes so `Vary: Authorization` entries are per-credential.
+    private static func processResponse<Model: HModel, Request: HRequestWithResultProtocol>(model: Model.Type, request: Request, statusCode: Int, data: Data, httpResponse: HTTPURLResponse? = nil, canRetry: Bool = false, authHeader: HAuthorizationHeader? = nil) async -> HAttemptOutcome<HResponseWithResult<Model>> {
         switch statusCode {
         case 200 ... 299:
             do {
                 let parsedResponse = try request.parseData(data: data, model: model)
 
                 if let request = request as? any HGetRequestProtocol {
-                    await request.saveCache(data, response: httpResponse)
+                    await request.saveCache(data, response: httpResponse, authHeader: authHeader)
                 }
 
                 return .finish(.success(parsedResponse))
@@ -173,7 +185,7 @@ extension HRequestManager {
             // Not Modified — serve the cached body and refresh the stored entry.
             // (URLCache revalidates transparently at URLSession level; this branch handles the custom cache.)
             if let getRequest = request as? any HGetRequestProtocol,
-               let cachedAny = await getRequest.revalidatedCache(response: httpResponse),
+               let cachedAny = await getRequest.revalidatedCache(response: httpResponse, authHeader: authHeader),
                let cachedModel = cachedAny as? Model {
                 return .finish(.success(cachedModel))
             } else {
@@ -189,7 +201,7 @@ extension HRequestManager {
             }
             if statusCode >= 500,
                let getRequest = request as? any HGetRequestProtocol,
-               let stale = await getRequest.staleCacheOnError() as? Model {
+               let stale = await getRequest.staleCacheOnError(authHeader: authHeader) as? Model {
                 return .finish(.success(stale))
             }
             let hError: HRequestError = .api(statusCode: statusCode, data: data)
@@ -219,8 +231,9 @@ extension HRequestManager {
             return await runAttempts(
                 request: request,
                 retryPolicy: retryPolicy,
+                authHeader: nil,
                 errorResponse: { .error($0) }
-            ) { currentRequest, canRetry in
+            ) { currentRequest, _, canRetry in
                 return await processResponse(request: currentRequest, statusCode: mock.statusCode, data: data, canRetry: canRetry)
             }
         }
@@ -231,17 +244,18 @@ extension HRequestManager {
             return .error(hError)
         }
 
-        switch await addAuthCredentialsIfNeeded(request) {
+        switch await authorizationHeaderIfNeeded(for: request) {
         case .failure(let hError):
             await logError(hError, request: request)
             return .error(hError)
-        case .success(let authedRequest):
+        case .success(let authHeader):
             return await runAttempts(
-                request: authedRequest,
+                request: request,
                 retryPolicy: retryPolicy,
+                authHeader: authHeader,
                 errorResponse: { .error($0) }
-            ) { currentRequest, canRetry in
-                return await executeOnce(request: currentRequest, canRetry: canRetry)
+            ) { currentRequest, currentAuthHeader, canRetry in
+                return await executeOnce(request: currentRequest, authHeader: currentAuthHeader, canRetry: canRetry)
             }
         }
     }
@@ -249,10 +263,10 @@ extension HRequestManager {
     /// Executes a single network attempt: builds the URLRequest, performs the call and
     /// processes the response. `canRetry` tells whether the loop can run another attempt,
     /// so retryable failures are reported as `.retry` only while attempts remain.
-    private static func executeOnce<Request: HRequestWithEmptyResponseProtocol>(request: Request, canRetry: Bool) async -> HAttemptOutcome<HResponse> {
+    private static func executeOnce<Request: HRequestWithEmptyResponseProtocol>(request: Request, authHeader: HAuthorizationHeader?, canRetry: Bool) async -> HAttemptOutcome<HResponse> {
         let urlRequest: URLRequest
         do {
-            urlRequest = try await HURLBuilder.buildUrlRequest(request: request)
+            urlRequest = try await HURLBuilder.buildUrlRequest(request: request, authHeader: authHeader)
         } catch let hError as HRequestError {
             await logError(hError, request: request)
             return .finish(.error(hError))
@@ -330,18 +344,21 @@ extension HRequestManager {
 // MARK: - Request Builder Functions
 extension HRequestManager {
     /// Runs the retry loop, delegating each attempt to `executeAttempt`. Mocks, connectivity
-    /// checks and the initial auth injection are evaluated once by the caller, not per attempt.
+    /// checks and the initial auth header fetch are evaluated once by the caller, not per attempt.
     /// `errorResponse` builds the typed response for the cancellation and auth-giveup paths.
     ///
     /// `TypedRequest` preserves the concrete request type from the caller through the loop,
     /// so the executor closure receives the typed request without any existential cast.
+    /// The loop never mutates the request: the authorization header is carried alongside it
+    /// and applied to the built `URLRequest` by the executor.
     private static func runAttempts<TypedRequest: HRequestBaseRequestProtocol & Sendable, Response: Sendable>(
         request: TypedRequest,
         retryPolicy: HRetryPolicy?,
+        authHeader: HAuthorizationHeader?,
         errorResponse: @escaping (HRequestError) -> Response,
-        executeAttempt: @escaping (TypedRequest, Bool) async -> HAttemptOutcome<Response>
+        executeAttempt: @escaping (TypedRequest, HAuthorizationHeader?, Bool) async -> HAttemptOutcome<Response>
     ) async -> Response {
-        var currentRequest = request
+        var currentAuthHeader = authHeader
         var attempt = 1
         var authRetriesRemaining = maxAuthRetries
         let maxRetries = retryPolicy?.maxRetries ?? 0
@@ -349,7 +366,7 @@ extension HRequestManager {
         while true {
             guard !Task.isCancelled else {
                 let hError: HRequestError = .cancelled
-                await logError(hError, request: currentRequest)
+                await logError(hError, request: request)
                 return errorResponse(hError)
             }
 
@@ -359,91 +376,70 @@ extension HRequestManager {
 
             let canRetry = attempt <= maxRetries
 
-            switch await executeAttempt(currentRequest, canRetry) {
+            switch await executeAttempt(request, currentAuthHeader, canRetry) {
             case .finish(let response):
                 return response
             case .retry:
                 attempt += 1
             case .unauthorized:
-                switch await refreshAuthorization(for: currentRequest, authRetriesRemaining: authRetriesRemaining) {
-                case .retry(let refreshedRequest):
-                    currentRequest = refreshedRequest
+                switch await refreshAuthorization(needsAuth: request.needsAuth, usedHeader: currentAuthHeader, authRetriesRemaining: authRetriesRemaining) {
+                case .retry(let freshHeader):
+                    currentAuthHeader = freshHeader
                     authRetriesRemaining -= 1
                 case .giveUp(let hError):
-                    await logError(hError, request: currentRequest)
+                    await logError(hError, request: request)
                     return errorResponse(hError)
                 }
             }
         }
     }
 
-    /// Injects the provider's authorization header into requests that need auth.
-    /// Fails with `.authProviderNeeded` when no provider is configured and with
-    /// `.malformedRequest` when the request type does not persist header parameters,
-    /// which would otherwise send the request out unauthenticated.
-    ///
-    /// Generic over the request type so the caller preserves the concrete type and avoids
-    /// casting back through an existential.
-    static func addAuthCredentialsIfNeeded<P: HRequestBaseRequestProtocol>(_ request: P) async -> Result<P, HRequestError> {
-        guard request.needsAuth else { return .success(request) }
+    /// Fetches the provider's authorization header for requests that need auth.
+    /// Fails with `.authProviderNeeded` when the request needs auth but no provider is
+    /// configured. A provider returning `nil` means no credentials are available and the
+    /// request goes out without an authorization header.
+    static func authorizationHeaderIfNeeded<P: HRequestBaseRequestProtocol>(for request: P) async -> Result<HAuthorizationHeader?, HRequestError> {
+        guard request.needsAuth else { return .success(nil) }
 
-        guard let authCredential = await HConfig.shared.authProvider?.getAuthorizationHeader() else {
+        guard let authProvider = HConfig.shared.authProvider else {
             return .failure(.authProviderNeeded)
         }
 
-        var modifiedRequest = request
-        if modifiedRequest.headerParameters == nil {
-            modifiedRequest.headerParameters = [:]
-        }
-        modifiedRequest.headerParameters?[authCredential.key] = authCredential.value
+        return .success(await authProvider.getAuthorizationHeader())
+    }
 
-        guard modifiedRequest.headerParameters?[authCredential.key] == authCredential.value else {
-            return .failure(.malformedRequest(reason: "The request type does not persist header parameters"))
-        }
-
-        return .success(modifiedRequest)
+    /// Resolves the authorization header for cache vary-key computation without failing the
+    /// flow: a missing provider must not turn a cache lookup into an error.
+    private static func cacheAuthHeader<P: HRequestBaseRequestProtocol>(for request: P) async -> HAuthorizationHeader? {
+        guard case .success(let authHeader) = await authorizationHeaderIfNeeded(for: request) else { return nil }
+        return authHeader
     }
 
     /// Fetches the provider's authorization header once and compares it with the one the
     /// failed attempt used. A retry is offered only when auth attempts remain and the
-    /// provider issued a different header. If the previously-injected header is absent the
-    /// request type does not persist headers (programming error) and we surface it loudly
-    /// instead of returning `.authNeeded`, which would hide the real cause.
-    private static func refreshAuthorization<P: HRequestBaseRequestProtocol>(
-        for request: P,
+    /// provider issued a different header; a provider without credentials (a `nil` header)
+    /// cannot satisfy a 401, so the flow gives up with `.authNeeded`.
+    private static func refreshAuthorization(
+        needsAuth: Bool,
+        usedHeader: HAuthorizationHeader?,
         authRetriesRemaining: Int
-    ) async -> HAuthRefresh<P> {
+    ) async -> HAuthRefresh {
+        // A request that opted out of auth has no credential to refresh: give up
+        // without consulting the provider.
+        guard needsAuth else { return .giveUp(.authNeeded) }
+
         guard authRetriesRemaining > 0, let authProvider = HConfig.shared.authProvider else {
             await HConfig.shared.authProvider?.authFailed()
             return .giveUp(.authNeeded)
         }
 
-        let freshHeader = await authProvider.getAuthorizationHeader()
-
-        guard let usedAuthorization = request.headerParameters?[freshHeader.key] else {
-            // The header slot is missing: the request type's setter is a no-op (the loud-failure
-            // path of `addAuthCredentialsIfNeeded` should have caught this earlier, but a
-            // conformer that drops the value between attempts is still possible).
-            return .giveUp(.malformedRequest(reason: "The request type does not persist header parameters"))
-        }
-
-        guard usedAuthorization != freshHeader.value else {
+        guard let freshHeader = await authProvider.getAuthorizationHeader(),
+              freshHeader != usedHeader else {
             await authProvider.authFailed()
             return .giveUp(.authNeeded)
         }
 
-        var modifiedRequest = request
-        if modifiedRequest.headerParameters == nil {
-            modifiedRequest.headerParameters = [:]
-        }
-        modifiedRequest.headerParameters?[freshHeader.key] = freshHeader.value
-
-        guard modifiedRequest.headerParameters?[freshHeader.key] == freshHeader.value else {
-            // The request type does not persist header parameters, so the fresh credentials would go out missing.
-            return .giveUp(.malformedRequest(reason: "The request type does not persist header parameters"))
-        }
-
-        return .retry(modifiedRequest)
+        return .retry(freshHeader)
     }
 
 
@@ -489,6 +485,8 @@ extension HRequestManager {
         var timeoutInterval: TimeInterval
         /// The cache configuration for the session.
         var cache: CacheSignature
+        /// Whether the session handles cookies through the shared cookie storage.
+        var httpShouldHandleCookies: Bool
     }
 
     /// The currently cached URLSession for reuse.
@@ -547,7 +545,7 @@ extension HRequestManager {
             }
         }
 
-        return SessionSignature(timeoutInterval: timeoutInterval, cache: cache)
+        return SessionSignature(timeoutInterval: timeoutInterval, cache: cache, httpShouldHandleCookies: HConfig.shared.httpShouldHandleCookies)
     }
 
     /// Builds a new URLSession tailored to the request's configuration.
@@ -555,6 +553,9 @@ extension HRequestManager {
         let configuration = URLSessionConfiguration.default
         configuration.timeoutIntervalForRequest = request.timeoutInterval ?? HConfig.shared.timeoutInterval
         configuration.timeoutIntervalForResource = request.timeoutInterval ?? HConfig.shared.timeoutInterval
+        // Cookie handling is governed at the session-configuration level on Darwin; the
+        // request-level flag set by HURLBuilder alone is not enough.
+        configuration.httpShouldSetCookies = HConfig.shared.httpShouldHandleCookies
 
         if let protocolClasses = HConfig.shared.protocolClasses {
             configuration.protocolClasses = protocolClasses
@@ -576,9 +577,10 @@ extension HRequestManager {
         }
 
         // If mTLS or SSL pinning is configured, the session needs a delegate to validate challenges.
-        if HConfig.shared.mTLSIdentity != nil || HConfig.shared.sslPinningKeys != nil {
+        if HConfig.shared.mTLSIdentity != nil || HConfig.shared.sslPinningKeys != nil || HConfig.shared.sslPinningKeysByHost != nil {
             let sessionDelegate = HURLSessionDelegate(mTLSIdentity: HConfig.shared.mTLSIdentity,
-                                                      sslPinningKeys: HConfig.shared.sslPinningKeys)
+                                                      sslPinningKeys: HConfig.shared.sslPinningKeys,
+                                                      sslPinningKeysByHost: HConfig.shared.sslPinningKeysByHost)
             return URLSession(configuration: configuration, delegate: sessionDelegate, delegateQueue: nil)
         }
 
@@ -601,11 +603,11 @@ private enum HAttemptOutcome<Response: Sendable> {
 }
 
 /// Outcome of evaluating a 401 response against the auth provider. The retry case carries
-/// the request with the refreshed header applied, preserving the concrete request type so
-/// the loop does not need to cast back through an existential.
-private enum HAuthRefresh<Request: HRequestBaseRequestProtocol> {
-    /// The provider issued a different authorization header; retry with it applied to the request.
-    case retry(Request)
+/// the refreshed authorization header, which the loop applies to the next attempt's
+/// `URLRequest` without touching the request object.
+private enum HAuthRefresh {
+    /// The provider issued a different authorization header; retry with it applied.
+    case retry(HAuthorizationHeader)
     /// No further attempt is possible; finish with the given error.
     case giveUp(HRequestError)
 }

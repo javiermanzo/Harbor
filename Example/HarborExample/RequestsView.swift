@@ -21,6 +21,9 @@ struct RequestsView: View {
     // Auth provider for authenticated requests
     private let authProvider = TokenAuthProvider()
 
+    // Auth provider for the token-refresh demo (starts with an expired token)
+    private let refreshAuthProvider = RefreshingAuthProvider()
+
     init() {
         // Configure global settings on first appear
     }
@@ -51,8 +54,8 @@ struct RequestsView: View {
 
         // Configure mTLS (optional - requires certificate)
         // guard let url = Bundle.main.url(forResource: "certificate", withExtension: "p12") else { return }
-        // let mTLS = HmTLS(p12FileUrl: url, password: "password")
-        // await Harbor.setMTLS(mTLS)
+        // let mTLS = HMTLS(p12FileUrl: url) { "notapassword" }
+        // try await Harbor.setMTLS(mTLS)
     }
 
     var body: some View {
@@ -561,19 +564,24 @@ struct RequestsView: View {
 
     func performAuthWithRefresh() {
         addResult("=== Auth with Token Refresh ===")
+        // Route auth-demo.local through the local stub server (no network needed).
+        URLProtocol.registerClass(AuthDemoStubProtocol.self)
+        refreshAuthProvider.reset()
         performWithLoading {
-            // This would trigger authFailed() in the provider
-            // which could refresh the token
-            await Harbor.setAuthProvider(authProvider)
+            // The provider starts with an expired token that the stub server rejects
+            // with a 401; it then refreshes the token and Harbor retries automatically.
+            await Harbor.setAuthProvider(refreshAuthProvider)
 
-            let response = await GetPrivateDataRequest().request()
+            let response = await GetSecureDemoDataRequest().request()
 
             await MainActor.run {
                 switch response {
-                case .success(let user):
-                    addResult("After refresh - User: \(user.name)")
+                case .success(let data):
+                    addResult("Server rejected the expired token with 401")
+                    addResult("Provider refreshed the token; Harbor retried automatically")
+                    addResult("Retry succeeded: \(data.message)")
                 case .error(let error):
-                    addResult("Error (expected): \(error.localizedDescription)")
+                    addResult("Error: \(error.localizedDescription)")
                 }
             }
         }
@@ -674,6 +682,45 @@ struct RequestsView: View {
     func performMTLSRequest() {
         addResult("=== mTLS Request ===")
         performWithLoading {
+            // Load the client certificate bundled with the app and configure mTLS.
+            guard let p12URL = Bundle.main.url(forResource: "certificate", withExtension: "p12") else {
+                await MainActor.run {
+                    addResult("certificate.p12 not found in the app bundle")
+                }
+                return
+            }
+
+            do {
+                let mTLS = HMTLS(p12FileUrl: p12URL) { "notapassword" }
+                try await Harbor.setMTLS(mTLS)
+            } catch {
+                let message: String
+                if let mtlsError = error as? HMTLSError {
+                    switch mtlsError {
+                    case .fileNotFound:
+                        message = "certificate.p12 could not be read"
+                    case .passwordProviderFailed:
+                        message = "the P12 password could not be supplied"
+                    case .invalidPassword:
+                        message = "the P12 password was rejected"
+                    case .invalidP12Format:
+                        message = "certificate.p12 is malformed"
+                    case .noIdentity:
+                        message = "certificate.p12 contains no identity"
+                    }
+                } else {
+                    message = error.localizedDescription
+                }
+                await MainActor.run {
+                    addResult("Could not configure mTLS: \(message)")
+                }
+                return
+            }
+
+            await MainActor.run {
+                addResult("Client identity loaded from certificate.p12")
+            }
+
             let response = await MTLSRequest().request()
 
             await MainActor.run {
@@ -690,15 +737,37 @@ struct RequestsView: View {
     func configureSSLPinning() {
         addResult("=== Configuring SSL Pinning ===")
         Task {
-            // Example: Add public key hashes for SSL pinning
-            // These would be the SHA256 hashes of your server's public keys
-            let pinningKeys = [
-                "YLh1dUR9y6Kja30RrAn7JKnbQG/uEtLMkBgFF2Fuihg="
-            ]
+            let host = "jsonplaceholder.typicode.com"
+            do {
+                // Read the live server certificate and compute its pin.
+                let certificate = try await ServerCertificateFetcher.fetchCertificate(from: host)
+                guard let pin = await Harbor.computePin(for: certificate) else {
+                    await MainActor.run {
+                        addResult("Could not compute a pin for the server certificate")
+                    }
+                    return
+                }
+                await MainActor.run {
+                    addResult("Computed pin: \(pin)")
+                }
 
-            await Harbor.setSSlPinningKeys(pinningKeys)
-            await MainActor.run {
-                addResult("SSL Pinning configured with \(pinningKeys.count) key(s)")
+                // Pin only the demo host; other endpoints keep default validation.
+                await Harbor.setSSLPinningKeys([pin], forHosts: [host])
+
+                // Verify that a pinned request to the host succeeds.
+                let response = await GetUsersRequest().request()
+                await MainActor.run {
+                    switch response {
+                    case .success(let users):
+                        addResult("Pinned request to \(host) succeeded (\(users.count) users)")
+                    case .error(let error):
+                        addResult("Pinned request failed: \(error.localizedDescription)")
+                    }
+                }
+            } catch {
+                await MainActor.run {
+                    addResult("Could not fetch the server certificate: \(error.localizedDescription)")
+                }
             }
         }
     }

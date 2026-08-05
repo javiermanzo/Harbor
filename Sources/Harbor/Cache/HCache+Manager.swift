@@ -474,14 +474,14 @@ private extension HCache {
     struct FileStorage {
         /// Generates the file URL for a cache entry based on its key hash.
         static func url(for key: String, in directory: URL) -> URL {
-            let hash = key.sha256Hash
+            let hash = key.sha256Hex
             // Using .cache extension to distinguish from legacy files
             return directory.appendingPathComponent(hash).appendingPathExtension("cache")
         }
 
         /// Generates URLs for legacy cache formats (data and metadata files).
         static func legacyUrls(for key: String, in directory: URL) -> (URL, URL) {
-            let hash = key.sha256Hash
+            let hash = key.sha256Hex
             let dataURL = directory.appendingPathComponent(hash)
             let metaURL = dataURL.appendingPathExtension("meta")
             return (dataURL, metaURL)

@@ -37,8 +37,10 @@ public extension Harbor {
     static func setMTLS(_ mTLS: HmTLS) throws {
         do {
             HConfig.shared.mTLSIdentity = try mTLS.extractIdentity(loggingEnabled: HConfig.shared.isLoggingEnabled)
+            HRequestManager.invalidateURLSession()
         } catch {
             HConfig.shared.mTLSIdentity = nil
+            HRequestManager.invalidateURLSession()
             HLogger.log("mTLS identity could not be configured", error: error, level: .error)
             throw error
         }
@@ -47,6 +49,7 @@ public extension Harbor {
     /// Disables mutual TLS by clearing any configured client identity.
     static func clearMTLS() {
         HConfig.shared.mTLSIdentity = nil
+        HRequestManager.invalidateURLSession()
     }
 
     /// Enables SSL pinning with SHA256 hashes of the certificate's SubjectPublicKeyInfo (SPKI),
@@ -54,6 +57,7 @@ public extension Harbor {
     /// Use `Harbor.computePin(for:)` to generate pins from a certificate.
     static func setSSlPinningKeys(_ sslPinningKeys: [String]?) {
         HConfig.shared.sslPinningKeys = sslPinningKeys
+        HRequestManager.invalidateURLSession()
     }
 
     /// Computes the SSL pin for a certificate: `base64(SHA256(SPKI))`.
@@ -80,6 +84,13 @@ public extension Harbor {
     /// Default is 15 seconds.
     static func setDefaultTimeoutInterval(_ timeout: TimeInterval) {
         HConfig.shared.timeoutInterval = timeout
+        HRequestManager.invalidateURLSession()
+    }
+
+    /// Sets URLProtocol classes for internally built sessions.
+    static func setProtocolClasses(_ protocolClasses: [AnyClass]?) {
+        HConfig.shared.protocolClasses = protocolClasses
+        HRequestManager.invalidateURLSession()
     }
 
     /// Configures whether mocks are only active in DEBUG builds.

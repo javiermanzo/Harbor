@@ -465,7 +465,11 @@ extension HRequestManager {
     static func sleep(seconds: TimeInterval) async {
         let clampedSeconds = min(max(seconds, 0), HRetryPolicy.maxDelay)
         guard clampedSeconds > 0 else { return }
-        try? await Task.sleep(nanoseconds: UInt64(clampedSeconds * 1_000_000_000))
+        if #available(macOS 13.0, iOS 16.0, watchOS 9.0, tvOS 16.0, *) {
+            try? await Task.sleep(for: .seconds(clampedSeconds))
+        } else {
+            try? await Task.sleep(nanoseconds: UInt64(clampedSeconds * 1_000_000_000))
+        }
     }
 
     /// Builds the URL used for synthetic mock responses.

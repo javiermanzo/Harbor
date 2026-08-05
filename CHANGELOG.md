@@ -28,6 +28,9 @@
 - `HarborJRPC.setURL(URL)` plus a validating `setURL(String)` overload that throws `HJRPCConfigurationError.invalidURL`, and `HarborJRPC.configure(url:jrpcVersion:)` to set both at once
 - `rawBody` in Harbor's `HRequestWithBodyProtocol` to send raw `Data` as the request body instead of `bodyParameters`
 - CocoaPods subspec `Harbor/JRPC` to integrate HarborJRPC via CocoaPods
+- `HMTLS` mTLS configuration taking a `passwordProvider` closure, so the P12 password is requested once when the identity is extracted instead of being retained; its description always redacts the password
+- `Harbor.setSSLPinningKeys(_:forHosts:)` to scope SSL pins to specific hosts; challenges from unconfigured hosts get the default URLSession handling
+- `Harbor.setHTTPShouldHandleCookies(_:)` to let requests handle cookies through the shared cookie storage (default `false`)
 
 ### Changed
 - Upgraded LogBird dependency from 1.0.0 to 2.1.0; debug logging now uses typed `LBValue` metadata, the `LBExtraMessage(key:value:)` API and LogBird's layered sensitive-key action API (#57)
@@ -47,6 +50,10 @@
 - `cachedETag()` now also works with the `.urlCache` cache type (#58)
 - `clearCache()` now falls back to the global default cache type when the request does not specify one (#58)
 - `HJRPCRequestError` conforms to `LocalizedError` with human-readable descriptions, and includes new `invalidResponse` and `idMismatch` cases
+- `HAuthProviderProtocol.getAuthorizationHeader()` now returns `HAuthorizationHeader?`; returning `nil` sends the request without an authorization header
+- `Harbor.setMTLS(_:)` is now `async` and reads/imports the P12 file off the actor so in-flight requests are not blocked
+- SHA256 helpers renamed for clarity: `SHA256.sha256(data:)` → `sha256Base64(data:)`, `SHA256.hash(data:)` → `sha256Data(data:)`, `String.sha256Hash` → `String.sha256Hex`; the old names remain as deprecated shims
+- `Harbor.setSSlPinningKeys(_:)` renamed to `Harbor.setSSLPinningKeys(_:)` and `HmTLS` renamed to `HMTLS`; the old spellings are deprecated
 
 ### Fixed
 - Sensitive keys now apply to Harbor's debug logger: they were previously set on `LogBird.shared` while debug logging used a separate `LogBird(subsystem:category:)` instance, so the Harbor HTTP keys never reached the logs (#57)
@@ -62,8 +69,12 @@
 - `generateCurl` and the structured request debug log no longer leak credentials: sensitive headers and cookies are redacted as `<redacted>` by default (#56)
 - `generateCurl` reads cookies and additional headers from Harbor's actual `URLSession` instead of `URLSession.shared` (#56)
 - False `.noConnection` on the first request in Release (#55)
+- Auth header injection and the 401 retry flow no longer mutate the caller's request object: the authorization header is applied to the built `URLRequest`, which also fixes auth for class-conformed requests and for requests that do not persist `headerParameters`
+- `PKCS12` parsing is now the throwing `PKCS12.parse(...)` with a typed `PKCS12Error` instead of a half-initialized object on failure, and every `SecPKCS12Import` failure status is logged (with its error message) when logging is enabled
 
 ### ⚠️ Breaking Changes
+- `HAuthProviderProtocol.getAuthorizationHeader()` now returns `HAuthorizationHeader?`
+- `Harbor.setMTLS(_:)` is now `async throws` and takes the new `HMTLS` type (`HmTLS` remains as a deprecated alias)
 - `TimeInterval.none` renamed to `TimeInterval.noExpiration` (#58)
 - `Harbor.clearAllCache()` is now `async` (#58)
 - `Harbor.setSSlPinningSHA256(String?)` → `Harbor.setSSlPinningKeys([String]?)` (#42)

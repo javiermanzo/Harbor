@@ -23,7 +23,7 @@ public protocol HAuthProviderProtocol: Sendable {
 
 /// Represents an authorization header with a key-value pair.
 /// Used by authentication providers to specify header information.
-public struct HAuthorizationHeader: Sendable, Equatable {
+public struct HAuthorizationHeader: Sendable, Equatable, Hashable {
     /// The header field name (e.g., "Authorization", "X-API-Key").
     public let key: String
     

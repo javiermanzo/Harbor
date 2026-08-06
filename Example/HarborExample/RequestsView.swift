@@ -24,9 +24,7 @@ struct RequestsView: View {
     // Auth provider for the token-refresh demo (starts with an expired token)
     private let refreshAuthProvider = RefreshingAuthProvider()
 
-    init() {
-        // Configure global settings on first appear
-    }
+    @State private var isHarborSetup = false
 
     func setupOnAppear() {
         Self.logger.log("setupOnAppear called", level: .info)
@@ -37,6 +35,9 @@ struct RequestsView: View {
     }
 
     private func setupHarbor() async {
+        guard !isHarborSetup else { return }
+        isHarborSetup = true
+        
         // Set default headers for all requests
         await Harbor.setDefaultHeaderParameters([
             "X-Client-Version": "1.0.0",

@@ -8,7 +8,7 @@
 import Foundation
 import CryptoKit
 
-final class SHA256 {
+enum SHA256 {
     /// Returns the SHA-256 digest of the data, base64 encoded. Used for SSL pinning pins.
     static func sha256Base64(data: Data) -> String {
         let digest = CryptoKit.SHA256.hash(data: data)
@@ -39,7 +39,7 @@ extension String {
     var sha256Hex: String {
         let data = Data(self.utf8)
         let hash = SHA256.sha256Data(data: data)
-        return hash.compactMap { String(format: "%02x", $0) }.joined()
+        return hash.map { String(format: "%02x", $0) }.joined()
     }
 
     @available(*, deprecated, renamed: "sha256Hex")

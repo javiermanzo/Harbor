@@ -305,7 +305,7 @@ extension HRequestManager {
                 await request.logResponse(httpResponse: httpResponse, data: data, duration: duration)
             }
 
-            return await processResponse(request: request, statusCode: httpResponse.statusCode, data: data, canRetry: canRetry)
+            return await processResponse(request: request, statusCode: httpResponse.statusCode, data: data, canRetry: canRetry, httpResponse: httpResponse)
         } catch let error as URLError {
             let hError = HRequestError.mapURLError(error)
             let isCancelled = error.code == .cancelled || Task.isCancelled
@@ -325,7 +325,7 @@ extension HRequestManager {
     }
 
     /// Processes the raw response for an empty-response request, checking status codes and handling errors.
-    private static func processResponse<Request: HRequestWithEmptyResponseProtocol>(request: Request, statusCode: Int, data: Data, canRetry: Bool = false) async -> HAttemptOutcome<HResponse> {
+    private static func processResponse<Request: HRequestWithEmptyResponseProtocol>(request: Request, statusCode: Int, data: Data, canRetry: Bool = false, httpResponse: HTTPURLResponse? = nil) async -> HAttemptOutcome<HResponse> {
         switch statusCode {
         case 200 ... 299:
             return .finish(.success)

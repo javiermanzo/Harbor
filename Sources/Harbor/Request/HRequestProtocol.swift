@@ -95,7 +95,7 @@ public protocol HRequestWithResultProtocol: HRequestBaseRequestProtocol {
     /// The model type that this request returns.
     associatedtype Model: HModel
     /// Parses response data into the specified model type.
-    func parseData<Model: Codable> (data: Data, model: Model.Type) throws -> Model
+    func parseData<T: Codable> (data: Data, model: T.Type) throws -> T
     /// Executes the request and returns a typed response.
     func request() async -> HResponseWithResult<Model>
 }
@@ -108,9 +108,9 @@ public extension HRequestWithResultProtocol {
     }
     
     /// Default implementation using `JSONDecoder`.
-    func parseData<Model: Codable> (data: Data, model: Model.Type) throws -> Model {
-        let decoder = JSONDecoder()
-        return try decoder.decode(Model.self, from: data)
+    func parseData<T: Codable> (data: Data, model: T.Type) throws -> T {
+        let decoder = HConfig.jsonDecoder
+        return try decoder.decode(T.self, from: data)
     }
 }
 

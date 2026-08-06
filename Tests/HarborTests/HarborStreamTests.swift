@@ -265,6 +265,7 @@ final class HarborStreamTests: XCTestCase {
         XCTAssertEqual(results.first?.1, .cache)
     }
 
+    /// Tests that a stream requesting data from cache only throws a `noCachedDataFound` error when the cached data has expired.
     func testRequestStreamCacheOnlyExpired() async {
         let testData = TestStreamData(value: "stream-expired-test", timestamp: Date())
         guard let jsonData = try? JSONEncoder().encode(testData) else {
@@ -292,6 +293,8 @@ final class HarborStreamTests: XCTestCase {
         }
     }
     
+    /// Tests that a stream requesting data from both cache and remote recovers gracefully when the cached data fails to decode.
+    /// It should ignore the invalid cache entry and proceed to yield the successful remote response.
     func testRequestStreamCacheAndRemoteDecodingError() async {
         let request = TestStreamRequest()
         let url = "https://stream.example.com/data"

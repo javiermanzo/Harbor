@@ -113,7 +113,6 @@ struct RequestsView: View {
 
                             ExampleButton(title: "GET - Cache Only", icon: "internaldrive", action: { performCacheOnlyRequest() })
 
-                            ExampleButton(title: "GET - Remote Only", icon: "antenna.radiowaves.left.and.right", action: { performRemoteOnlyRequest() })
 
                             ExampleButton(title: "Clear All Cache", icon: "xmark.circle", isDestructive: true, action: { clearAllCache() })
                         }
@@ -163,7 +162,6 @@ struct RequestsView: View {
                         Section {
                             SectionHeader(title: "Error Handling")
 
-                            ExampleButton(title: "Handle Errors", icon: "exclamationmark.triangle", action: { performErrorHandling() })
                         }
 
                         // MARK: - JSON-RPC
@@ -457,21 +455,6 @@ struct RequestsView: View {
         }
     }
 
-    func performRemoteOnlyRequest() {
-        addResult("=== GET - Remote Only ===")
-        performWithLoading {
-            let response = await RemoteOnlyUsersRequest().request()
-
-            await MainActor.run {
-                switch response {
-                case .success(let users):
-                    addResult("Got \(users.count) users (bypassed cache)")
-                case .error(let error):
-                    addResult("Error: \(error.localizedDescription)")
-                }
-            }
-        }
-    }
 
     func clearAllCache() {
         addResult("=== Clearing Cache ===")
@@ -648,24 +631,6 @@ struct RequestsView: View {
         }
     }
 
-    // MARK: - Error Handling
-
-    func performErrorHandling() {
-        addResult("=== Error Handling Examples ===")
-        performWithLoading {
-            let response = await ErrorProneRequest().request()
-
-            await MainActor.run {
-                switch response {
-                case .success(let errorResponse):
-                    addResult("Error response: \(errorResponse.error)")
-                case .error(let error):
-                    addResult("Parsed error: \(error)")
-                    addResult("Error type: \(type(of: error))")
-                }
-            }
-        }
-    }
 
     // MARK: - JSON-RPC
 

@@ -2,21 +2,17 @@ name: CI
 
 on:
   push:
-    branches: [ main, 'release/*' ]
+    branches: [ "main", "release/*" ]
   pull_request:
-    branches: [ main, 'release/*' ]
+    branches: [ "main", "release/*" ]
 
 permissions:
   contents: read
   pull-requests: write
 
 jobs:
-  test:
-    name: Test on ${{ matrix.os }}
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        os: [macos-15]
+  unit-tests-and-coverage:
+    runs-on: macos-15
     steps:
     - name: Checkout
       uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -36,7 +32,6 @@ jobs:
       with:
         name: coverage-base
         path: ./lcov.info
-
     - name: Download Base Coverage
       if: github.event_name == 'pull_request'
       uses: dawidd6/action-download-artifact@09f2f74827fd3a8607589e5ad7f9398816f540fe # v3.1.4
@@ -47,7 +42,6 @@ jobs:
         branch: ${{ github.base_ref }}
         name: coverage-base
         path: ./base-coverage/
-
     - name: Report Coverage to PR
       uses: Nef10/lcov-reporter-action@797ec1c1e78e3a9a7890c1a104d58b9e05fcef76 # v0.6.1
       if: github.event_name == 'pull_request'
@@ -59,4 +53,22 @@ jobs:
         filter-changed-files: true
         delete-old-comments: true
 
-
+  ios-integration-tests:
+    runs-on: macos-26
+    steps:
+    - name: Checkout
+      uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+    
+    # Run Example App Tests (Integration via xcodebuild)
+    # Using iPhone 17 on macos-26 (available on the latest simulator runtime)
+    - name: Run Example App Tests
+      run: |
+        xcodebuild test \
+          -project Example/HarborExample.xcodeproj \
+          -scheme HarborExample \
+          -destination 'platform=iOS Simulator,name=iPhone 17' \
+          -resultBundlePath TestResults \
+          CODE_SIGN_IDENTITY="" \
+          CODE_SIGNING_REQUIRED=NO \
+          CODE_SIGNING_ALLOWED=NO \
+          COMPILER_INDEX_STORE_ENABLE=NO

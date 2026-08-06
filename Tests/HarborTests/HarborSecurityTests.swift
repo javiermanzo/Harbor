@@ -49,9 +49,8 @@ final class HarborSecurityTests: XCTestCase {
         Harbor.setSSLPinningKeys([testSHA256])
         
         // Then
-        // SSL pinning should be configured (we can't directly test internal state)
-        // But we can test that the configuration doesn't crash
-        XCTAssertTrue(true)
+        let keys = await HConfig.shared.sslPinningKeys
+        XCTAssertEqual(keys, [testSHA256])
     }
     
     func testSSLPinningWithNilValue() async throws {
@@ -63,8 +62,8 @@ final class HarborSecurityTests: XCTestCase {
         Harbor.setSSLPinningKeys(nil)
         
         // Then
-        // SSL pinning should be disabled
-        XCTAssertTrue(true)
+        let keys = await HConfig.shared.sslPinningKeys
+        XCTAssertNil(keys)
     }
     
     func testSSLPinningWithValidRequest() async throws {
@@ -244,7 +243,8 @@ final class HarborSecurityTests: XCTestCase {
         case .error(let error):
             switch error {
             case .noConnection:
-                XCTAssertTrue(true) // Expected connection error (SSL-related)
+                let count = await HMocker.callCount(for: SecureGetRequest.self)
+                XCTAssertEqual(count, 1)
             default:
                 XCTFail("Expected connection error but got: \(error)")
             }

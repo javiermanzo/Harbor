@@ -85,7 +85,8 @@ final class HarborTests: XCTestCase {
         // Then
         switch response {
         case .success:
-            XCTAssertTrue(true) // Success case
+            let urlRequest = try await HURLBuilder.buildUrlRequest(request: request)
+            XCTAssertNotNil(urlRequest.url) // Verified by URLBuilder
         case .error(let error):
             XCTFail("Expected success but got error: \(error)")
         }
@@ -103,7 +104,8 @@ final class HarborTests: XCTestCase {
         // Then
         switch response {
         case .success:
-            XCTAssertTrue(true) // Success case
+            let urlRequest = try await HURLBuilder.buildUrlRequest(request: request)
+            XCTAssertNotNil(urlRequest.url) // Verified by URLBuilder
         case .error(let error):
             XCTFail("Expected success but got error: \(error)")
         }
@@ -123,7 +125,8 @@ final class HarborTests: XCTestCase {
         // Then
         switch response {
         case .success:
-            XCTAssertTrue(true) // Success case
+            let urlRequest = try await HURLBuilder.buildUrlRequest(request: request)
+            XCTAssertNotNil(urlRequest.url) // Verified by URLBuilder
         case .error(let error):
             XCTFail("Expected success but got error: \(error)")
         }
@@ -170,7 +173,8 @@ final class HarborTests: XCTestCase {
         case .error(let error):
             switch error {
             case .authNeeded:
-                XCTAssertTrue(true) // Expected auth error
+                let count = await HMocker.callCount(for: type(of: request))
+                XCTAssertEqual(count, 1) // Expected auth error
             default:
                 XCTFail("Expected authNeeded but got: \(error)")
             }
@@ -195,7 +199,8 @@ final class HarborTests: XCTestCase {
         case .error(let error):
             switch error {
             case .noConnection:
-                XCTAssertTrue(true) // Expected network error
+                let count = await HMocker.callCount(for: type(of: request))
+                XCTAssertEqual(count, 1) // Expected network error
             default:
                 XCTFail("Expected noConnection but got: \(error)")
             }
@@ -237,7 +242,8 @@ final class HarborTests: XCTestCase {
             // Should be a codable/parsing error
             switch error {
             case .codable:
-                XCTAssertTrue(true)
+                let count = await HMocker.callCount(for: type(of: request))
+                XCTAssertEqual(count, 1)
             default:
                 XCTFail("Expected codable error but got: \(error)")
             }
@@ -286,7 +292,8 @@ final class HarborTests: XCTestCase {
         case .error(let error):
             switch error {
             case .timeout:
-                XCTAssertTrue(true) // Expected timeout error
+                let count = await HMocker.callCount(for: type(of: request))
+                XCTAssertEqual(count, 1) // Expected timeout error
             default:
                 XCTFail("Expected timeout error but got: \(error)")
             }
@@ -309,7 +316,8 @@ final class HarborTests: XCTestCase {
         case .error(let error):
             switch error {
             case .noConnection:
-                XCTAssertTrue(true) // Expected connection error
+                let count = await HMocker.callCount(for: type(of: request))
+                XCTAssertEqual(count, 1) // Expected connection error
             default:
                 XCTFail("Expected connection error but got: \(error)")
             }
@@ -332,7 +340,8 @@ final class HarborTests: XCTestCase {
         case .error(let error):
             switch error {
             case .cannotFindHost:
-                XCTAssertTrue(true) // Expected host not found error
+                let count = await HMocker.callCount(for: type(of: request))
+                XCTAssertEqual(count, 1) // Expected host not found error
             default:
                 XCTFail("Expected host not found error but got: \(error)")
             }
@@ -355,7 +364,8 @@ final class HarborTests: XCTestCase {
         case .error(let error):
             switch error {
             case .malformedRequest:
-                XCTAssertTrue(true) // Expected malformed request error
+                let count = await HMocker.callCount(for: type(of: request))
+                XCTAssertEqual(count, 1) // Expected malformed request error
             default:
                 XCTFail("Expected malformed request error but got: \(error)")
             }
@@ -424,7 +434,8 @@ final class HarborTests: XCTestCase {
         // Then
         switch response {
         case .success:
-            XCTAssertTrue(true) // Success case
+            let urlRequest = try await HURLBuilder.buildUrlRequest(request: request)
+            XCTAssertNotNil(urlRequest.url) // Verified by URLBuilder
         case .error(let error):
             XCTFail("Expected success but got error: \(error)")
         }
@@ -442,7 +453,8 @@ final class HarborTests: XCTestCase {
         // Then
         switch response {
         case .success:
-            XCTAssertTrue(true) // Success case
+            let urlRequest = try await HURLBuilder.buildUrlRequest(request: request)
+            XCTAssertNotNil(urlRequest.url) // Verified by URLBuilder
         case .error(let error):
             XCTFail("Expected success but got error: \(error)")
         }
@@ -462,7 +474,8 @@ final class HarborTests: XCTestCase {
         // Then
         switch response {
         case .success:
-            XCTAssertTrue(true) // Success case
+            let urlRequest = try await HURLBuilder.buildUrlRequest(request: request)
+            XCTAssertNotNil(urlRequest.url) // Verified by URLBuilder
         case .error(let error):
             XCTFail("Expected success but got error: \(error)")
         }
@@ -480,7 +493,8 @@ final class HarborTests: XCTestCase {
         // Then
         switch response {
         case .success:
-            XCTAssertTrue(true) // Success case
+            let urlRequest = try await HURLBuilder.buildUrlRequest(request: request)
+            XCTAssertNotNil(urlRequest.url) // Verified by URLBuilder
         case .error(let error):
             XCTFail("Expected success but got error: \(error)")
         }
@@ -547,15 +561,17 @@ private struct UploadFileRequest: HPostRequestProtocol, @unchecked Sendable {
     
     let fileName: String
     let fileData: Data
-    var bodyParameters: [String: Any]?
+    var bodyParameters: [String: Any]? = nil
+    var multipartBody: [String: HFormValue]?
     
     var url: String { "https://api.example.com/upload" }
-    var bodyType: HRequestDataType { .multipart }
     
     init(fileName: String, fileData: Data) {
         self.fileName = fileName
         self.fileData = fileData
-        self.bodyParameters = ["file": fileData, "filename": fileName]
+        let fileURL = FileManager.default.temporaryDirectory.appendingPathComponent(fileName)
+        try? fileData.write(to: fileURL)
+        self.multipartBody = ["file": .file(url: fileURL, mimeType: nil, fileName: fileName), "filename": .text(fileName)]
     }
 }
 
@@ -610,19 +626,23 @@ private struct UpdateUserRequest: HPutRequestProtocol, @unchecked Sendable {
 }
 
 private struct UpdateUserWithFileRequest: HPutRequestProtocol, @unchecked Sendable {
+    typealias Model = TestUser
+    
     let id: Int
     let name: String
-    let avatar: Data
-    var bodyParameters: [String: Any]?
+    let fileData: Data
+    var bodyParameters: [String: Any]? = nil
+    var multipartBody: [String: HFormValue]?
     
     var url: String { "https://api.example.com/users/\(id)" }
-    var bodyType: HRequestDataType { .multipart }
     
     init(id: Int, name: String, avatar: Data) {
         self.id = id
         self.name = name
-        self.avatar = avatar
-        self.bodyParameters = ["name": name, "avatar": avatar]
+        self.fileData = avatar
+        let fileURL = FileManager.default.temporaryDirectory.appendingPathComponent("avatar.jpg")
+        try? fileData.write(to: fileURL)
+        self.multipartBody = ["name": .text(name), "avatar": .file(url: fileURL, mimeType: nil, fileName: "avatar.jpg")]
     }
 }
 

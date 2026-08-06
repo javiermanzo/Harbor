@@ -24,7 +24,7 @@ final class HarborRealServiceTests: XCTestCase {
     struct GetTestResourceURLCache: HGetRequestProtocol {
         typealias Model = TestResource
         let url = "https://pokeapi.co/api/v2/pokemon/ditto"
-        let queryParameters: [String: String]? = ["v": UUID().uuidString]
+        let queryParameters: [String: String]? = nil
         let cacheType: HCache.CacheType? = .urlCache()
     }
 
@@ -47,7 +47,14 @@ final class HarborRealServiceTests: XCTestCase {
     }
     
     override func setUp() async throws {
-        try NetworkTestFlag.skipUnlessEnabled()
+        LocalStubURLProtocol.clearStubs()
+        
+        let url = URL(string: "https://pokeapi.co/api/v2/pokemon/ditto")!
+        let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: ["ETag": "\"mocked-etag\""])!
+        let data = "{\"name\": \"ditto\", \"id\": 132}".data(using: .utf8)!
+        LocalStubURLProtocol.registerStub(for: url, data: data, response: response)
+        
+        await Harbor.setProtocolClasses([LocalStubURLProtocol.self])
         await Harbor.removeAllMocks()
         await Harbor.clearAllCache()
         await Harbor.setMocksOnlyInDebug(false)
@@ -55,8 +62,22 @@ final class HarborRealServiceTests: XCTestCase {
     }
 
     override func tearDown() async throws {
+        await Harbor.setProtocolClasses(nil)
         await Harbor.removeAllMocks()
         await Harbor.clearAllCache()
+    }
+    
+    func testRealNetworkConnection() async throws {
+        try NetworkTestFlag.skipUnlessEnabled()
+        await Harbor.setProtocolClasses(nil)
+        let request = GetTestResourceCustomCache()
+        let response = await request.request()
+        switch response {
+        case .success(let user):
+            XCTAssertEqual(user.name, "ditto")
+        case .error(let err):
+            XCTFail("Request failed: \(err)")
+        }
     }
     
     func testCustomCacheWithRealService() async throws {

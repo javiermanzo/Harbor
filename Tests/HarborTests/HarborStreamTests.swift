@@ -205,7 +205,11 @@ final class HarborStreamTests: XCTestCase {
     }
     
     func testRequestStreamNetworkError() async throws {
-        try NetworkTestFlag.skipUnlessEnabled()
+        LocalStubURLProtocol.clearStubs()
+        LocalStubURLProtocol.registerStub(for: URL(string: "https://stream.example.com/data")!, data: Data(), response: HTTPURLResponse(), error: URLError(.notConnectedToInternet))
+        await Harbor.setProtocolClasses([LocalStubURLProtocol.self])
+        defer { Task { await Harbor.setProtocolClasses(nil) } }
+        
         let request = TestStreamRequest()
         
         // No mock registered, should get network error for remote-only
@@ -221,7 +225,11 @@ final class HarborStreamTests: XCTestCase {
     }
     
     func testRequestStreamCacheAndRemoteWithNetworkError() async throws {
-        try NetworkTestFlag.skipUnlessEnabled()
+        LocalStubURLProtocol.clearStubs()
+        LocalStubURLProtocol.registerStub(for: URL(string: "https://stream.example.com/data")!, data: Data(), response: HTTPURLResponse(), error: URLError(.notConnectedToInternet))
+        await Harbor.setProtocolClasses([LocalStubURLProtocol.self])
+        defer { Task { await Harbor.setProtocolClasses(nil) } }
+        
         let testData = TestStreamData(value: "stream-cache-with-error-test", timestamp: Date())
         guard let jsonData = try? JSONEncoder().encode(testData),
               let jsonString = String(data: jsonData, encoding: .utf8) else {
@@ -318,7 +326,7 @@ private func setStubbedProtocolClasses(_ classes: [AnyClass]?) {
 /// URLProtocol stub injected through `HConfig.protocolClasses` that answers after a
 /// delay, giving tests a window to cancel the request while it is in flight.
 /// `stopLoading` records that URLSession cancelled the underlying request.
-private final class DelayedResponseStubProtocol: URLProtocol, @unchecked Sendable {
+private final class DelayedResponseStubProtocol: URLProtocol {
     private static let lock = NSLock()
     nonisolated(unsafe) private static var _startLoadingCalled = false
     nonisolated(unsafe) private static var _stopLoadingCalled = false
@@ -356,15 +364,15 @@ private final class DelayedResponseStubProtocol: URLProtocol, @unchecked Sendabl
         Self.lock.unlock()
 
         // Respond asynchronously so `stopLoading` can run while the request is in flight.
-        DispatchQueue.global().asyncAfter(deadline: .now() + 0.5) { [self] in
-            guard let url = request.url,
+        DispatchQueue.global().asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            guard let self = self, let url = self.request.url,
                   let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil) else {
-                client?.urlProtocol(self, didFailWithError: URLError(.badURL))
+                self?.client?.urlProtocol(self!, didFailWithError: URLError(.badURL))
                 return
             }
-            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-            client?.urlProtocol(self, didLoad: Data())
-            client?.urlProtocolDidFinishLoading(self)
+            self.client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+            self.client?.urlProtocol(self, didLoad: Data("delayed response".utf8))
+            self.client?.urlProtocolDidFinishLoading(self)
         }
     }
 

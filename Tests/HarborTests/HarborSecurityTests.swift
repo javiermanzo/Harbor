@@ -31,57 +31,57 @@ final class HarborSecurityTests: XCTestCase {
         Harbor.setSSLPinningKeys(nil)
         Harbor.clearMTLS()
     }
-    
+
     override func tearDown() async throws {
         Harbor.removeAllMocks()
         // Reset security configurations
         Harbor.setSSLPinningKeys(nil)
         Harbor.clearMTLS()
     }
-    
+
     // MARK: - SSL Pinning Tests
-    
+
     func testSSLPinningConfiguration() async throws {
         // Given
         let testSHA256 = "ABC123456789ABCDEF1234567890ABCDEF1234567890ABCDEF1234567890ABCDEF"
-        
+
         // When
         Harbor.setSSLPinningKeys([testSHA256])
-        
+
         // Then
         let keys = await HConfig.shared.sslPinningKeys
         XCTAssertEqual(keys, [testSHA256])
     }
-    
+
     func testSSLPinningWithNilValue() async throws {
         // Given
         let testSHA256 = "ABC123456789ABCDEF1234567890ABCDEF1234567890ABCDEF1234567890ABCDEF"
         Harbor.setSSLPinningKeys([testSHA256])
-        
+
         // When
         Harbor.setSSLPinningKeys(nil)
-        
+
         // Then
         let keys = await HConfig.shared.sslPinningKeys
         XCTAssertNil(keys)
     }
-    
+
     func testSSLPinningWithValidRequest() async throws {
         // Given
         let testSHA256 = "ABC123456789ABCDEF1234567890ABCDEF1234567890ABCDEF1234567890ABCDEF"
         Harbor.setSSLPinningKeys([testSHA256])
-        
+
         let mockResponse = TestSecureData(secret: "pinned-data")
         let jsonData = try JSONEncoder().encode(mockResponse)
         let jsonString = String(data: jsonData, encoding: .utf8)!
-        
+
         let mock = HMock(request: SecureGetRequest.self, statusCode: 200, jsonResponse: jsonString)
         Harbor.register(mock: mock)
-        
+
         // When
         let request = SecureGetRequest()
         let response = await request.request()
-        
+
         // Then
         switch response {
         case .success(let data):
@@ -90,9 +90,9 @@ final class HarborSecurityTests: XCTestCase {
             XCTFail("Expected success but got error: \(error)")
         }
     }
-    
+
     // MARK: - mTLS Tests
-    
+
     func testMTLSConfiguration() async throws {
         // Given
         let unwrappedP12URL = try XCTUnwrap(testP12URL, "certificate.p12 not found")
@@ -101,22 +101,22 @@ final class HarborSecurityTests: XCTestCase {
 
         // When
         try await Harbor.setMTLS(mTLS)
-        
+
         // Then
         let identity = HConfig.shared.mTLSIdentity
         XCTAssertNotNil(identity)
     }
-    
+
     func testMTLSWithNilValue() async throws {
         // Given
         let unwrappedP12URL = try XCTUnwrap(testP12URL, "certificate.p12 not found")
 
         let mTLS = makeMTLS(url: unwrappedP12URL, password: testPassword)
         try await Harbor.setMTLS(mTLS)
-        
+
         // When
         Harbor.clearMTLS()
-        
+
         // Then
         // mTLS should be disabled
         let identity = HConfig.shared.mTLSIdentity
@@ -189,9 +189,9 @@ final class HarborSecurityTests: XCTestCase {
         try await Harbor.setMTLS(mTLS)
         XCTAssertNotNil(HConfig.shared.mTLSIdentity)
     }
-    
+
     // MARK: - Combined Security Tests
-    
+
     func testCombinedSSLPinningAndMTLS() async throws {
         // Given
         let testSHA256 = "ABC123456789ABCDEF1234567890ABCDEF1234567890ABCDEF1234567890ABCDEF"
@@ -200,18 +200,18 @@ final class HarborSecurityTests: XCTestCase {
         let unwrappedP12URL = try XCTUnwrap(testP12URL, "certificate.p12 not found")
         let mTLS = makeMTLS(url: unwrappedP12URL, password: testPassword)
         try await Harbor.setMTLS(mTLS)
-        
+
         let mockResponse = TestSecureData(secret: "fully-secured-data")
         let jsonData = try JSONEncoder().encode(mockResponse)
         let jsonString = String(data: jsonData, encoding: .utf8)!
-        
+
         let mock = HMock(request: FullySecureGetRequest.self, statusCode: 200, jsonResponse: jsonString)
         Harbor.register(mock: mock)
-        
+
         // When
         let request = FullySecureGetRequest()
         let response = await request.request()
-        
+
         // Then
         switch response {
         case .success(let data):
@@ -220,22 +220,22 @@ final class HarborSecurityTests: XCTestCase {
             XCTFail("Expected success but got error: \(error)")
         }
     }
-    
+
     // MARK: - Security Error Tests
-    
+
     func testSSLPinningFailure() async throws {
         // Given
         let testSHA256 = "INVALID_HASH"
         Harbor.setSSLPinningKeys([testSHA256])
-        
+
         // Mock a SSL-related failure (using existing error types)
         let mock = HMock(request: SecureGetRequest.self, statusCode: 500, error: .noConnection)
         Harbor.register(mock: mock)
-        
+
         // When
         let request = SecureGetRequest()
         let response = await request.request()
-        
+
         // Then
         switch response {
         case .success:
@@ -250,22 +250,22 @@ final class HarborSecurityTests: XCTestCase {
             }
         }
     }
-    
+
     func testMTLSCertificateError() async throws {
         // Given
         let testP12URL = URL(fileURLWithPath: "/tmp/invalid.p12")
         let testPassword = "wrong-password"
         let mTLS = makeMTLS(url: testP12URL, password: testPassword)
         try? await Harbor.setMTLS(mTLS)
-        
+
         // Mock a certificate-related error (using existing error types)
         let mock = HMock(request: MTLSGetRequest.self, statusCode: 403)
         Harbor.register(mock: mock)
-        
+
         // When
         let request = MTLSGetRequest()
         let response = await request.request()
-        
+
         // Then
         switch response {
         case .success:

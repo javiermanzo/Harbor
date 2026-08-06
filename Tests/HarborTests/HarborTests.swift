@@ -9,30 +9,30 @@ import XCTest
 @testable import Harbor
 
 final class HarborTests: XCTestCase {
-    
+
     override func setUp() async throws {
         await Harbor.removeAllMocks()
     }
-    
+
     override func tearDown() async throws {
         await Harbor.removeAllMocks()
     }
-    
+
     // MARK: - GET Request Tests
-    
+
     func testGetRequestExecution() async throws {
         // Given
         let mockResponse = TestUser(id: 1, name: "John Doe", email: "john@example.com")
         let jsonData = try JSONEncoder().encode(mockResponse)
         let jsonString = String(data: jsonData, encoding: .utf8)!
-        
+
         let mock = HMock(request: GetUserRequest.self, statusCode: 200, jsonResponse: jsonString)
         await Harbor.register(mock: mock)
-        
+
         // When
         let request = GetUserRequest(userId: "1")
         let response = await request.request()
-        
+
         // Then
         switch response {
         case .success(let user):
@@ -43,7 +43,7 @@ final class HarborTests: XCTestCase {
             XCTFail("Expected success but got error: \(error)")
         }
     }
-    
+
     func testGetRequestWithQueryParameters() async throws {
         // Given
         let users = [
@@ -52,14 +52,14 @@ final class HarborTests: XCTestCase {
         ]
         let jsonData = try JSONEncoder().encode(users)
         let jsonString = String(data: jsonData, encoding: .utf8)!
-        
+
         let mock = HMock(request: GetUsersRequest.self, statusCode: 200, jsonResponse: jsonString)
         await Harbor.register(mock: mock)
-        
+
         // When
         let request = GetUsersRequest(page: 1, limit: 10)
         let response = await request.request()
-        
+
         // Then
         switch response {
         case .success(let userList):
@@ -70,18 +70,18 @@ final class HarborTests: XCTestCase {
             XCTFail("Expected success but got error: \(error)")
         }
     }
-    
+
     // MARK: - POST Request Tests
-    
+
     func testPostRequestExecution() async throws {
         // Given
         let mock = HMock(request: CreateUserRequest.self, statusCode: 201)
         await Harbor.register(mock: mock)
-        
+
         // When
         let request = CreateUserRequest(name: "New User", email: "new@example.com")
         let response = await request.request()
-        
+
         // Then
         switch response {
         case .success:
@@ -91,16 +91,16 @@ final class HarborTests: XCTestCase {
             XCTFail("Expected success but got error: \(error)")
         }
     }
-    
+
     func testPostRequestWithMultipart() async throws {
         // Given
         let mock = HMock(request: UploadFileRequest.self, statusCode: 200)
         await Harbor.register(mock: mock)
-        
+
         // When
         let request = UploadFileRequest(fileName: "test.jpg", fileData: Data("test".utf8))
         let response = await request.request()
-        
+
         // Then
         switch response {
         case .success:
@@ -110,18 +110,18 @@ final class HarborTests: XCTestCase {
             XCTFail("Expected success but got error: \(error)")
         }
     }
-    
+
     // MARK: - DELETE Request Tests
-    
+
     func testDeleteRequestExecution() async throws {
         // Given
         let mock = HMock(request: DeleteUserRequest.self, statusCode: 204)
         await Harbor.register(mock: mock)
-        
+
         // When
         let request = DeleteUserRequest(userId: "1")
         let response = await request.request()
-        
+
         // Then
         switch response {
         case .success:
@@ -131,23 +131,23 @@ final class HarborTests: XCTestCase {
             XCTFail("Expected success but got error: \(error)")
         }
     }
-    
-    
+
+
     // MARK: - Authentication Tests
-    
+
     func testAuthenticatedRequest() async throws {
         // Given
         let protectedData = ProtectedData(secret: "classified-info")
         let jsonData = try JSONEncoder().encode(protectedData)
         let jsonString = String(data: jsonData, encoding: .utf8)!
-        
+
         let mock = HMock(request: AuthenticatedRequest.self, statusCode: 200, jsonResponse: jsonString)
         await Harbor.register(mock: mock)
-        
+
         // When
         let request = AuthenticatedRequest()
         let response = await request.request()
-        
+
         // Then
         switch response {
         case .success(let data):
@@ -156,16 +156,16 @@ final class HarborTests: XCTestCase {
             XCTFail("Expected success but got error: \(error)")
         }
     }
-    
+
     func testAuthenticationFailure() async throws {
         // Given
         let mock = HMock(request: AuthenticatedRequest.self, statusCode: 401, error: .authNeeded)
         await Harbor.register(mock: mock)
-        
+
         // When
         let request = AuthenticatedRequest()
         let response = await request.request()
-        
+
         // Then
         switch response {
         case .success:
@@ -180,18 +180,18 @@ final class HarborTests: XCTestCase {
             }
         }
     }
-    
+
     // MARK: - Error Handling Tests
-    
+
     func testNetworkErrorHandling() async throws {
         // Given
         let mock = HMock(request: GetUserRequest.self, statusCode: 500, error: .noConnection)
         await Harbor.register(mock: mock)
-        
+
         // When
         let request = GetUserRequest(userId: "1")
         let response = await request.request()
-        
+
         // Then
         switch response {
         case .success:
@@ -206,16 +206,16 @@ final class HarborTests: XCTestCase {
             }
         }
     }
-    
+
     func testAPIErrorHandling() async throws {
         // Given
         let mock = HMock(request: GetUserRequest.self, statusCode: 404)
         await Harbor.register(mock: mock)
-        
+
         // When
         let request = GetUserRequest(userId: "999")
         let response = await request.request()
-        
+
         // Then
         switch response {
         case .success:
@@ -224,16 +224,16 @@ final class HarborTests: XCTestCase {
             XCTAssertTrue(error.isApiError)
         }
     }
-    
+
     func testJSONParsingError() async throws {
         // Given - Invalid JSON response
         let mock = HMock(request: GetUserRequest.self, statusCode: 200, jsonResponse: "invalid-json")
         await Harbor.register(mock: mock)
-        
+
         // When
         let request = GetUserRequest(userId: "1")
         let response = await request.request()
-        
+
         // Then
         switch response {
         case .success:
@@ -249,22 +249,22 @@ final class HarborTests: XCTestCase {
             }
         }
     }
-    
+
     // MARK: - Custom Headers Tests
-    
+
     func testCustomHeaders() async throws {
         // Given
         let userResponse = TestUser(id: 1, name: "John", email: "john@example.com")
         let jsonData = try JSONEncoder().encode(userResponse)
         let jsonString = String(data: jsonData, encoding: .utf8)!
-        
+
         let mock = HMock(request: CustomHeadersRequest.self, statusCode: 200, jsonResponse: jsonString)
         await Harbor.register(mock: mock)
-        
+
         // When
         let request = CustomHeadersRequest()
         let response = await request.request()
-        
+
         // Then
         switch response {
         case .success(let user):
@@ -273,18 +273,18 @@ final class HarborTests: XCTestCase {
             XCTFail("Expected success but got error: \(error)")
         }
     }
-    
+
     // MARK: - Timeout and Connection Failure Tests
-    
+
     func testRequestTimeout() async throws {
         // Given
         let mock = HMock(request: TimeoutRequest.self, statusCode: 408, error: .timeout)
         await Harbor.register(mock: mock)
-        
+
         // When
         let request = TimeoutRequest()
         let response = await request.request()
-        
+
         // Then
         switch response {
         case .success:
@@ -299,16 +299,16 @@ final class HarborTests: XCTestCase {
             }
         }
     }
-    
+
     func testConnectionFailure() async throws {
         // Given
         let mock = HMock(request: ConnectionFailureRequest.self, statusCode: 0, error: .noConnection)
         await Harbor.register(mock: mock)
-        
+
         // When
         let request = ConnectionFailureRequest()
         let response = await request.request()
-        
+
         // Then
         switch response {
         case .success:
@@ -323,16 +323,16 @@ final class HarborTests: XCTestCase {
             }
         }
     }
-    
+
     func testCannotFindHost() async throws {
         // Given
         let mock = HMock(request: InvalidHostRequest.self, statusCode: 0, error: .cannotFindHost)
         await Harbor.register(mock: mock)
-        
+
         // When
         let request = InvalidHostRequest()
         let response = await request.request()
-        
+
         // Then
         switch response {
         case .success:
@@ -347,16 +347,16 @@ final class HarborTests: XCTestCase {
             }
         }
     }
-    
+
     func testMalformedRequest() async throws {
         // Given
         let mock = HMock(request: MalformedRequest.self, statusCode: 400, error: .malformedRequest())
         await Harbor.register(mock: mock)
-        
+
         // When
         let request = MalformedRequest()
         let response = await request.request()
-        
+
         // Then
         switch response {
         case .success:
@@ -371,7 +371,7 @@ final class HarborTests: XCTestCase {
             }
         }
     }
-    
+
     func testRequestCancellation() async throws {
         // Given a mock that delays its response, giving the consumer a window to cancel
         let mock = HMock(request: CancellableRequest.self, statusCode: 200, jsonResponse: "{\"data\": \"slow response\"}", delay: 2.0)
@@ -394,22 +394,22 @@ final class HarborTests: XCTestCase {
             return
         }
     }
-    
+
     // MARK: - Path Parameters Tests
-    
+
     func testPathParameters() async throws {
         // Given
         let user = TestUser(id: 123, name: "John", email: "john@example.com")
         let jsonData = try JSONEncoder().encode(user)
         let jsonString = String(data: jsonData, encoding: .utf8)!
-        
+
         let mock = HMock(request: GetUserByIdRequest.self, statusCode: 200, jsonResponse: jsonString)
         await Harbor.register(mock: mock)
-        
+
         // When
         let request = GetUserByIdRequest(id: 123)
         let response = await request.request()
-        
+
         // Then
         switch response {
         case .success(let user):
@@ -419,18 +419,18 @@ final class HarborTests: XCTestCase {
             XCTFail("Expected success but got error: \(error)")
         }
     }
-    
+
     // MARK: - PUT Request Tests
-    
+
     func testPutRequestExecution() async throws {
         // Given
         let mock = HMock(request: UpdateUserRequest.self, statusCode: 200)
         await Harbor.register(mock: mock)
-        
+
         // When
         let request = UpdateUserRequest(id: 1, name: "Updated User", email: "updated@example.com")
         let response = await request.request()
-        
+
         // Then
         switch response {
         case .success:
@@ -440,16 +440,16 @@ final class HarborTests: XCTestCase {
             XCTFail("Expected success but got error: \(error)")
         }
     }
-    
+
     func testPutRequestWithMultipart() async throws {
         // Given
         let mock = HMock(request: UpdateUserWithFileRequest.self, statusCode: 200)
         await Harbor.register(mock: mock)
-        
+
         // When
         let request = UpdateUserWithFileRequest(id: 1, name: "Updated User", avatar: Data("avatar".utf8))
         let response = await request.request()
-        
+
         // Then
         switch response {
         case .success:
@@ -459,18 +459,18 @@ final class HarborTests: XCTestCase {
             XCTFail("Expected success but got error: \(error)")
         }
     }
-    
+
     // MARK: - PATCH Request Tests
-    
+
     func testPatchRequestExecution() async throws {
         // Given
         let mock = HMock(request: PartialUpdateUserRequest.self, statusCode: 200)
         await Harbor.register(mock: mock)
-        
+
         // When
         let request = PartialUpdateUserRequest(id: 1, name: "Partially Updated")
         let response = await request.request()
-        
+
         // Then
         switch response {
         case .success:
@@ -480,16 +480,16 @@ final class HarborTests: XCTestCase {
             XCTFail("Expected success but got error: \(error)")
         }
     }
-    
+
     func testPatchRequestWithJSONBody() async throws {
         // Given
         let mock = HMock(request: PartialUpdateUserWithJSONRequest.self, statusCode: 200)
         await Harbor.register(mock: mock)
-        
+
         // When
         let request = PartialUpdateUserWithJSONRequest(id: 1, email: "newemail@example.com")
         let response = await request.request()
-        
+
         // Then
         switch response {
         case .success:

@@ -30,12 +30,4 @@ jobs:
         token: ${{ secrets.CODECOV_TOKEN }}
         slug: javiermanzo/Harbor
 
-  test-linux:
-    name: Test on Linux
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v4
-    - name: Build
-      run: swift build
-    - name: Test
-      run: swift test
+

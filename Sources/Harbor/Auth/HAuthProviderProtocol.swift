@@ -15,7 +15,7 @@ public protocol HAuthProviderProtocol: Sendable {
     ///   or `nil` when no credentials are available. In that case the request is sent
     ///   without an authorization header.
     func getAuthorizationHeader() async -> HAuthorizationHeader?
-    
+
     /// Called when authentication fails, allowing the provider to handle the failure.
     /// This method can be used to refresh tokens, show login screens, etc.
     func authFailed() async
@@ -26,7 +26,7 @@ public protocol HAuthProviderProtocol: Sendable {
 public struct HAuthorizationHeader: Sendable, Equatable, Hashable {
     /// The header field name (e.g., "Authorization", "X-API-Key").
     public let key: String
-    
+
     /// The header field value (e.g., "Bearer token123", "api-key-value").
     public let value: String
 

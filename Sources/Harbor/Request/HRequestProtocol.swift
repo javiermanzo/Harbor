@@ -106,7 +106,7 @@ public extension HRequestWithResultProtocol {
     func request() async -> HResponseWithResult<Model> {
         return await HRequestManager.request(model: Model.self, request: self)
     }
-    
+
     /// Default implementation using `JSONDecoder`.
     func parseData<T: Codable> (data: Data, model: T.Type) throws -> T {
         let decoder = HConfig.jsonDecoder
@@ -155,7 +155,7 @@ public extension HGetRequestProtocol {
     var queryParameters: [String: String]? { nil }
     /// Default: `nil`.
     var cacheType: HCache.CacheType? { nil }
-    
+
     /// Creates an async throwing stream that emits responses from cache and/or remote sources.
     /// - Parameter source: The data source preference (default: .cacheAndRemote)
     /// - Returns: AsyncThrowingStream that yields (Model, HOriginType) tuples
@@ -172,7 +172,7 @@ public extension HGetRequestProtocol {
             }
         }
     }
-    
+
     /// Internal handler for stream request logic. Every path finishes the continuation exactly once.
     private func handleStreamRequest(
         source: HRequestSource,

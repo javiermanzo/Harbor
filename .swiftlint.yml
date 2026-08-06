@@ -1,0 +1,9 @@
+disabled_rules:
+  - type_body_length
+  - file_length
+  - line_length
+  - trailing_comma
+
+excluded:
+  - Example
+  - Tests

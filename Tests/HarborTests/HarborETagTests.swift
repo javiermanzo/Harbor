@@ -10,7 +10,7 @@ import XCTest
 
 @HRequestManagerActor
 final class HarborETagTests: XCTestCase {
-    
+
     override func setUp() async throws {
         await Harbor.removeAllMocks()
         await Harbor.clearAllCache()
@@ -22,14 +22,14 @@ final class HarborETagTests: XCTestCase {
         await Harbor.clearAllCache()
         await Harbor.setDefaultCacheType(.urlCache())
     }
-    
+
     // MARK: - Cache Policy Tests
-    
+
     func testDefaultCachePolicyIsURLCache() async throws {
         let request = GetUsersSimpleRequest()
         XCTAssertNil(request.cacheType, "Default cache type should be nil (uses config default)")
     }
-    
+
     func testCustomCachePolicy() async throws {
         let request = GetUsersWithCustomCacheRequest()
         guard case .custom(let config) = request.cacheType else {
@@ -39,87 +39,87 @@ final class HarborETagTests: XCTestCase {
         XCTAssertEqual(config.expirationTime, .oneHour)
         XCTAssertEqual(config.maxObjectSizeInMBs, 10)
     }
-    
+
     func testDisabledCachePolicy() async throws {
         let request = GetUsersNoCacheRequest()
         XCTAssertEqual(request.cacheType, .disabled)
         XCTAssertFalse(request.cacheType?.isCachingEnabled ?? false)
     }
-    
+
     func testURLCachePolicyIsCachingEnabled() async throws {
         let request = GetUsersSimpleRequest()
         // Default cacheType is nil, but effective type .urlCache() has caching enabled
         let effectivePolicy = request.cacheType ?? .urlCache()
         XCTAssertTrue(effectivePolicy.isCachingEnabled)
     }
-    
+
     // MARK: - Cache Method Tests
-    
+
     func testCacheMethodReturnsNilForURLCachePolicy() async throws {
         let request = GetUsersSimpleRequest()
-        
+
         // cache() should return nil for URLCache type
         let cached = await request.cache()
         XCTAssertNil(cached, "cache() should return nil for URLCache type")
     }
-    
+
     func testCacheMethodReturnsNilForDisabledPolicy() async throws {
         let request = GetUsersNoCacheRequest()
-        
+
         let cached = await request.cache()
         XCTAssertNil(cached, "cache() should return nil for disabled type")
     }
-    
+
     func testCacheMethodWorksForCustomPolicy() async throws {
         // Given
         let mockResponse = TestUser(id: 1, name: "John", email: "john@example.com")
         let jsonData = try JSONEncoder().encode(mockResponse)
         let jsonString = String(data: jsonData, encoding: .utf8)!
-        
+
         let mock = HMock(request: GetUsersWithCustomCacheRequest.self, statusCode: 200, jsonResponse: jsonString)
         await Harbor.register(mock: mock)
-        
+
         // When
         let request = GetUsersWithCustomCacheRequest()
         let _ = await request.request()
-        
+
         // Then - cache should be available via custom cache
         let cached = await request.cache()
         XCTAssertNotNil(cached, "cache() should return data for custom cache type")
         XCTAssertEqual(cached?.id, 1)
     }
-    
+
     // MARK: - Clear Cache Tests
-    
+
     func testClearCacheWorksForURLCache() async throws {
         let request = GetUsersSimpleRequest()
-        
+
         // Should not crash - now supports URLCache
         await request.clearCache()
     }
-    
+
     func testClearCacheWorksForCustomPolicy() async throws {
         // Given - populate custom cache
         let mockResponse = TestUser(id: 1, name: "John", email: "john@example.com")
         let jsonData = try JSONEncoder().encode(mockResponse)
         let jsonString = String(data: jsonData, encoding: .utf8)!
-        
+
         let mock = HMock(request: GetUsersWithCustomCacheRequest.self, statusCode: 200, jsonResponse: jsonString)
         await Harbor.register(mock: mock)
-        
+
         let request = GetUsersWithCustomCacheRequest()
         let _ = await request.request()
-        
+
         // When - clear cache
         await request.clearCache()
-        
+
         // Then - cache should be empty
         let cached = await request.cache()
         XCTAssertNil(cached, "Cache should be cleared")
     }
-    
+
     // MARK: - Custom URLCache Tests
-    
+
     func testCustomURLCachePolicy() async throws {
         let customCache = URLCache(
             memoryCapacity: 100 * 1024 * 1024,

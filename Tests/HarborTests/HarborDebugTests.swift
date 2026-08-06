@@ -9,7 +9,7 @@ import XCTest
 @testable import Harbor
 
 final class HarborDebugTests: XCTestCase {
-    
+
     override func setUp() async throws {
         await Harbor.removeAllMocks()
         await Harbor.setMocksOnlyInDebug(false)
@@ -22,54 +22,54 @@ final class HarborDebugTests: XCTestCase {
         await Harbor.setLogSensitiveHeaders(false)
         await Harbor.setCustomURLSession(URLSession.shared)
     }
-    
+
     // MARK: - Debug Type Tests
-    
+
     func testDebugTypeNone() {
         let request = TestDebugRequest(debugType: .none)
         XCTAssertEqual(request.debugType, .none)
     }
-    
+
     func testDebugTypeRequest() {
         let request = TestDebugRequest(debugType: .request)
         XCTAssertEqual(request.debugType, .request)
     }
-    
+
     func testDebugTypeResponse() {
         let request = TestDebugRequest(debugType: .response)
         XCTAssertEqual(request.debugType, .response)
     }
-    
+
     func testDebugTypeRequestAndResponse() {
         let request = TestDebugRequest(debugType: .requestAndResponse)
         XCTAssertEqual(request.debugType, .requestAndResponse)
     }
-    
+
     // MARK: - cURL Generation Tests
-    
+
     func testGenerateCurlBasicGetRequest() async {
         let request = TestDebugRequest(debugType: .request)
         let urlRequest = URLRequest(url: URL(string: "https://api.example.com/test")!)
-        
+
         let curl = await request.generateCurl(urlRequest: urlRequest)
-        
+
         XCTAssertTrue(curl.contains("$ curl -v"))
         XCTAssertTrue(curl.contains("https://api.example.com/test"))
         XCTAssertFalse(curl.contains("-X GET"), "GET method should not be explicitly specified")
     }
-    
+
     func testGenerateCurlPostRequest() async {
         let request = TestDebugRequest(debugType: .request)
         var urlRequest = URLRequest(url: URL(string: "https://api.example.com/test")!)
         urlRequest.httpMethod = "POST"
-        
+
         let curl = await request.generateCurl(urlRequest: urlRequest)
-        
+
         XCTAssertTrue(curl.contains("$ curl -v"))
         XCTAssertTrue(curl.contains("-X POST"))
         XCTAssertTrue(curl.contains("https://api.example.com/test"))
     }
-    
+
     func testGenerateCurlWithHeaders() async {
         let request = TestDebugRequest(debugType: .request)
         var urlRequest = URLRequest(url: URL(string: "https://api.example.com/test")!)
@@ -82,20 +82,20 @@ final class HarborDebugTests: XCTestCase {
         XCTAssertTrue(curl.contains("-H \"Authorization: <redacted>\""))
         XCTAssertFalse(curl.contains("Bearer token123"))
     }
-    
+
     func testGenerateCurlWithBody() async {
         let request = TestDebugRequest(debugType: .request)
         var urlRequest = URLRequest(url: URL(string: "https://api.example.com/test")!)
         urlRequest.httpMethod = "POST"
         let jsonData = "{\"key\":\"value\"}".data(using: .utf8)!
         urlRequest.httpBody = jsonData
-        
+
         let curl = await request.generateCurl(urlRequest: urlRequest)
-        
+
         XCTAssertTrue(curl.contains("-X POST"))
         XCTAssertTrue(curl.contains(#"-d '{"key":"value"}'"#))
     }
-    
+
     func testGenerateCurlWithSpecialCharactersInBody() async {
         let request = TestDebugRequest(debugType: .request)
         var urlRequest = URLRequest(url: URL(string: "https://api.example.com/test")!)
@@ -145,12 +145,12 @@ final class HarborDebugTests: XCTestCase {
     func testGenerateCurlInvalidURL() async {
         let request = TestDebugRequest(debugType: .request)
         let urlRequest = URLRequest(url: URL(string: "invalid-url")!)
-        
+
         let curl = await request.generateCurl(urlRequest: urlRequest)
-        
+
         XCTAssertEqual(curl, "$ curl command could not be created")
     }
-    
+
     func testGenerateCurlWithComplexRequest() async {
         let request = TestDebugRequest(debugType: .request)
         var urlRequest = URLRequest(url: URL(string: "https://api.example.com/users/123?include=profile")!)
@@ -160,9 +160,9 @@ final class HarborDebugTests: XCTestCase {
         urlRequest.setValue("gzip, deflate", forHTTPHeaderField: "Accept-Encoding")
         let jsonData = "{\"name\":\"John Doe\",\"age\":30}".data(using: .utf8)!
         urlRequest.httpBody = jsonData
-        
+
         let curl = await request.generateCurl(urlRequest: urlRequest)
-        
+
         XCTAssertTrue(curl.contains("$ curl -v"))
         XCTAssertTrue(curl.contains("-X PATCH"))
         XCTAssertTrue(curl.contains("-H \"Content-Type: application/json\""))
@@ -327,9 +327,9 @@ final class HarborDebugTests: XCTestCase {
         XCTAssertEqual(redacted?["Content-Type"], "application/json")
         XCTAssertNil(redactedNil)
     }
-    
+
     // MARK: - Debug Request Integration Tests
-    
+
     func testDebugRequestWithMock() async {
         let testData = MockModel(quote: "Debug Test Quote")
         guard let jsonData = try? JSONEncoder().encode(testData),
@@ -337,12 +337,12 @@ final class HarborDebugTests: XCTestCase {
             XCTFail("Failed to encode test data")
             return
         }
-        
+
         let mock = HMock(request: TestDebugRequest.self, statusCode: 200, jsonResponse: jsonString)
         await Harbor.register(mock: mock)
-        
+
         let request = TestDebugRequest(debugType: .requestAndResponse)
-        
+
         let response = await request.request()
         switch response {
         case .success(let data):
@@ -351,13 +351,13 @@ final class HarborDebugTests: XCTestCase {
             XCTFail("Expected success but got error: \(error)")
         }
     }
-    
+
     func testDebugRequestWithErrorResponse() async {
         let mock = HMock(request: TestDebugRequest.self, statusCode: 404, jsonResponse: nil)
         await Harbor.register(mock: mock)
-        
+
         let request = TestDebugRequest(debugType: .requestAndResponse)
-        
+
         let response = await request.request()
         switch response {
         case .success(_):
@@ -366,31 +366,31 @@ final class HarborDebugTests: XCTestCase {
             XCTAssertNotNil(error, "Should receive an error response")
         }
     }
-    
+
     // MARK: - Dictionary to JSON Tests
-    
+
     func testDictionaryToJSONStringValidDictionary() async {
         let request = TestDebugRequest(debugType: .request)
         let dictionary = ["key1": "value1", "key2": "value2"]
-        
+
         let jsonString = await request.dictionaryToJSONString(dictionary)
-        
+
         XCTAssertNotNil(jsonString)
         XCTAssertTrue(jsonString!.contains("key1"))
         XCTAssertTrue(jsonString!.contains("value1"))
         XCTAssertTrue(jsonString!.contains("key2"))
         XCTAssertTrue(jsonString!.contains("value2"))
     }
-    
+
     func testDictionaryToJSONStringEmptyDictionary() async {
         let request = TestDebugRequest(debugType: .request)
         let dictionary: [String: Any] = [:]
-        
+
         let jsonString = await request.dictionaryToJSONString(dictionary)
-        
+
         XCTAssertNil(jsonString)
     }
-    
+
     func testDictionaryToJSONStringNilDictionary() async {
         let request = TestDebugRequest(debugType: .request)
 
@@ -409,39 +409,39 @@ final class HarborDebugTests: XCTestCase {
     }
 
     // MARK: - Print Methods Tests (Behavioral)
-    
+
     func testPrintRequestWithRequestDebugType() async {
         let request = TestDebugRequest(debugType: .request)
         let urlRequest = URLRequest(url: URL(string: "https://api.example.com/test")!)
-        
+
         // This test verifies that the method doesn't crash when called
         // The actual logging is handled by LogBird and would require more complex mocking
         await XCTAssertNoThrowAsync(await request.logRequest(urlRequest: urlRequest))
     }
-    
+
     func testPrintRequestWithNoneDebugType() async {
         let request = TestDebugRequest(debugType: .none)
         let urlRequest = URLRequest(url: URL(string: "https://api.example.com/test")!)
-        
+
         // Should not crash even with .none debug type
         await XCTAssertNoThrowAsync(await request.logRequest(urlRequest: urlRequest))
     }
-    
+
     func testPrintResponseWithResponseDebugType() async {
         let request = TestDebugRequest(debugType: .response)
-        let response = HTTPURLResponse(url: URL(string: "https://api.example.com/test")!, 
-                                      statusCode: 200, 
-                                      httpVersion: nil, 
+        let response = HTTPURLResponse(url: URL(string: "https://api.example.com/test")!,
+                                      statusCode: 200,
+                                      httpVersion: nil,
                                       headerFields: nil)!
         let data = "test response".data(using: .utf8)!
-        
+
         await XCTAssertNoThrowAsync(await request.logResponse(httpResponse: response, data: data, duration: 123.45))
     }
-    
+
     func testPrintErrorResponseWithError() async {
         let request = TestDebugRequest(debugType: .requestAndResponse)
         let error = HRequestError.noConnection
-        
+
         await XCTAssertNoThrowAsync(await request.logErrorResponse(error: error))
     }
 

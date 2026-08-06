@@ -26,14 +26,14 @@ final class HarborCacheTests: XCTestCase {
         await Harbor.removeAllMocks()
         await Harbor.setDefaultCacheType(.disabled)
     }
-    
+
     // MARK: - Cache Configuration Tests
-    
+
     func testCacheDefaultValue() async {
         let request = TestDefaultCacheableRequest()
         XCTAssertNil(request.cacheType, "Cache type should be nil by default (uses config default)")
     }
-    
+
     func testCacheUsesDefaultFromConfig() async {
         // Requests with no explicit cache type use the global default
         await Harbor.setDefaultCacheType(.custom(HCache.Configuration(expirationTime: .oneHour)))
@@ -89,7 +89,7 @@ final class HarborCacheTests: XCTestCase {
 
         await Harbor.removeAllMocks()
     }
-    
+
     func testCacheConfigurationDefaults() async {
         let request = TestCacheableRequest()
         guard case .custom(let config) = request.cacheType else {
@@ -100,7 +100,7 @@ final class HarborCacheTests: XCTestCase {
         XCTAssertEqual(config.maxObjectSizeInMBs, 10)
         XCTAssertEqual(config.memoryCacheCapacityInMBs, 100)
     }
-    
+
     func testExplicitlyDisabledCache() async {
         let testData = TestCacheData(value: "disabled-cache-test", timestamp: Date())
         guard let jsonData = try? JSONEncoder().encode(testData),
@@ -108,12 +108,12 @@ final class HarborCacheTests: XCTestCase {
             XCTFail("Failed to encode test data")
             return
         }
-        
+
         let mock = HMock(request: TestExplicitlyDisabledRequest.self, statusCode: 200, jsonResponse: jsonString)
         await Harbor.register(mock: mock)
-        
+
         let request = TestExplicitlyDisabledRequest()
-        
+
         // Verify cache is explicitly disabled via type
         XCTAssertEqual(request.cacheType, .disabled, "Cache type should be disabled")
 
@@ -125,39 +125,39 @@ final class HarborCacheTests: XCTestCase {
         case .error(let error):
             XCTFail("Expected success but got error: \(error)")
         }
-        
+
         // Verify data is not cached
         let cachedData = await request.cache()
         XCTAssertNil(cachedData, "Explicitly disabled cache should not return cached data")
-        
+
         await Harbor.removeAllMocks()
     }
-    
+
     // MARK: - Cache Key Generation Tests
-    
+
     func testCacheKeyGeneration() async throws {
         let request = TestCacheableRequest()
         let expectedKey = "https://cache.example.com/test"
         let actualKey = try HURLBuilder.compositeURL(url: request.url, pathParameters: request.pathParameters, queryParameters: request.queryParameters).absoluteString
         XCTAssertEqual(actualKey, expectedKey, "Cache key should match the URL")
     }
-    
+
     func testCacheKeyWithQueryParameters() async throws {
         let request = TestCacheableGetRequest()
         let expectedKey = "https://cache.example.com/test?limit=10&page=1"
         let actualKey = try HURLBuilder.compositeURL(url: request.url, pathParameters: request.pathParameters, queryParameters: request.queryParameters).absoluteString
         XCTAssertEqual(actualKey, expectedKey, "Cache key should include sorted query parameters")
     }
-    
+
     func testCacheKeyWithPathParameters() async throws {
         let request = TestCacheablePathRequest()
         let expectedKey = "https://cache.example.com/users/123"
         let actualKey = try HURLBuilder.compositeURL(url: request.url, pathParameters: request.pathParameters, queryParameters: request.queryParameters).absoluteString
         XCTAssertEqual(actualKey, expectedKey, "Cache key should substitute path parameters")
     }
-    
+
     // MARK: - Cache Expiration Tests
-    
+
     func testCustomCacheExpirationTime() async {
         let testData = TestCacheData(value: "custom-expiration-test", timestamp: Date())
         guard let jsonData = try? JSONEncoder().encode(testData),
@@ -165,17 +165,17 @@ final class HarborCacheTests: XCTestCase {
             XCTFail("Failed to encode test data")
             return
         }
-        
+
         let mock = HMock(request: TestCustomExpirationRequest.self, statusCode: 200, jsonResponse: jsonString)
         await Harbor.register(mock: mock)
-        
+
         let request = TestCustomExpirationRequest()
         guard case .custom(let config) = request.cacheType else {
             XCTFail("Cache type should be custom for TestCustomExpirationRequest")
             return
         }
         XCTAssertEqual(config.expirationTime, 60, "Custom expiration time should be 60 seconds")
-        
+
         // Make request to cache data
         let response = await request.request()
         switch response {
@@ -184,12 +184,12 @@ final class HarborCacheTests: XCTestCase {
         case .error(let error):
             XCTFail("Expected success but got error: \(error)")
         }
-        
+
         // Check that data is cached with custom expiration
         let cachedData = await request.cache()
         XCTAssertNotNil(cachedData, "Request should have cached data")
     }
-    
+
     func testCacheExpiration() async {
         // A zero-second expiration makes the entry stale immediately
         let testData = TestCacheData(value: "expired-test", timestamp: Date())
@@ -214,7 +214,7 @@ final class HarborCacheTests: XCTestCase {
 
         await Harbor.removeAllMocks()
     }
-    
+
     func testCacheWithTimeIntervalConstants() async {
         let testData = TestCacheData(value: "time-interval-test", timestamp: Date())
         guard let jsonData = try? JSONEncoder().encode(testData),
@@ -222,10 +222,10 @@ final class HarborCacheTests: XCTestCase {
             XCTFail("Failed to encode test data")
             return
         }
-        
+
         let mock = HMock(request: TestOneHourCacheRequest.self, statusCode: 200, jsonResponse: jsonString)
         await Harbor.register(mock: mock)
-        
+
         let request = TestOneHourCacheRequest()
         guard case .custom(let config) = request.cacheType else {
             XCTFail("Cache type should be custom for TestOneHourCacheRequest")
@@ -233,7 +233,7 @@ final class HarborCacheTests: XCTestCase {
         }
         XCTAssertEqual(config.expirationTime, .oneHour, "Should use oneHour constant")
         XCTAssertEqual(config.expirationTime, 3600, "OneHour should equal 3600 seconds")
-        
+
         // Make request to cache data
         let response = await request.request()
         switch response {
@@ -242,12 +242,12 @@ final class HarborCacheTests: XCTestCase {
         case .error(let error):
             XCTFail("Expected success but got error: \(error)")
         }
-        
+
         // Check that data is cached
         let cachedData = await request.cache()
         XCTAssertNotNil(cachedData, "Request should have cached data")
     }
-    
+
     func testTimeIntervalConstants() async {
         XCTAssertNil(TimeInterval.noExpiration, "TimeInterval.noExpiration should be nil")
         XCTAssertEqual(TimeInterval.oneHour, 3600, "OneHour should be 3600 seconds")
@@ -256,9 +256,9 @@ final class HarborCacheTests: XCTestCase {
         XCTAssertEqual(TimeInterval.oneMonth, 2592000, "OneMonth should be 2592000 seconds")
         XCTAssertEqual(TimeInterval.oneYear, 31536000, "OneYear should be 31536000 seconds")
     }
-    
+
     // MARK: - HTTP Header Priority Tests
-    
+
     func testCacheControlMaxAgeOverridesConfig() async {
         // The response max-age takes precedence over the configured expiration:
         // the config allows 1 hour, but max-age=0 makes the entry stale immediately.
@@ -317,7 +317,7 @@ final class HarborCacheTests: XCTestCase {
 
         await Harbor.removeAllMocks()
     }
-    
+
     func testConfigFallbackWhenNoHeaders() async {
         // Mock without cache headers
         let testData = TestCacheData(value: "config-fallback-test", timestamp: Date())
@@ -326,7 +326,7 @@ final class HarborCacheTests: XCTestCase {
             XCTFail("Failed to encode test data")
             return
         }
-        
+
         let mock = HMock(
             request: TestCacheableRequest.self,
             statusCode: 200,
@@ -334,25 +334,25 @@ final class HarborCacheTests: XCTestCase {
             // No cache headers
         )
         await Harbor.register(mock: mock)
-        
+
         let request = TestCacheableRequest() // Uses config expiration
         let response = await request.request()
-        
+
         switch response {
         case .success(let data):
             XCTAssertEqual(data.value, "config-fallback-test")
-            
+
             // Verify data is cached using config expiration
             let cachedEntry = await request.cache()
             XCTAssertNotNil(cachedEntry, "Data should be cached using config expiration")
-            
+
         case .error(let error):
             XCTFail("Expected success but got error: \(error)")
         }
-        
+
         await Harbor.removeAllMocks()
     }
-    
+
     func testNoCacheDirectivePreventsCaching() async {
         // no-cache stores the entry but never serves it without revalidation,
         // while keeping its validators available for conditional requests.
@@ -392,26 +392,26 @@ final class HarborCacheTests: XCTestCase {
 
         await Harbor.removeAllMocks()
     }
-    
+
     // MARK: - Cache-Control Parsing Tests
-    
+
     func testParseCacheControlMaxAge() async {
         // Test Cache-Control header parsing by using calculateEffectiveExpirationTime
         // which internally uses parseCacheControlMaxAge
-        
+
         // Test max-age=3600
         let url = URL(string: "https://test.com")!
-        let response1 = HTTPURLResponse(url: url, statusCode: 200, httpVersion: "HTTP/1.1", 
+        let response1 = HTTPURLResponse(url: url, statusCode: 200, httpVersion: "HTTP/1.1",
                                       headerFields: ["Cache-Control": "max-age=3600"])
         let result1 = await HCache.Manager.shared.calculateEffectiveExpirationTime(fromResponse: response1, fallbackTime: nil)
         XCTAssertEqual(result1, 3600, "Should parse max-age=3600 correctly")
-        
+
         // Test max-age=1800 with other directives
-        let response2 = HTTPURLResponse(url: url, statusCode: 200, httpVersion: "HTTP/1.1", 
+        let response2 = HTTPURLResponse(url: url, statusCode: 200, httpVersion: "HTTP/1.1",
                                       headerFields: ["Cache-Control": "public, max-age=1800"])
         let result2 = await HCache.Manager.shared.calculateEffectiveExpirationTime(fromResponse: response2, fallbackTime: nil)
         XCTAssertEqual(result2, 1800, "Should parse max-age=1800 correctly")
-        
+
         // The no-cache directive does not alter the expiration time; entries are
         // marked always stale at store time instead, so the fallback applies here
         let response3 = HTTPURLResponse(url: url, statusCode: 200, httpVersion: "HTTP/1.1",
@@ -419,36 +419,36 @@ final class HarborCacheTests: XCTestCase {
         let result3 = await HCache.Manager.shared.calculateEffectiveExpirationTime(fromResponse: response3, fallbackTime: 7200)
         XCTAssertEqual(result3, 7200, "Should use the fallback time for the no-cache directive")
     }
-    
+
     func testParseExpiresHeader() async {
         // Test Expires header parsing by using calculateEffectiveExpirationTime
-        
+
         // Create a future date for testing
         let futureDate = Date().addingTimeInterval(3600) // 1 hour from now
         let formatter = DateFormatter()
         formatter.dateFormat = "EEE, dd MMM yyyy HH:mm:ss zzz"
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.timeZone = TimeZone(abbreviation: "GMT")
-        
+
         let validExpiresString = formatter.string(from: futureDate)
         let url = URL(string: "https://test.com")!
-        let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: "HTTP/1.1", 
+        let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: "HTTP/1.1",
                                      headerFields: ["Expires": validExpiresString])
-        
+
         let result = await HCache.Manager.shared.calculateEffectiveExpirationTime(fromResponse: response, fallbackTime: nil)
-        
+
         XCTAssertNotNil(result)
         XCTAssertTrue(result! > 3500 && result! < 3700, "Should parse valid Expires header correctly")
-        
+
         // Test invalid format
-        let invalidResponse = HTTPURLResponse(url: url, statusCode: 200, httpVersion: "HTTP/1.1", 
+        let invalidResponse = HTTPURLResponse(url: url, statusCode: 200, httpVersion: "HTTP/1.1",
                                             headerFields: ["Expires": "invalid-date"])
         let invalidResult = await HCache.Manager.shared.calculateEffectiveExpirationTime(fromResponse: invalidResponse, fallbackTime: 1800)
         XCTAssertEqual(invalidResult, 1800, "Should fallback to provided time for invalid Expires header")
     }
-    
+
     // MARK: - Cache Integration Tests
-    
+
     func testCacheableRequestWithMock() async {
         let testData = TestCacheData(value: "integration-test", timestamp: Date())
         guard let jsonData = try? JSONEncoder().encode(testData),
@@ -456,12 +456,12 @@ final class HarborCacheTests: XCTestCase {
             XCTFail("Failed to encode test data")
             return
         }
-        
+
         let mock = HMock(request: TestCacheableRequest.self, statusCode: 200, jsonResponse: jsonString)
         await Harbor.register(mock: mock)
-        
+
         let request = TestCacheableRequest()
-        
+
         // First request should hit mock and cache the result
         let firstResponse = await request.request()
         switch firstResponse {
@@ -470,20 +470,20 @@ final class HarborCacheTests: XCTestCase {
         case .error(let error):
             XCTFail("Expected success but got error: \(error)")
         }
-        
+
         // Check if data is cached
         let cachedData = await request.cache()
         XCTAssertNotNil(cachedData, "Request should have cached data after first call")
-        
+
         // Remove mock to ensure second request uses cache
         await Harbor.removeAllMocks()
-        
+
         // Second request should use cache
         let cachedDataFromCache = await request.cache()
         XCTAssertNotNil(cachedDataFromCache, "Should retrieve data from cache")
         XCTAssertEqual(cachedDataFromCache?.value, "integration-test")
     }
-    
+
     func testNonCacheableRequestDoesNotCache() async {
         // TestDefaultCacheableRequest uses default config which is disabled in setUp
         let testData = TestCacheData(value: "non-cached-test", timestamp: Date())
@@ -492,12 +492,12 @@ final class HarborCacheTests: XCTestCase {
             XCTFail("Failed to encode test data")
             return
         }
-        
+
         let mock = HMock(request: TestDefaultCacheableRequest.self, statusCode: 200, jsonResponse: jsonString)
         await Harbor.register(mock: mock)
-        
+
         let request = TestDefaultCacheableRequest()
-        
+
         // Make request
         let response = await request.request()
         switch response {
@@ -506,44 +506,44 @@ final class HarborCacheTests: XCTestCase {
         case .error(let error):
             XCTFail("Expected success but got error: \(error)")
         }
-        
+
         // Check that data is not cached
         let cachedData = await request.cache()
         XCTAssertNil(cachedData, "Non-cacheable request should not cache data")
     }
-    
+
     // MARK: - Harbor API Tests
-    
+
     func testHarborClearCacheAPI() async {
         let testData = TestCacheData(value: "api-test", timestamp: Date())
-        
+
         guard let jsonData = try? JSONEncoder().encode(testData),
               let jsonString = String(data: jsonData, encoding: .utf8) else {
             XCTFail("Failed to encode test data")
             return
         }
-        
+
         // Test using request integration
         let mock = HMock(request: TestCacheableRequest.self, statusCode: 200, jsonResponse: jsonString)
         await Harbor.register(mock: mock)
-        
+
         let request = TestCacheableRequest()
         _ = await request.request() // Store in cache
-        
+
         // Verify data exists
         let cachedDataBeforeClear = await request.cache()
         XCTAssertNotNil(cachedDataBeforeClear)
-        
+
         // Clear cache via Harbor API
         await Harbor.clearAllCache()
-        
+
         // Verify data is cleared
         let cachedDataAfterClear = await request.cache()
         XCTAssertNil(cachedDataAfterClear)
-        
+
         await Harbor.removeAllMocks()
     }
-    
+
     func testRequestCacheAPI() async {
         let testData = TestCacheData(value: "harbor-api-test", timestamp: Date())
         guard let jsonData = try? JSONEncoder().encode(testData),
@@ -551,12 +551,12 @@ final class HarborCacheTests: XCTestCase {
             XCTFail("Failed to encode test data")
             return
         }
-        
+
         let mock = HMock(request: TestCacheableRequest.self, statusCode: 200, jsonResponse: jsonString)
         await Harbor.register(mock: mock)
-        
+
         let request = TestCacheableRequest()
-        
+
         // First request should hit mock and cache the result
         let firstResponse = await request.request()
         switch firstResponse {
@@ -565,15 +565,15 @@ final class HarborCacheTests: XCTestCase {
         case .error(let error):
             XCTFail("Expected success but got error: \(error)")
         }
-        
+
         // Test request.cache() API
         let cachedData = await request.cache()
         XCTAssertNotNil(cachedData, "request.cache() should return cached data")
         XCTAssertEqual(cachedData?.value, "harbor-api-test")
-        
+
         await Harbor.removeAllMocks()
     }
-    
+
     func testRequestClearCacheAPI() async {
         let testData = TestCacheData(value: "clear-cache-test", timestamp: Date())
         guard let jsonData = try? JSONEncoder().encode(testData),
@@ -581,12 +581,12 @@ final class HarborCacheTests: XCTestCase {
             XCTFail("Failed to encode test data")
             return
         }
-        
+
         let mock = HMock(request: TestCacheableRequest.self, statusCode: 200, jsonResponse: jsonString)
         await Harbor.register(mock: mock)
-        
+
         let request = TestCacheableRequest()
-        
+
         // First request should hit mock and cache the result
         let firstResponse = await request.request()
         switch firstResponse {
@@ -595,14 +595,14 @@ final class HarborCacheTests: XCTestCase {
         case .error(let error):
             XCTFail("Expected success but got error: \(error)")
         }
-        
+
         // Verify data is cached
         let cachedData = await request.cache()
         XCTAssertNotNil(cachedData, "request.cache() should return cached data")
-        
+
         // Clear cache for this specific request
         await request.clearCache()
-        
+
         // Verify cache is cleared
         let cachedDataAfterClear = await request.cache()
         XCTAssertNil(cachedDataAfterClear, "request.cache() should return nil after clearCache()")

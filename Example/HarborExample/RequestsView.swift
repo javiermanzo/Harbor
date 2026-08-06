@@ -37,7 +37,7 @@ struct RequestsView: View {
     private func setupHarbor() async {
         guard !isHarborSetup else { return }
         isHarborSetup = true
-        
+
         // Set default headers for all requests
         await Harbor.setDefaultHeaderParameters([
             "X-Client-Version": "1.0.0",
@@ -69,13 +69,13 @@ struct RequestsView: View {
                             SectionHeader(title: "Basic GET Requests")
 
                             ExampleButton(title: "GET - Simple Request", icon: "arrow.down.circle", action: { performBasicGet() })
-                            
+
 
                             ExampleButton(title: "GET - With Path Parameter", icon: "arrow.right.circle", action: { performGetWithPathParameter() })
-                            
+
 
                             ExampleButton(title: "GET - With Query Params", icon: "magnifyingglass", action: { performGetWithQueryParams() })
-                            
+
                         }
 
                         // MARK: - POST Requests

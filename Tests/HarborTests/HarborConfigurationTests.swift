@@ -33,34 +33,36 @@ final class HarborConfigurationTests: XCTestCase {
     }
     
     // MARK: - Default Headers Tests
-    
+
     func testSetDefaultHeaderParameters() async throws {
         // Given
         let headers = [
             "X-API-Key": "test-api-key",
-            "Content-Type": "application/json",
             "User-Agent": "Harbor/1.0"
         ]
-        
+
         // When
         await Harbor.setDefaultHeaderParameters(headers)
-        
-        // Then
-        // We can't directly test internal state, but configuration should not crash
-        XCTAssertTrue(true)
+
+        // Then the default headers reach the built URLRequest
+        let request = TestConfigRequest()
+        let urlRequest = try await HURLBuilder.buildUrlRequest(request: request)
+        XCTAssertEqual(urlRequest.value(forHTTPHeaderField: "X-API-Key"), "test-api-key")
+        XCTAssertEqual(urlRequest.value(forHTTPHeaderField: "User-Agent"), "Harbor/1.0")
     }
-    
+
     func testSetDefaultHeaderParametersWithNil() async throws {
         // Given
         let headers = ["X-API-Key": "test-key"]
         await Harbor.setDefaultHeaderParameters(headers)
-        
+
         // When
         await Harbor.setDefaultHeaderParameters(nil)
-        
-        // Then
-        // Headers should be cleared
-        XCTAssertTrue(true)
+
+        // Then the previously set default header is no longer applied
+        let request = TestConfigRequest()
+        let urlRequest = try await HURLBuilder.buildUrlRequest(request: request)
+        XCTAssertNil(urlRequest.value(forHTTPHeaderField: "X-API-Key"))
     }
     
     func testDefaultHeadersAppliedToRequest() async throws {
@@ -75,7 +77,7 @@ final class HarborConfigurationTests: XCTestCase {
         let jsonData = try JSONEncoder().encode(mockResponse)
         let jsonString = String(data: jsonData, encoding: .utf8)!
         
-        let mock = await HMock(request: TestConfigRequest.self, statusCode: 200, jsonResponse: jsonString)
+        let mock = HMock(request: TestConfigRequest.self, statusCode: 200, jsonResponse: jsonString)
         await Harbor.register(mock: mock)
         
         // When
@@ -92,30 +94,37 @@ final class HarborConfigurationTests: XCTestCase {
     }
     
     // MARK: - Auth Provider Tests
-    
+
     func testSetAuthProvider() async throws {
         // Given
         let authProvider = TestAuthProvider()
-        
+
         // When
         await Harbor.setAuthProvider(authProvider)
-        
-        // Then
-        // Auth provider should be set
-        XCTAssertTrue(true)
+
+        // Then the provider's header is resolved for an auth-needing request
+        let request = TestAuthenticatedConfigRequest()
+        let result = await HRequestManager.authorizationHeaderIfNeeded(for: request)
+        guard case .success(let header) = result else {
+            return XCTFail("Expected the provider's authorization header but got: \(result)")
+        }
+        XCTAssertEqual(header?.value, "Bearer test-token")
     }
-    
+
     func testSetAuthProviderWithNil() async throws {
         // Given
         let authProvider = TestAuthProvider()
         await Harbor.setAuthProvider(authProvider)
-        
+
         // When
         await Harbor.setAuthProvider(nil)
-        
-        // Then
-        // Auth provider should be cleared
-        XCTAssertTrue(true)
+
+        // Then an auth-needing request reports the missing provider instead of resolving a header
+        let request = TestAuthenticatedConfigRequest()
+        let result = await HRequestManager.authorizationHeaderIfNeeded(for: request)
+        guard case .failure(let error) = result, case .authProviderNeeded = error else {
+            return XCTFail("Expected .authProviderNeeded after clearing the provider but got: \(result)")
+        }
     }
     
     func testAuthProviderAppliedToRequest() async throws {
@@ -127,7 +136,7 @@ final class HarborConfigurationTests: XCTestCase {
         let jsonData = try JSONEncoder().encode(mockResponse)
         let jsonString = String(data: jsonData, encoding: .utf8)!
         
-        let mock = await HMock(request: TestAuthenticatedConfigRequest.self, statusCode: 200, jsonResponse: jsonString)
+        let mock = HMock(request: TestAuthenticatedConfigRequest.self, statusCode: 200, jsonResponse: jsonString)
         await Harbor.register(mock: mock)
         
         // When
@@ -144,33 +153,35 @@ final class HarborConfigurationTests: XCTestCase {
     }
     
     // MARK: - Custom URLSession Tests
-    
+
     func testSetCustomURLSession() async throws {
         // Given
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 30
         config.timeoutIntervalForResource = 60
         let customSession = URLSession(configuration: config)
-        
+
         // When
         await Harbor.setCustomURLSession(customSession)
-        
-        // Then
-        // Custom session should be set
-        XCTAssertTrue(true)
+
+        // Then the user-provided session is used as-is by the manager
+        let request = TestConfigRequest()
+        let session = await HRequestManager.getURLSession(for: request)
+        XCTAssertTrue(session === customSession)
     }
-    
+
     func testSetCustomURLSessionWithDefault() async throws {
         // Given
         let customSession = URLSession(configuration: .default)
         await Harbor.setCustomURLSession(customSession)
-        
+
         // When
         await Harbor.setCustomURLSession(URLSession.shared)
-        
-        // Then
-        // Should revert to shared session
-        XCTAssertTrue(true)
+
+        // Then the shared session is the one used going forward
+        let request = TestConfigRequest()
+        let session = await HRequestManager.getURLSession(for: request)
+        XCTAssertTrue(session === URLSession.shared)
     }
     
     func testCustomURLSessionAppliedToRequest() async throws {
@@ -184,7 +195,7 @@ final class HarborConfigurationTests: XCTestCase {
         let jsonData = try JSONEncoder().encode(mockResponse)
         let jsonString = String(data: jsonData, encoding: .utf8)!
         
-        let mock = await HMock(request: TestConfigRequest.self, statusCode: 200, jsonResponse: jsonString)
+        let mock = HMock(request: TestConfigRequest.self, statusCode: 200, jsonResponse: jsonString)
         await Harbor.register(mock: mock)
         
         // When
@@ -201,34 +212,39 @@ final class HarborConfigurationTests: XCTestCase {
     }
     
     // MARK: - Timeout Configuration Tests
-    
+
     func testSetDefaultTimeoutInterval() async throws {
+        // Given no custom session, so the internally built session reflects the config
+        await clearCustomURLSession()
+
         // When
         await Harbor.setDefaultTimeoutInterval(30)
-        
-        // Then - should not crash
-        XCTAssertTrue(true)
+
+        // Then the timeout reaches the internally built session configuration
+        let request = TestConfigRequest()
+        let session = await HRequestManager.getURLSession(for: request)
+        XCTAssertEqual(session.configuration.timeoutIntervalForRequest, 30, accuracy: 0.001)
     }
-    
-    
+
+
     // MARK: - Mock Configuration Tests
-    
+
     func testSetMocksOnlyInDebugTrue() async throws {
         // When
         await Harbor.setMocksOnlyInDebug(true)
-        
-        // Then
-        // Mocks should only work in debug mode
-        XCTAssertTrue(true)
+
+        // Then the build rule remains in effect (override stays cleared)
+        let override = await mocksEnabledOverrideValue()
+        XCTAssertNil(override)
     }
-    
+
     func testSetMocksOnlyInDebugFalse() async throws {
         // When
         await Harbor.setMocksOnlyInDebug(false)
-        
-        // Then
-        // Mocks should work in all modes
-        XCTAssertTrue(true)
+
+        // Then the override is still unset; only the build rule flag flipped
+        let override = await mocksEnabledOverrideValue()
+        XCTAssertNil(override)
     }
     
     func testMocksOnlyInDebugConfiguration() async throws {
@@ -239,7 +255,7 @@ final class HarborConfigurationTests: XCTestCase {
         let jsonData = try JSONEncoder().encode(mockResponse)
         let jsonString = String(data: jsonData, encoding: .utf8)!
         
-        let mock = await HMock(request: TestConfigRequest.self, statusCode: 200, jsonResponse: jsonString)
+        let mock = HMock(request: TestConfigRequest.self, statusCode: 200, jsonResponse: jsonString)
         await Harbor.register(mock: mock)
         
         // When
@@ -274,7 +290,7 @@ final class HarborConfigurationTests: XCTestCase {
         let jsonData = try JSONEncoder().encode(mockResponse)
         let jsonString = String(data: jsonData, encoding: .utf8)!
         
-        let mock = await HMock(request: TestFullyConfiguredRequest.self, statusCode: 200, jsonResponse: jsonString)
+        let mock = HMock(request: TestFullyConfiguredRequest.self, statusCode: 200, jsonResponse: jsonString)
         await Harbor.register(mock: mock)
         
         // When
@@ -291,23 +307,63 @@ final class HarborConfigurationTests: XCTestCase {
     }
     
     // MARK: - Configuration Reset Tests
-    
+
     func testConfigurationReset() async throws {
         // Given - Set all configurations
         await Harbor.setDefaultHeaderParameters(["X-Test": "value"])
         await Harbor.setAuthProvider(TestAuthProvider())
         await Harbor.setCustomURLSession(URLSession(configuration: .default))
         await Harbor.setMocksOnlyInDebug(false)
-        
+        await Harbor.setMocksEnabled(false)
+
         // When - Reset all configurations
         await Harbor.setDefaultHeaderParameters(nil)
         await Harbor.setAuthProvider(nil)
         await Harbor.setCustomURLSession(URLSession.shared)
         await Harbor.setMocksOnlyInDebug(true)
-        
-        // Then - Should not crash and be in clean state
-        XCTAssertTrue(true)
+        await Harbor.setMocksEnabled(nil)
+
+        // Then the cleared defaults are observable on a built request
+        let request = TestConfigRequest()
+        let urlRequest = try await HURLBuilder.buildUrlRequest(request: request)
+        XCTAssertNil(urlRequest.value(forHTTPHeaderField: "X-Test"))
+        let override = await mocksEnabledOverrideValue()
+        XCTAssertNil(override)
     }
+
+    // MARK: - Mocks Enabled Override
+
+    func testMocksEnabledOverrideTakesPrecedence() async throws {
+        // Given mocks would otherwise be enabled in DEBUG
+        await Harbor.setMocksEnabled(false)
+        let disabled = await mocksEnabledValue()
+        XCTAssertEqual(disabled, false)
+
+        // And re-enabling restores the value
+        await Harbor.setMocksEnabled(true)
+        let enabled = await mocksEnabledValue()
+        XCTAssertEqual(enabled, true)
+
+        // And clearing the override falls back to the build rule
+        await Harbor.setMocksEnabled(nil)
+    }
+}
+
+// MARK: - Actor-isolated config accessors
+
+@HRequestManagerActor
+private func clearCustomURLSession() {
+    HConfig.shared.customURLSession = nil
+}
+
+@HRequestManagerActor
+private func mocksEnabledOverrideValue() -> Bool? {
+    HConfig.shared.mocksEnabledOverride
+}
+
+@HRequestManagerActor
+private func mocksEnabledValue() -> Bool {
+    HConfig.shared.mocksEnabled
 }
 
 // MARK: - Test Models

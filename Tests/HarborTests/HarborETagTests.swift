@@ -76,7 +76,7 @@ final class HarborETagTests: XCTestCase {
         let jsonData = try JSONEncoder().encode(mockResponse)
         let jsonString = String(data: jsonData, encoding: .utf8)!
         
-        let mock = await HMock(request: GetUsersWithCustomCacheRequest.self, statusCode: 200, jsonResponse: jsonString)
+        let mock = HMock(request: GetUsersWithCustomCacheRequest.self, statusCode: 200, jsonResponse: jsonString)
         await Harbor.register(mock: mock)
         
         // When
@@ -104,7 +104,7 @@ final class HarborETagTests: XCTestCase {
         let jsonData = try JSONEncoder().encode(mockResponse)
         let jsonString = String(data: jsonData, encoding: .utf8)!
         
-        let mock = await HMock(request: GetUsersWithCustomCacheRequest.self, statusCode: 200, jsonResponse: jsonString)
+        let mock = HMock(request: GetUsersWithCustomCacheRequest.self, statusCode: 200, jsonResponse: jsonString)
         await Harbor.register(mock: mock)
         
         let request = GetUsersWithCustomCacheRequest()

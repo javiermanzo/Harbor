@@ -20,8 +20,7 @@ Harbor provides a comprehensive mocking system that allows you to test network r
 **Location**: `Sources/Harbor/Mock/HMock.swift`
 
 ```swift
-@HRequestManagerActor
-struct HMock {
+struct HMock: Sendable {
     let request: HRequestBaseRequestProtocol.Type
     let statusCode: Int
     let jsonResponse: String?
@@ -39,8 +38,8 @@ Use `headers` to simulate HTTP response headers such as `Cache-Control` or `ETag
 
 ```swift
 @HRequestManagerActor
-final class HMocker {
-    static var mocks: [String: HMock] = [:]
+enum HMocker {
+    // Mocks keyed by request metatype identity (ObjectIdentifier).
 }
 ```
 

@@ -193,29 +193,6 @@ private final class ClassAuthGetRequest: HGetRequestProtocol, @unchecked Sendabl
     }
 }
 
-extension HRequestError: Equatable {
-    public static func ==(lhs: HRequestError, rhs: HRequestError) -> Bool {
-        switch (lhs, rhs) {
-        case (.authProviderNeeded, .authProviderNeeded):
-            return true
-        case (.noConnection, .noConnection):
-            return true
-        case (.malformedRequest, .malformedRequest):
-            return true
-        case (.timeout, .timeout):
-            return true
-        case (.invalidHttpResponse, .invalidHttpResponse):
-            return true
-        case (.codable(let lhsModel, _), .codable(let rhsModel, _)):
-            return lhsModel == rhsModel
-        case (.api(let lhsStatusCode, _), .api(let rhsStatusCode, _)):
-            return lhsStatusCode == rhsStatusCode
-        default:
-            return false
-        }
-    }
-}
-
 @HRequestManagerActor
 final class HarborRequestManagerAuthTests: XCTestCase {
 

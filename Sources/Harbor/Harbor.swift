@@ -136,6 +136,12 @@ public extension Harbor {
         HConfig.shared.mocksOnlyInDebug = value
     }
 
+    /// Forces mocks on or off regardless of build configuration. Pass `nil` to restore the
+    /// default behavior (enabled in DEBUG, gated by `mocksOnlyInDebug` elsewhere).
+    static func setMocksEnabled(_ enabled: Bool?) {
+        HConfig.shared.mocksEnabledOverride = enabled
+    }
+
     /// Configures whether debug logs are enabled.
     /// - Parameter enabled: If true, logs will be printed (subject to #if DEBUG). If false, no logs will be printed.
     static func setLoggingEnabled(_ enabled: Bool) {
@@ -208,6 +214,12 @@ public extension Harbor {
         HMocker.register(mock: mock)
     }
 
+    /// Registers a scripted sequence of responses for a request type. Each request of the
+    /// given type resolves to the next response in order; the last one repeats thereafter.
+    static func registerSequence(_ sequence: HMockSequence) {
+        HMocker.registerSequence(sequence)
+    }
+
     /// Removes a specific mock.
     static func remove(mock: HMock) {
         HMocker.remove(mock: mock)
@@ -216,6 +228,16 @@ public extension Harbor {
     /// Removes all registered mocks.
     static func removeAllMocks() {
         HMocker.removeAll()
+    }
+
+    /// Number of times requests of the given type have been resolved through a mock.
+    static func mockCallCount(for requestType: HRequestBaseRequestProtocol.Type) -> Int {
+        HMocker.callCount(for: requestType)
+    }
+
+    /// Whether a mock (single or sequenced) is currently registered for the request type.
+    static func isMockRegistered(_ requestType: HRequestBaseRequestProtocol.Type) -> Bool {
+        HMocker.isRegistered(requestType)
     }
 }
 

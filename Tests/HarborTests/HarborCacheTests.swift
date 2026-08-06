@@ -45,7 +45,7 @@ final class HarborCacheTests: XCTestCase {
             return
         }
 
-        let mock = await HMock(request: TestDefaultCacheableRequest.self, statusCode: 200, jsonResponse: jsonString)
+        let mock = HMock(request: TestDefaultCacheableRequest.self, statusCode: 200, jsonResponse: jsonString)
         await Harbor.register(mock: mock)
 
         let request = TestDefaultCacheableRequest() // cacheType is nil
@@ -73,7 +73,7 @@ final class HarborCacheTests: XCTestCase {
             return
         }
 
-        let mock = await HMock(request: TestDefaultCacheableRequest.self, statusCode: 200, jsonResponse: jsonString)
+        let mock = HMock(request: TestDefaultCacheableRequest.self, statusCode: 200, jsonResponse: jsonString)
         await Harbor.register(mock: mock)
 
         let request = TestDefaultCacheableRequest() // cacheType is nil, uses the global default
@@ -109,7 +109,7 @@ final class HarborCacheTests: XCTestCase {
             return
         }
         
-        let mock = await HMock(request: TestExplicitlyDisabledRequest.self, statusCode: 200, jsonResponse: jsonString)
+        let mock = HMock(request: TestExplicitlyDisabledRequest.self, statusCode: 200, jsonResponse: jsonString)
         await Harbor.register(mock: mock)
         
         let request = TestExplicitlyDisabledRequest()
@@ -166,7 +166,7 @@ final class HarborCacheTests: XCTestCase {
             return
         }
         
-        let mock = await HMock(request: TestCustomExpirationRequest.self, statusCode: 200, jsonResponse: jsonString)
+        let mock = HMock(request: TestCustomExpirationRequest.self, statusCode: 200, jsonResponse: jsonString)
         await Harbor.register(mock: mock)
         
         let request = TestCustomExpirationRequest()
@@ -199,7 +199,7 @@ final class HarborCacheTests: XCTestCase {
             return
         }
 
-        let mock = await HMock(request: TestZeroExpirationRequest.self, statusCode: 200, jsonResponse: jsonString)
+        let mock = HMock(request: TestZeroExpirationRequest.self, statusCode: 200, jsonResponse: jsonString)
         await Harbor.register(mock: mock)
 
         let request = TestZeroExpirationRequest()
@@ -223,7 +223,7 @@ final class HarborCacheTests: XCTestCase {
             return
         }
         
-        let mock = await HMock(request: TestOneHourCacheRequest.self, statusCode: 200, jsonResponse: jsonString)
+        let mock = HMock(request: TestOneHourCacheRequest.self, statusCode: 200, jsonResponse: jsonString)
         await Harbor.register(mock: mock)
         
         let request = TestOneHourCacheRequest()
@@ -269,7 +269,7 @@ final class HarborCacheTests: XCTestCase {
             return
         }
 
-        let mock = await HMock(
+        let mock = HMock(
             request: TestLongCacheRequest.self,
             statusCode: 200,
             jsonResponse: jsonString,
@@ -296,7 +296,7 @@ final class HarborCacheTests: XCTestCase {
 
         // The opposite direction also holds: an immediately expiring config is
         // overridden by a positive max-age from the response.
-        let mock2 = await HMock(
+        let mock2 = HMock(
             request: TestZeroExpirationRequest.self,
             statusCode: 200,
             jsonResponse: jsonString,
@@ -327,7 +327,7 @@ final class HarborCacheTests: XCTestCase {
             return
         }
         
-        let mock = await HMock(
+        let mock = HMock(
             request: TestCacheableRequest.self,
             statusCode: 200,
             jsonResponse: jsonString
@@ -363,7 +363,7 @@ final class HarborCacheTests: XCTestCase {
             return
         }
 
-        let mock = await HMock(
+        let mock = HMock(
             request: TestNoCacheRequest.self,
             statusCode: 200,
             jsonResponse: jsonString,
@@ -457,7 +457,7 @@ final class HarborCacheTests: XCTestCase {
             return
         }
         
-        let mock = await HMock(request: TestCacheableRequest.self, statusCode: 200, jsonResponse: jsonString)
+        let mock = HMock(request: TestCacheableRequest.self, statusCode: 200, jsonResponse: jsonString)
         await Harbor.register(mock: mock)
         
         let request = TestCacheableRequest()
@@ -493,7 +493,7 @@ final class HarborCacheTests: XCTestCase {
             return
         }
         
-        let mock = await HMock(request: TestDefaultCacheableRequest.self, statusCode: 200, jsonResponse: jsonString)
+        let mock = HMock(request: TestDefaultCacheableRequest.self, statusCode: 200, jsonResponse: jsonString)
         await Harbor.register(mock: mock)
         
         let request = TestDefaultCacheableRequest()
@@ -524,7 +524,7 @@ final class HarborCacheTests: XCTestCase {
         }
         
         // Test using request integration
-        let mock = await HMock(request: TestCacheableRequest.self, statusCode: 200, jsonResponse: jsonString)
+        let mock = HMock(request: TestCacheableRequest.self, statusCode: 200, jsonResponse: jsonString)
         await Harbor.register(mock: mock)
         
         let request = TestCacheableRequest()
@@ -552,7 +552,7 @@ final class HarborCacheTests: XCTestCase {
             return
         }
         
-        let mock = await HMock(request: TestCacheableRequest.self, statusCode: 200, jsonResponse: jsonString)
+        let mock = HMock(request: TestCacheableRequest.self, statusCode: 200, jsonResponse: jsonString)
         await Harbor.register(mock: mock)
         
         let request = TestCacheableRequest()
@@ -582,7 +582,7 @@ final class HarborCacheTests: XCTestCase {
             return
         }
         
-        let mock = await HMock(request: TestCacheableRequest.self, statusCode: 200, jsonResponse: jsonString)
+        let mock = HMock(request: TestCacheableRequest.self, statusCode: 200, jsonResponse: jsonString)
         await Harbor.register(mock: mock)
         
         let request = TestCacheableRequest()
@@ -668,7 +668,7 @@ final class HarborCacheTests: XCTestCase {
             return
         }
 
-        let mock = await HMock(
+        let mock = HMock(
             request: TestNoStoreRequest.self,
             statusCode: 200,
             jsonResponse: jsonString,
@@ -704,7 +704,7 @@ final class HarborCacheTests: XCTestCase {
             return
         }
 
-        let mock = await HMock(
+        let mock = HMock(
             request: TestLowercaseHeadersRequest.self,
             statusCode: 200,
             jsonResponse: jsonString,
@@ -740,7 +740,7 @@ final class HarborCacheTests: XCTestCase {
             return
         }
 
-        let mock = await HMock(
+        let mock = HMock(
             request: TestVaryEnRequest.self,
             statusCode: 200,
             jsonResponse: jsonString,
@@ -796,7 +796,7 @@ final class HarborCacheTests: XCTestCase {
         let urlRequest = try await HURLBuilder.buildUrlRequest(request: request)
         XCTAssertEqual(urlRequest.value(forHTTPHeaderField: "If-None-Match"), "\"abc\"")
 
-        let mock = await HMock(
+        let mock = HMock(
             request: TestRevalidationRequest.self,
             statusCode: 304,
             headers: ["Cache-Control": "max-age=3600"]
@@ -861,7 +861,7 @@ final class HarborCacheTests: XCTestCase {
             return
         }
 
-        let successMock = await HMock(
+        let successMock = HMock(
             request: TestStaleOnErrorRequest.self,
             statusCode: 200,
             jsonResponse: jsonString,
@@ -874,7 +874,7 @@ final class HarborCacheTests: XCTestCase {
 
         await Harbor.removeAllMocks()
 
-        let errorMock = await HMock(request: TestStaleOnErrorRequest.self, statusCode: 500)
+        let errorMock = HMock(request: TestStaleOnErrorRequest.self, statusCode: 500)
         await Harbor.register(mock: errorMock)
 
         let response = await request.request()
@@ -896,7 +896,7 @@ final class HarborCacheTests: XCTestCase {
             return
         }
 
-        let successMock = await HMock(
+        let successMock = HMock(
             request: TestStaleOnErrorMustRevalidateRequest.self,
             statusCode: 200,
             jsonResponse: jsonString,
@@ -909,7 +909,7 @@ final class HarborCacheTests: XCTestCase {
 
         await Harbor.removeAllMocks()
 
-        let errorMock = await HMock(request: TestStaleOnErrorMustRevalidateRequest.self, statusCode: 500)
+        let errorMock = HMock(request: TestStaleOnErrorMustRevalidateRequest.self, statusCode: 500)
         await Harbor.register(mock: errorMock)
 
         let response = await request.request()
@@ -1049,7 +1049,7 @@ final class HarborCacheTests: XCTestCase {
     // MARK: - Empty Response Tests
 
     func testEmptyResponseNotModifiedReturnsSuccess() async {
-        let mock = await HMock(request: TestEmptyResponseRequest.self, statusCode: 304)
+        let mock = HMock(request: TestEmptyResponseRequest.self, statusCode: 304)
         await Harbor.register(mock: mock)
 
         let response = await TestEmptyResponseRequest().request()

@@ -8,15 +8,6 @@
 import XCTest
 @testable import Harbor
 
-// Helper function for async XCTAssertNoThrow
-func XCTAssertNoThrowAsync<T>(_ expression: @autoclosure () async throws -> T, _ message: @autoclosure () -> String = "", file: StaticString = #filePath, line: UInt = #line) async {
-    do {
-        _ = try await expression()
-    } catch {
-        XCTFail("Unexpected error thrown: \(error). \(message())", file: file, line: line)
-    }
-}
-
 final class HarborDebugTests: XCTestCase {
     
     override func setUp() async throws {
@@ -347,7 +338,7 @@ final class HarborDebugTests: XCTestCase {
             return
         }
         
-        let mock = await HMock(request: TestDebugRequest.self, statusCode: 200, jsonResponse: jsonString)
+        let mock = HMock(request: TestDebugRequest.self, statusCode: 200, jsonResponse: jsonString)
         await Harbor.register(mock: mock)
         
         let request = TestDebugRequest(debugType: .requestAndResponse)
@@ -362,7 +353,7 @@ final class HarborDebugTests: XCTestCase {
     }
     
     func testDebugRequestWithErrorResponse() async {
-        let mock = await HMock(request: TestDebugRequest.self, statusCode: 404, jsonResponse: nil)
+        let mock = HMock(request: TestDebugRequest.self, statusCode: 404, jsonResponse: nil)
         await Harbor.register(mock: mock)
         
         let request = TestDebugRequest(debugType: .requestAndResponse)

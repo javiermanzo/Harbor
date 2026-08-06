@@ -26,7 +26,7 @@ final class HarborTests: XCTestCase {
         let jsonData = try JSONEncoder().encode(mockResponse)
         let jsonString = String(data: jsonData, encoding: .utf8)!
         
-        let mock = await HMock(request: GetUserRequest.self, statusCode: 200, jsonResponse: jsonString)
+        let mock = HMock(request: GetUserRequest.self, statusCode: 200, jsonResponse: jsonString)
         await Harbor.register(mock: mock)
         
         // When
@@ -53,7 +53,7 @@ final class HarborTests: XCTestCase {
         let jsonData = try JSONEncoder().encode(users)
         let jsonString = String(data: jsonData, encoding: .utf8)!
         
-        let mock = await HMock(request: GetUsersRequest.self, statusCode: 200, jsonResponse: jsonString)
+        let mock = HMock(request: GetUsersRequest.self, statusCode: 200, jsonResponse: jsonString)
         await Harbor.register(mock: mock)
         
         // When
@@ -75,7 +75,7 @@ final class HarborTests: XCTestCase {
     
     func testPostRequestExecution() async throws {
         // Given
-        let mock = await HMock(request: CreateUserRequest.self, statusCode: 201)
+        let mock = HMock(request: CreateUserRequest.self, statusCode: 201)
         await Harbor.register(mock: mock)
         
         // When
@@ -93,7 +93,7 @@ final class HarborTests: XCTestCase {
     
     func testPostRequestWithMultipart() async throws {
         // Given
-        let mock = await HMock(request: UploadFileRequest.self, statusCode: 200)
+        let mock = HMock(request: UploadFileRequest.self, statusCode: 200)
         await Harbor.register(mock: mock)
         
         // When
@@ -113,7 +113,7 @@ final class HarborTests: XCTestCase {
     
     func testDeleteRequestExecution() async throws {
         // Given
-        let mock = await HMock(request: DeleteUserRequest.self, statusCode: 204)
+        let mock = HMock(request: DeleteUserRequest.self, statusCode: 204)
         await Harbor.register(mock: mock)
         
         // When
@@ -138,7 +138,7 @@ final class HarborTests: XCTestCase {
         let jsonData = try JSONEncoder().encode(protectedData)
         let jsonString = String(data: jsonData, encoding: .utf8)!
         
-        let mock = await HMock(request: AuthenticatedRequest.self, statusCode: 200, jsonResponse: jsonString)
+        let mock = HMock(request: AuthenticatedRequest.self, statusCode: 200, jsonResponse: jsonString)
         await Harbor.register(mock: mock)
         
         // When
@@ -156,7 +156,7 @@ final class HarborTests: XCTestCase {
     
     func testAuthenticationFailure() async throws {
         // Given
-        let mock = await HMock(request: AuthenticatedRequest.self, statusCode: 401, error: .authNeeded)
+        let mock = HMock(request: AuthenticatedRequest.self, statusCode: 401, error: .authNeeded)
         await Harbor.register(mock: mock)
         
         // When
@@ -181,7 +181,7 @@ final class HarborTests: XCTestCase {
     
     func testNetworkErrorHandling() async throws {
         // Given
-        let mock = await HMock(request: GetUserRequest.self, statusCode: 500, error: .noConnection)
+        let mock = HMock(request: GetUserRequest.self, statusCode: 500, error: .noConnection)
         await Harbor.register(mock: mock)
         
         // When
@@ -204,7 +204,7 @@ final class HarborTests: XCTestCase {
     
     func testAPIErrorHandling() async throws {
         // Given
-        let mock = await HMock(request: GetUserRequest.self, statusCode: 404)
+        let mock = HMock(request: GetUserRequest.self, statusCode: 404)
         await Harbor.register(mock: mock)
         
         // When
@@ -222,7 +222,7 @@ final class HarborTests: XCTestCase {
     
     func testJSONParsingError() async throws {
         // Given - Invalid JSON response
-        let mock = await HMock(request: GetUserRequest.self, statusCode: 200, jsonResponse: "invalid-json")
+        let mock = HMock(request: GetUserRequest.self, statusCode: 200, jsonResponse: "invalid-json")
         await Harbor.register(mock: mock)
         
         // When
@@ -252,7 +252,7 @@ final class HarborTests: XCTestCase {
         let jsonData = try JSONEncoder().encode(userResponse)
         let jsonString = String(data: jsonData, encoding: .utf8)!
         
-        let mock = await HMock(request: CustomHeadersRequest.self, statusCode: 200, jsonResponse: jsonString)
+        let mock = HMock(request: CustomHeadersRequest.self, statusCode: 200, jsonResponse: jsonString)
         await Harbor.register(mock: mock)
         
         // When
@@ -272,7 +272,7 @@ final class HarborTests: XCTestCase {
     
     func testRequestTimeout() async throws {
         // Given
-        let mock = await HMock(request: TimeoutRequest.self, statusCode: 408, error: .timeout)
+        let mock = HMock(request: TimeoutRequest.self, statusCode: 408, error: .timeout)
         await Harbor.register(mock: mock)
         
         // When
@@ -295,7 +295,7 @@ final class HarborTests: XCTestCase {
     
     func testConnectionFailure() async throws {
         // Given
-        let mock = await HMock(request: ConnectionFailureRequest.self, statusCode: 0, error: .noConnection)
+        let mock = HMock(request: ConnectionFailureRequest.self, statusCode: 0, error: .noConnection)
         await Harbor.register(mock: mock)
         
         // When
@@ -318,7 +318,7 @@ final class HarborTests: XCTestCase {
     
     func testCannotFindHost() async throws {
         // Given
-        let mock = await HMock(request: InvalidHostRequest.self, statusCode: 0, error: .cannotFindHost)
+        let mock = HMock(request: InvalidHostRequest.self, statusCode: 0, error: .cannotFindHost)
         await Harbor.register(mock: mock)
         
         // When
@@ -341,7 +341,7 @@ final class HarborTests: XCTestCase {
     
     func testMalformedRequest() async throws {
         // Given
-        let mock = await HMock(request: MalformedRequest.self, statusCode: 400, error: .malformedRequest())
+        let mock = HMock(request: MalformedRequest.self, statusCode: 400, error: .malformedRequest())
         await Harbor.register(mock: mock)
         
         // When
@@ -363,34 +363,25 @@ final class HarborTests: XCTestCase {
     }
     
     func testRequestCancellation() async throws {
-        // Given
-        let mock = await HMock(request: CancellableRequest.self, statusCode: 200, jsonResponse: "{\"data\": \"slow response\"}", delay: 2.0)
+        // Given a mock that delays its response, giving the consumer a window to cancel
+        let mock = HMock(request: CancellableRequest.self, statusCode: 200, jsonResponse: "{\"data\": \"slow response\"}", delay: 2.0)
         await Harbor.register(mock: mock)
-        
-        // When
-        let task = Task {
+
+        // When the request is cancelled while still waiting for the delayed mock
+        let task = Task<HResponseWithResult<TestUser>, Never> {
             let request = CancellableRequest()
             return await request.request()
         }
-        
-        // Cancel the task immediately
+
+        // Let the request reach the in-flight delay before cancelling.
+        try? await Task.sleep(nanoseconds: 100_000_000)
         task.cancel()
         let response = await task.value
-        
-        // Then
-        switch response {
-        case .success:
-            // Note: Due to mocking, this might still succeed if cancellation timing doesn't work
-            // In real scenarios, this would be cancelled
-            XCTAssertTrue(true)
-        case .error(let error):
-            switch error {
-            case .cancelled:
-                XCTAssertTrue(true) // Expected cancellation
-            default:
-                // Other errors are also acceptable in this test scenario
-                XCTAssertTrue(true)
-            }
+
+        // Then the result surfaces a cancellation error rather than succeeding.
+        guard case .error(let error) = response, case .cancelled = error else {
+            XCTFail("Expected .cancelled but got: \(response)")
+            return
         }
     }
     
@@ -402,7 +393,7 @@ final class HarborTests: XCTestCase {
         let jsonData = try JSONEncoder().encode(user)
         let jsonString = String(data: jsonData, encoding: .utf8)!
         
-        let mock = await HMock(request: GetUserByIdRequest.self, statusCode: 200, jsonResponse: jsonString)
+        let mock = HMock(request: GetUserByIdRequest.self, statusCode: 200, jsonResponse: jsonString)
         await Harbor.register(mock: mock)
         
         // When
@@ -423,7 +414,7 @@ final class HarborTests: XCTestCase {
     
     func testPutRequestExecution() async throws {
         // Given
-        let mock = await HMock(request: UpdateUserRequest.self, statusCode: 200)
+        let mock = HMock(request: UpdateUserRequest.self, statusCode: 200)
         await Harbor.register(mock: mock)
         
         // When
@@ -441,7 +432,7 @@ final class HarborTests: XCTestCase {
     
     func testPutRequestWithMultipart() async throws {
         // Given
-        let mock = await HMock(request: UpdateUserWithFileRequest.self, statusCode: 200)
+        let mock = HMock(request: UpdateUserWithFileRequest.self, statusCode: 200)
         await Harbor.register(mock: mock)
         
         // When
@@ -461,7 +452,7 @@ final class HarborTests: XCTestCase {
     
     func testPatchRequestExecution() async throws {
         // Given
-        let mock = await HMock(request: PartialUpdateUserRequest.self, statusCode: 200)
+        let mock = HMock(request: PartialUpdateUserRequest.self, statusCode: 200)
         await Harbor.register(mock: mock)
         
         // When
@@ -479,7 +470,7 @@ final class HarborTests: XCTestCase {
     
     func testPatchRequestWithJSONBody() async throws {
         // Given
-        let mock = await HMock(request: PartialUpdateUserWithJSONRequest.self, statusCode: 200)
+        let mock = HMock(request: PartialUpdateUserWithJSONRequest.self, statusCode: 200)
         await Harbor.register(mock: mock)
         
         // When

@@ -36,7 +36,7 @@ final class HarborStreamTests: XCTestCase {
             return
         }
         
-        let mock = await HMock(request: TestStreamRequest.self, statusCode: 200, jsonResponse: jsonString)
+        let mock = HMock(request: TestStreamRequest.self, statusCode: 200, jsonResponse: jsonString)
         await Harbor.register(mock: mock)
         
         let request = TestStreamRequest()
@@ -85,7 +85,7 @@ final class HarborStreamTests: XCTestCase {
             return
         }
         
-        let mock = await HMock(request: TestStreamRequest.self, statusCode: 200, jsonResponse: jsonString)
+        let mock = HMock(request: TestStreamRequest.self, statusCode: 200, jsonResponse: jsonString)
         await Harbor.register(mock: mock)
         
         let request = TestStreamRequest()
@@ -115,7 +115,7 @@ final class HarborStreamTests: XCTestCase {
             return
         }
         
-        let mock = await HMock(request: TestStreamRequest.self, statusCode: 200, jsonResponse: jsonString)
+        let mock = HMock(request: TestStreamRequest.self, statusCode: 200, jsonResponse: jsonString)
         await Harbor.register(mock: mock)
         
         let request = TestStreamRequest()
@@ -151,7 +151,7 @@ final class HarborStreamTests: XCTestCase {
             return
         }
         
-        let mock = await HMock(request: TestStreamRequest.self, statusCode: 200, jsonResponse: jsonString)
+        let mock = HMock(request: TestStreamRequest.self, statusCode: 200, jsonResponse: jsonString)
         await Harbor.register(mock: mock)
         
         let request = TestStreamRequest()
@@ -181,7 +181,7 @@ final class HarborStreamTests: XCTestCase {
             return
         }
         
-        let mock = await HMock(request: TestStreamRequest.self, statusCode: 200, jsonResponse: jsonString)
+        let mock = HMock(request: TestStreamRequest.self, statusCode: 200, jsonResponse: jsonString)
         await Harbor.register(mock: mock)
         
         let request = TestStreamRequest()
@@ -204,7 +204,8 @@ final class HarborStreamTests: XCTestCase {
         await Harbor.removeAllMocks()
     }
     
-    func testRequestStreamNetworkError() async {
+    func testRequestStreamNetworkError() async throws {
+        try NetworkTestFlag.skipUnlessEnabled()
         let request = TestStreamRequest()
         
         // No mock registered, should get network error for remote-only
@@ -219,7 +220,8 @@ final class HarborStreamTests: XCTestCase {
         }
     }
     
-    func testRequestStreamCacheAndRemoteWithNetworkError() async {
+    func testRequestStreamCacheAndRemoteWithNetworkError() async throws {
+        try NetworkTestFlag.skipUnlessEnabled()
         let testData = TestStreamData(value: "stream-cache-with-error-test", timestamp: Date())
         guard let jsonData = try? JSONEncoder().encode(testData),
               let jsonString = String(data: jsonData, encoding: .utf8) else {
@@ -227,7 +229,7 @@ final class HarborStreamTests: XCTestCase {
             return
         }
         
-        let mock = await HMock(request: TestStreamRequest.self, statusCode: 200, jsonResponse: jsonString)
+        let mock = HMock(request: TestStreamRequest.self, statusCode: 200, jsonResponse: jsonString)
         await Harbor.register(mock: mock)
         
         let request = TestStreamRequest()

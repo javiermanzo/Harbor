@@ -47,6 +47,7 @@ final class HarborRealServiceTests: XCTestCase {
     }
     
     override func setUp() async throws {
+        try NetworkTestFlag.skipUnlessEnabled()
         await Harbor.removeAllMocks()
         await Harbor.clearAllCache()
         await Harbor.setMocksOnlyInDebug(false)

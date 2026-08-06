@@ -12,12 +12,24 @@ import Foundation
 public struct HMockSequence: Sendable {
     /// One response in a mock sequence.
     public struct Response: Sendable {
+        /// The HTTP status code to return.
         public let statusCode: Int
+        /// Optional JSON response body.
         public let jsonResponse: String?
+        /// Optional error to return instead of success.
         public let error: HRequestError?
+        /// Optional HTTP response headers.
         public let headers: [String: String]?
+        /// Optional delay in seconds before returning the response.
         public let delay: Double?
 
+        /// Creates a new response for a sequence.
+        /// - Parameters:
+        ///   - statusCode: The HTTP status code to return
+        ///   - jsonResponse: Optional JSON response body
+        ///   - error: Optional error to return instead of success
+        ///   - headers: Optional HTTP response headers
+        ///   - delay: Optional delay in seconds before returning the response
         public init(statusCode: Int,
                     jsonResponse: String? = nil,
                     error: HRequestError? = nil,
@@ -36,6 +48,10 @@ public struct HMockSequence: Sendable {
     /// The responses to play back, in order.
     public let responses: [Response]
 
+    /// Creates a new sequence from an array of `Response` objects.
+    /// - Parameters:
+    ///   - request: The request type this sequence mocks.
+    ///   - responses: The responses to play back, in order.
     public init(request: HRequestBaseRequestProtocol.Type, responses: [Response]) {
         self.request = request
         self.responses = responses
@@ -54,6 +70,7 @@ public struct HMockSequence: Sendable {
         }
     }
 
+    /// Returns the response at the given index, clamping to the last available response.
     func response(at index: Int) -> Response {
         let safeIndex = max(0, min(index, responses.count - 1))
         return responses[safeIndex]

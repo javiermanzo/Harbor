@@ -6,12 +6,19 @@ final class LocalStubURLProtocol: URLProtocol {
     private static let lock = NSLock()
     nonisolated(unsafe) private static var responses: [URL: (Data, HTTPURLResponse, Error?)] = [:]
     
+    /// Registers a canned response for a specific URL.
+    /// - Parameters:
+    ///   - url: The URL to intercept.
+    ///   - data: The response body to return.
+    ///   - response: The HTTP URL response.
+    ///   - error: Optional error to simulate network failure.
     static func registerStub(for url: URL, data: Data, response: HTTPURLResponse, error: Error? = nil) {
         lock.lock()
         defer { lock.unlock() }
         responses[url] = (data, response, error)
     }
     
+    /// Clears all previously registered stubs.
     static func clearStubs() {
         lock.lock()
         defer { lock.unlock() }

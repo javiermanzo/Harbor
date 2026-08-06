@@ -21,6 +21,7 @@ enum HMocker {
         ObjectIdentifier(requestType)
     }
 
+    /// Registers a single mock response. Any existing mock or sequence for the same request type is removed.
     static func register(mock: HMock) {
         let id = key(for: mock.request)
         mocks[id] = mock
@@ -38,6 +39,7 @@ enum HMocker {
         mocks.removeValue(forKey: id)
     }
 
+    /// Removes any registered mock or sequence for the given request type.
     static func remove(mock: HMock) {
         let id = key(for: mock.request)
         mocks.removeValue(forKey: id)
@@ -45,6 +47,7 @@ enum HMocker {
         sequenceIndexes.removeValue(forKey: id)
     }
 
+    /// Clears all registered mocks, sequences, and call counts.
     static func removeAll() {
         mocks.removeAll()
         sequences.removeAll()

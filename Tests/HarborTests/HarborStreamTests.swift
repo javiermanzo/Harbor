@@ -318,7 +318,7 @@ private func setStubbedProtocolClasses(_ classes: [AnyClass]?) {
 /// URLProtocol stub injected through `HConfig.protocolClasses` that answers after a
 /// delay, giving tests a window to cancel the request while it is in flight.
 /// `stopLoading` records that URLSession cancelled the underlying request.
-private final class DelayedResponseStubProtocol: URLProtocol {
+private final class DelayedResponseStubProtocol: URLProtocol, @unchecked Sendable {
     private static let lock = NSLock()
     nonisolated(unsafe) private static var _startLoadingCalled = false
     nonisolated(unsafe) private static var _stopLoadingCalled = false

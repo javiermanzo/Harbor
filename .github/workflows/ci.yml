@@ -26,14 +26,16 @@ jobs:
     - name: Setup llvm-cov
       run: sudo ln -s $(xcrun --find llvm-cov) /usr/local/bin/llvm-cov
     - name: Generate LCOV
-      uses: maxep/spm-lcov-action@0.3.0
+      uses: maxep/spm-lcov-action@765d4ca99e04bd445addad335a670ee64c12661b # v0.3.0
       with:
         output-file: ./lcov.info
     - name: Report Coverage to PR
-      uses: romeovs/lcov-reporter-action@v0.3.1
+      uses: zgosalvez/github-actions-report-lcov@eda775f552bfb2bffbdedea26f19dfb8c24a1648 # v4
       if: github.event_name == 'pull_request'
       with:
         github-token: ${{ secrets.GITHUB_TOKEN }}
-        lcov-file: ./lcov.info
+        coverage-files: ./lcov.info
+        update-comment: true
+        artifact-name: code-coverage-report
 
 

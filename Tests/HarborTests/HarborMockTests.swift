@@ -34,7 +34,7 @@ final class HarborMockTests: XCTestCase {
         case .success(let result):
             XCTAssertNotNil(result)
         default:
-            XCTFail("Expected success but got failure")
+            XCTFail("Expected success but got an unexpected result")
         }
     }
 

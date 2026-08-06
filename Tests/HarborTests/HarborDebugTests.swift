@@ -591,13 +591,3 @@ final class HarborDebugTests: XCTestCase {
 
 // MARK: - Test Models and Requests
 
-private struct TestDebugRequest: HGetRequestProtocol, HDebugRequestProtocol {
-    typealias Model = MockModel
-    
-    let url: String = "https://api.example.com/test"
-    var debugType: HDebugRequestType
-    
-    init(debugType: HDebugRequestType) {
-        self.debugType = debugType
-    }
-}

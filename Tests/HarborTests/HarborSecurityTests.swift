@@ -511,27 +511,5 @@ private final class SendableCounter: @unchecked Sendable {
 
 // MARK: - Test Models
 
-private struct TestSecureData: HModel {
-    let secret: String
-}
-
 // MARK: - Test Request Implementations
-
-private struct SecureGetRequest: HGetRequestProtocol {
-    typealias Model = TestSecureData
-    
-    var url: String { "https://secure.example.com/data" }
-}
-
-private struct MTLSGetRequest: HGetRequestProtocol {
-    typealias Model = TestSecureData
-    
-    var url: String { "https://mtls.example.com/data" }
-}
-
-private struct FullySecureGetRequest: HGetRequestProtocol {
-    typealias Model = TestSecureData
-    
-    var url: String { "https://fullysecure.example.com/data" }
-}
 

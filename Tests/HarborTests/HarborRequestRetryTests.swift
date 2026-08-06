@@ -107,30 +107,8 @@ private final class SpyAuthProvider: HAuthProviderProtocol {
     }
 }
 
-private struct StubbedGetRequest: HGetRequestProtocol {
-    typealias Model = MockModel
-
-    var url: String
-    var retryPolicy: HRetryPolicy?
-    var headerParameters: [String: String]?
-    var needsAuth: Bool = false
-
-    init(url: String, retryPolicy: HRetryPolicy? = nil, headerParameters: [String: String]? = nil, needsAuth: Bool = false) {
-        self.url = url
-        self.retryPolicy = retryPolicy
-        self.headerParameters = headerParameters
-        self.needsAuth = needsAuth
-    }
-}
-
 /// Request that needs auth but relies on the default `headerParameters`, which does not persist values.
 /// The authorization header is applied to the built URLRequest, so the flow works anyway.
-private struct HeaderlessAuthGetRequest: HGetRequestProtocol {
-    typealias Model = MockModel
-
-    var url: String { "https://example.com/secure" }
-    var needsAuth: Bool { true }
-}
 
 @HRequestManagerActor
 final class HarborRequestRetryTests: XCTestCase {

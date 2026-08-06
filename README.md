@@ -4,7 +4,7 @@
 </p>
 
 ![Release](https://img.shields.io/github/v/release/javiermanzo/Harbor?style=flat-square)
-![CI](https://img.shields.io/github/actions/workflow/status/javiermanzo/Harbor/swift.yml?style=flat-square)
+![CI](https://img.shields.io/github/actions/workflow/status/javiermanzo/Harbor/unit-tests.yml?style=flat-square)
 [![Swift](https://img.shields.io/badge/Swift-5.9_6.0-orange?style=flat-square)](https://img.shields.io/badge/Swift-5.9_5.10_6.0-Orange?style=flat-square)
 [![Platforms](https://img.shields.io/badge/Platforms-macOS_iOS-yellowgreen?style=flat-square)](https://img.shields.io/badge/Platforms-macOS_iOS_tvOS_watchOS_vision_OS_Linux_Windows_Android-Green?style=flat-square) 
 [![Swift Package Manager](https://img.shields.io/badge/Swift_Package_Manager-compatible-orange?style=flat-square)](https://swiftpackageindex.com/javiermanzo/Harbor)

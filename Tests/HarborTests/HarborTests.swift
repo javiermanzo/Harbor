@@ -169,7 +169,7 @@ final class HarborTests: XCTestCase {
         // Then
         switch response {
         case .success:
-            XCTFail("Expected authentication error")
+            XCTFail("Expected authentication error but got success")
         case .error(let error):
             switch error {
             case .authNeeded:
@@ -195,7 +195,7 @@ final class HarborTests: XCTestCase {
         // Then
         switch response {
         case .success:
-            XCTFail("Expected network error")
+            XCTFail("Expected network error but got success")
         case .error(let error):
             switch error {
             case .noConnection:
@@ -219,7 +219,7 @@ final class HarborTests: XCTestCase {
         // Then
         switch response {
         case .success:
-            XCTFail("Expected API error")
+            XCTFail("Expected API error but got success")
         case .error(let error):
             XCTAssertTrue(error.isApiError)
         }
@@ -237,7 +237,7 @@ final class HarborTests: XCTestCase {
         // Then
         switch response {
         case .success:
-            XCTFail("Expected parsing error")
+            XCTFail("Expected parsing error but got success")
         case .error(let error):
             // Should be a codable/parsing error
             switch error {
@@ -288,7 +288,7 @@ final class HarborTests: XCTestCase {
         // Then
         switch response {
         case .success:
-            XCTFail("Expected timeout error")
+            XCTFail("Expected timeout error but got success")
         case .error(let error):
             switch error {
             case .timeout:
@@ -312,7 +312,7 @@ final class HarborTests: XCTestCase {
         // Then
         switch response {
         case .success:
-            XCTFail("Expected connection error")
+            XCTFail("Expected connection error but got success")
         case .error(let error):
             switch error {
             case .noConnection:
@@ -336,7 +336,7 @@ final class HarborTests: XCTestCase {
         // Then
         switch response {
         case .success:
-            XCTFail("Expected host not found error")
+            XCTFail("Expected host not found error but got success")
         case .error(let error):
             switch error {
             case .cannotFindHost:
@@ -360,7 +360,7 @@ final class HarborTests: XCTestCase {
         // Then
         switch response {
         case .success:
-            XCTFail("Expected malformed request error")
+            XCTFail("Expected malformed request error but got success")
         case .error(let error):
             switch error {
             case .malformedRequest:
@@ -503,207 +503,7 @@ final class HarborTests: XCTestCase {
 
 // MARK: - Test Models
 
-private struct TestUser: HModel {
-    let id: Int
-    let name: String
-    let email: String
-}
-
-private struct FileUploadResponse: HModel {
-    let id: String
-    let url: String
-}
-
-private struct ProtectedData: HModel {
-    let secret: String
-}
-
 // MARK: - Test Request Implementations
-
-private struct GetUserRequest: HGetRequestProtocol {
-    typealias Model = TestUser
-    
-    let userId: String
-    
-    var url: String { "https://api.example.com/users/\(userId)" }
-}
-
-private struct GetUsersRequest: HGetRequestProtocol {
-    typealias Model = [TestUser]
-    
-    let page: Int
-    let limit: Int
-    
-    var url: String { "https://api.example.com/users" }
-    var queryParameters: [String: String]? {
-        ["page": "\(page)", "limit": "\(limit)"]
-    }
-}
-
-private struct CreateUserRequest: HPostRequestProtocol, @unchecked Sendable {
-    typealias Model = TestUser
-    
-    let name: String
-    let email: String
-    var bodyParameters: [String: Any]?
-    
-    var url: String { "https://api.example.com/users" }
-    
-    init(name: String, email: String) {
-        self.name = name
-        self.email = email
-        self.bodyParameters = ["name": name, "email": email]
-    }
-}
-
-private struct UploadFileRequest: HPostRequestProtocol, @unchecked Sendable {
-    typealias Model = FileUploadResponse
-    
-    let fileName: String
-    let fileData: Data
-    var bodyParameters: [String: Any]? = nil
-    var multipartBody: [String: HFormValue]?
-    
-    var url: String { "https://api.example.com/upload" }
-    
-    init(fileName: String, fileData: Data) {
-        self.fileName = fileName
-        self.fileData = fileData
-        let fileURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + "_" + fileName)
-        try? fileData.write(to: fileURL)
-        self.multipartBody = ["file": .file(url: fileURL, mimeType: nil, fileName: fileName), "filename": .text(fileName)]
-    }
-}
-
-private struct DeleteUserRequest: HDeleteRequestProtocol {
-    let userId: String
-    
-    var url: String { "https://api.example.com/users/\(userId)" }
-}
-
-
-private struct AuthenticatedRequest: HGetRequestProtocol {
-    typealias Model = ProtectedData
-    
-    var url: String { "https://api.example.com/protected" }
-    var needsAuth: Bool { true }
-}
-
-private struct CustomHeadersRequest: HGetRequestProtocol {
-    typealias Model = TestUser
-    
-    var url: String { "https://api.example.com/users/1" }
-    var headerParameters: [String: String]? = [
-        "X-API-Version": "v2",
-        "Accept": "application/json",
-        "User-Agent": "HarborTestClient/1.0"
-    ]
-}
-
-private struct GetUserByIdRequest: HGetRequestProtocol {
-    typealias Model = TestUser
-    
-    let id: Int
-    
-    var url: String { "https://api.example.com/users/{id}" }
-    var pathParameters: [String: String]? { ["id": "\(id)"] }
-}
-
-private struct UpdateUserRequest: HPutRequestProtocol, @unchecked Sendable {
-    let id: Int
-    let name: String
-    let email: String
-    var bodyParameters: [String: Any]?
-    
-    var url: String { "https://api.example.com/users/\(id)" }
-    
-    init(id: Int, name: String, email: String) {
-        self.id = id
-        self.name = name
-        self.email = email
-        self.bodyParameters = ["name": name, "email": email]
-    }
-}
-
-private struct UpdateUserWithFileRequest: HPutRequestProtocol, @unchecked Sendable {
-    typealias Model = TestUser
-    
-    let id: Int
-    let name: String
-    let fileData: Data
-    var bodyParameters: [String: Any]? = nil
-    var multipartBody: [String: HFormValue]?
-    
-    var url: String { "https://api.example.com/users/\(id)" }
-    
-    init(id: Int, name: String, avatar: Data) {
-        self.id = id
-        self.name = name
-        self.fileData = avatar
-        let fileURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + "_avatar.jpg")
-        try? fileData.write(to: fileURL)
-        self.multipartBody = ["name": .text(name), "avatar": .file(url: fileURL, mimeType: nil, fileName: "avatar.jpg")]
-    }
-}
-
-private struct PartialUpdateUserRequest: HPatchRequestProtocol, @unchecked Sendable {
-    let id: Int
-    let name: String
-    var bodyParameters: [String: Any]?
-    
-    var url: String { "https://api.example.com/users/\(id)" }
-    
-    init(id: Int, name: String) {
-        self.id = id
-        self.name = name
-        self.bodyParameters = ["name": name]
-    }
-}
-
-private struct PartialUpdateUserWithJSONRequest: HPatchRequestProtocol, @unchecked Sendable {
-    let id: Int
-    let email: String
-    var bodyParameters: [String: Any]?
-    
-    var url: String { "https://api.example.com/users/\(id)" }
-    var bodyType: HRequestDataType { .json }
-    
-    init(id: Int, email: String) {
-        self.id = id
-        self.email = email
-        self.bodyParameters = ["email": email]
-    }
-}
-
-private struct TimeoutRequest: HGetRequestProtocol {
-    typealias Model = TestUser
-    
-    var url: String { "https://slow.example.com/timeout" }
-}
-
-private struct ConnectionFailureRequest: HGetRequestProtocol {
-    typealias Model = TestUser
-    
-    var url: String { "https://unreachable.example.com/data" }
-}
-
-private struct InvalidHostRequest: HGetRequestProtocol {
-    typealias Model = TestUser
-    
-    var url: String { "https://nonexistent.invalid.domain/data" }
-}
-
-private struct MalformedRequest: HGetRequestProtocol {
-    typealias Model = TestUser
-    
-    var url: String { "invalid-url-format" }
-}
-
-private struct CancellableRequest: HGetRequestProtocol {
-    typealias Model = TestUser
-    
-    var url: String { "https://api.example.com/slow-endpoint" }
-}
 
 // MARK: - Helper Extensions
 

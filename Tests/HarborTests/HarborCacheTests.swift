@@ -122,8 +122,8 @@ final class HarborCacheTests: XCTestCase {
         switch response {
         case .success(let data):
             XCTAssertEqual(data.value, "disabled-cache-test")
-        case .error(_):
-            XCTFail("Expected success but got error")
+        case .error(let error):
+            XCTFail("Expected success but got error: \(error)")
         }
         
         // Verify data is not cached
@@ -562,8 +562,8 @@ final class HarborCacheTests: XCTestCase {
         switch firstResponse {
         case .success(let data):
             XCTAssertEqual(data.value, "harbor-api-test")
-        case .error(_):
-            XCTFail("Expected success but got error")
+        case .error(let error):
+            XCTFail("Expected success but got error: \(error)")
         }
         
         // Test request.cache() API
@@ -592,8 +592,8 @@ final class HarborCacheTests: XCTestCase {
         switch firstResponse {
         case .success(let data):
             XCTAssertEqual(data.value, "clear-cache-test")
-        case .error(_):
-            XCTFail("Expected success but got error")
+        case .error(let error):
+            XCTFail("Expected success but got error: \(error)")
         }
         
         // Verify data is cached
@@ -1066,153 +1066,3 @@ final class HarborCacheTests: XCTestCase {
 
 // MARK: - Test Models and Requests
 
-private struct TestCacheData: HModel {
-    let value: String
-    let timestamp: Date
-}
-
-private struct TestCacheableRequest: HGetRequestProtocol {
-    typealias Model = TestCacheData
-    
-    let url: String = "https://cache.example.com/test"
-    let cacheType: HCache.CacheType? = .custom(HCache.Configuration())
-}
-
-private struct TestDefaultCacheableRequest: HGetRequestProtocol {
-    typealias Model = TestCacheData
-    
-    let url: String = "https://cache.example.com/non-cached" 
-    // cache defaults to nil (uses HConfig default)
-}
-
-private struct TestCacheableGetRequest: HGetRequestProtocol {
-    typealias Model = TestCacheData
-    
-    let url: String = "https://cache.example.com/test"
-    let cacheType: HCache.CacheType? = .custom(HCache.Configuration())
-    let queryParameters: [String: String]? = ["page": "1", "limit": "10"]
-}
-
-private struct TestCacheablePathRequest: HGetRequestProtocol {
-    typealias Model = TestCacheData
-    
-    let url: String = "https://cache.example.com/users/{userId}"
-    let cacheType: HCache.CacheType? = .custom(HCache.Configuration())
-    let pathParameters: [String: String]? = ["userId": "123"]
-}
-
-private struct TestCustomExpirationRequest: HGetRequestProtocol {
-    typealias Model = TestCacheData
-    
-    let url: String = "https://cache.example.com/custom-expiration"
-    let cacheType: HCache.CacheType? = .custom(HCache.Configuration(expirationTime: 60))
-}
-
-private struct TestOneHourCacheRequest: HGetRequestProtocol {
-    typealias Model = TestCacheData
-    
-    let url: String = "https://cache.example.com/one-hour"
-    let cacheType: HCache.CacheType? = .custom(HCache.Configuration(expirationTime: .oneHour))
-}
-
-private struct TestExplicitlyDisabledRequest: HGetRequestProtocol {
-    typealias Model = TestCacheData
-
-    let url: String = "https://cache.example.com/explicitly-disabled"
-    let cacheType: HCache.CacheType? = .disabled
-}
-
-private struct TestLongCacheRequest: HGetRequestProtocol {
-    typealias Model = TestCacheData
-    
-    var url: String = "https://cache.example.com/long-test"
-    var cacheType: HCache.CacheType? = .custom(HCache.Configuration(expirationTime: .oneHour)) // 1 hour
-}
-
-private struct TestNoCacheRequest: HGetRequestProtocol {
-    typealias Model = TestCacheData
-
-    let url: String = "https://cache.example.com/no-cache-test"
-    let cacheType: HCache.CacheType? = .custom(HCache.Configuration())
-}
-
-private struct TestZeroExpirationRequest: HGetRequestProtocol {
-    typealias Model = TestCacheData
-
-    let url: String = "https://cache.example.com/zero-expiration"
-    let cacheType: HCache.CacheType? = .custom(HCache.Configuration(expirationTime: 0))
-}
-
-private struct TestNoStoreRequest: HGetRequestProtocol {
-    typealias Model = TestCacheData
-
-    let url: String = "https://cache.example.com/no-store"
-    let cacheType: HCache.CacheType? = .custom(HCache.Configuration())
-}
-
-private struct TestLowercaseHeadersRequest: HGetRequestProtocol {
-    typealias Model = TestCacheData
-
-    let url: String = "https://cache.example.com/lowercase-headers"
-    let cacheType: HCache.CacheType? = .custom(HCache.Configuration())
-}
-
-private struct TestVaryEnRequest: HGetRequestProtocol {
-    typealias Model = TestCacheData
-
-    let url: String = "https://cache.example.com/vary"
-    let cacheType: HCache.CacheType? = .custom(HCache.Configuration())
-    var headerParameters: [String: String]? = ["Accept-Language": "en"]
-}
-
-private struct TestVaryEsRequest: HGetRequestProtocol {
-    typealias Model = TestCacheData
-
-    let url: String = "https://cache.example.com/vary"
-    let cacheType: HCache.CacheType? = .custom(HCache.Configuration())
-    var headerParameters: [String: String]? = ["Accept-Language": "es"]
-}
-
-private struct TestRevalidationRequest: HGetRequestProtocol {
-    typealias Model = TestCacheData
-
-    let url: String = "https://cache.example.com/revalidate"
-    let cacheType: HCache.CacheType? = .custom(HCache.Configuration())
-}
-
-private struct TestStaleOnErrorRequest: HGetRequestProtocol {
-    typealias Model = TestCacheData
-
-    let url: String = "https://cache.example.com/stale-on-error"
-    let cacheType: HCache.CacheType? = .custom(HCache.Configuration())
-}
-
-private struct TestStaleOnErrorMustRevalidateRequest: HGetRequestProtocol {
-    typealias Model = TestCacheData
-
-    let url: String = "https://cache.example.com/stale-on-error-must-revalidate"
-    let cacheType: HCache.CacheType? = .custom(HCache.Configuration())
-}
-
-private struct TestStaleOfflineRequest: HGetRequestProtocol {
-    typealias Model = TestCacheData
-
-    let url: String = "https://cache.example.com/stale-offline"
-    let cacheType: HCache.CacheType? = .custom(HCache.Configuration())
-}
-
-private struct TestDedicatedURLCacheRequest: HGetRequestProtocol {
-    typealias Model = TestCacheData
-
-    let url: String = "https://cache.example.com/dedicated-url-cache"
-    let cacheType: HCache.CacheType?
-
-    init(urlCache: URLCache) {
-        self.cacheType = .urlCache(urlCache: urlCache, requestCachePolicy: .reloadIgnoringLocalCacheData)
-    }
-}
-
-private struct TestEmptyResponseRequest: HRequestWithEmptyResponseProtocol {
-    let url: String = "https://cache.example.com/empty-not-modified"
-    var httpMethod: HHttpMethod { .get }
-}

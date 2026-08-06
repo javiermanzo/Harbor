@@ -26,7 +26,7 @@ final class HarborETagTests: XCTestCase {
     // MARK: - Cache Policy Tests
     
     func testDefaultCachePolicyIsURLCache() async throws {
-        let request = GetUsersRequest()
+        let request = GetUsersSimpleRequest()
         XCTAssertNil(request.cacheType, "Default cache type should be nil (uses config default)")
     }
     
@@ -47,7 +47,7 @@ final class HarborETagTests: XCTestCase {
     }
     
     func testURLCachePolicyIsCachingEnabled() async throws {
-        let request = GetUsersRequest()
+        let request = GetUsersSimpleRequest()
         // Default cacheType is nil, but effective type .urlCache() has caching enabled
         let effectivePolicy = request.cacheType ?? .urlCache()
         XCTAssertTrue(effectivePolicy.isCachingEnabled)
@@ -56,7 +56,7 @@ final class HarborETagTests: XCTestCase {
     // MARK: - Cache Method Tests
     
     func testCacheMethodReturnsNilForURLCachePolicy() async throws {
-        let request = GetUsersRequest()
+        let request = GetUsersSimpleRequest()
         
         // cache() should return nil for URLCache type
         let cached = await request.cache()
@@ -92,7 +92,7 @@ final class HarborETagTests: XCTestCase {
     // MARK: - Clear Cache Tests
     
     func testClearCacheWorksForURLCache() async throws {
-        let request = GetUsersRequest()
+        let request = GetUsersSimpleRequest()
         
         // Should not crash - now supports URLCache
         await request.clearCache()
@@ -178,39 +178,5 @@ final class HarborETagTests: XCTestCase {
 
 // MARK: - Test Requests
 
-private struct GetUsersRequest: HGetRequestProtocol {
-    typealias Model = TestUser
-    let url = "https://api.example.com/users"
-    // Uses default cacheType = .urlCache()
-}
-
-private struct GetUsersWithCustomCacheRequest: HGetRequestProtocol {
-    typealias Model = TestUser
-    let url = "https://api.example.com/users"
-    let cacheType: HCache.CacheType? = .custom(HCache.Configuration(expirationTime: .oneHour))
-}
-
-private struct GetUsersNoCacheRequest: HGetRequestProtocol {
-    typealias Model = TestUser
-    let url = "https://api.example.com/users"
-    let cacheType: HCache.CacheType? = .disabled
-}
-
-private struct GetUsersCustomURLCacheRequest: HGetRequestProtocol {
-    typealias Model = TestUser
-    let url = "https://api.example.com/users"
-    let cacheType: HCache.CacheType?
-    
-    init(urlCache: URLCache) {
-        self.cacheType = .urlCache(urlCache: urlCache)
-    }
-}
-
 // MARK: - Test Models
-
-private struct TestUser: Codable, Sendable {
-    let id: Int
-    let name: String
-    let email: String
-}
 

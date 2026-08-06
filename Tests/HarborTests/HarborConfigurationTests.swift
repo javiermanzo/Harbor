@@ -226,7 +226,6 @@ final class HarborConfigurationTests: XCTestCase {
         XCTAssertEqual(session.configuration.timeoutIntervalForRequest, 30, accuracy: 0.001)
     }
 
-
     // MARK: - Mock Configuration Tests
 
     func testSetMocksOnlyInDebugTrue() async throws {
@@ -368,10 +367,6 @@ private func mocksEnabledValue() -> Bool {
 
 // MARK: - Test Models
 
-private struct TestConfigData: HModel {
-    let value: String
-}
-
 // MARK: - Test Auth Provider
 
 private final class TestAuthProvider: HAuthProviderProtocol, @unchecked Sendable {
@@ -386,25 +381,3 @@ private final class TestAuthProvider: HAuthProviderProtocol, @unchecked Sendable
 
 // MARK: - Test Request Implementations
 
-private struct TestConfigRequest: HGetRequestProtocol {
-    typealias Model = TestConfigData
-    
-    var url: String { "https://config.example.com/test" }
-}
-
-private struct TestAuthenticatedConfigRequest: HGetRequestProtocol {
-    typealias Model = TestConfigData
-    
-    var url: String { "https://config.example.com/auth-test" }
-    var needsAuth: Bool { true }
-}
-
-private struct TestFullyConfiguredRequest: HGetRequestProtocol {
-    typealias Model = TestConfigData
-    
-    var url: String { "https://api.example.com/full-config-test" }
-    var needsAuth: Bool { true }
-    var headerParameters: [String: String]? {
-        ["X-Custom-Header": "test-value"]
-    }
-}

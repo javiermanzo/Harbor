@@ -49,10 +49,11 @@ jobs:
         path: ./base-coverage/
 
     - name: Report Coverage to PR
-      uses: Nef10/lcov-reporter-action@7946f3508d17375c7685346dd1ca7aad7c6c290a # v0.4.0
+      uses: Nef10/lcov-reporter-action@797ec1c1e78e3a9a7890c1a104d58b9e05fcef76 # v0.6.1
       if: github.event_name == 'pull_request'
       with:
         github-token: ${{ secrets.GITHUB_TOKEN }}
+        pr-number: ${{ github.event.pull_request.number }}
         lcov-file: ./lcov.info
         lcov-base: ./base-coverage/lcov.info
         filter-changed-files: true

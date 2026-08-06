@@ -31,7 +31,7 @@ enum HMocker {
 
     /// Registers a scripted sequence of responses. Each resolution advances the sequence;
     /// after the last response is consumed it repeats indefinitely.
-    static func registerSequence(_ sequence: HMockSequence) {
+    static func registerMockSequence(_ sequence: HMockSequence) {
         guard !sequence.responses.isEmpty else { return }
         let id = key(for: sequence.request)
         sequences[id] = sequence

@@ -214,10 +214,10 @@ public extension Harbor {
         HMocker.register(mock: mock)
     }
 
-    /// Registers a scripted sequence of responses for a request type. Each request of the
+    /// Registers a scripted sequence of mock responses for a request type. Each request of the
     /// given type resolves to the next response in order; the last one repeats thereafter.
-    static func registerSequence(_ sequence: HMockSequence) {
-        HMocker.registerSequence(sequence)
+    static func registerMockSequence(_ sequence: HMockSequence) {
+        HMocker.registerMockSequence(sequence)
     }
 
     /// Removes a specific mock.

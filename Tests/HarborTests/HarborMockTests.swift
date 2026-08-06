@@ -101,7 +101,7 @@ final class HarborMockTests: XCTestCase {
 
     func testSequencePlaysResponsesInOrderThenRepeats() async throws {
         Harbor.setMocksEnabled(true)
-        Harbor.registerSequence(HMockSequence(request: MockGetRequest<MockModel>.self, responses: [
+        Harbor.registerMockSequence(HMockSequence(request: MockGetRequest<MockModel>.self, responses: [
             .init(statusCode: 401, error: .authNeeded),
             .init(statusCode: 200, jsonResponse: """
             {"quote":"then-success"}

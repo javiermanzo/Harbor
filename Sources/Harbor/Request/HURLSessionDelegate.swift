@@ -9,7 +9,7 @@ import Foundation
 import LogBird
 import Security
 
-final class HURLSessionDelegate: NSObject, URLSessionDelegate, @unchecked Sendable {
+final class HURLSessionDelegate: NSObject, URLSessionDelegate, Sendable {
 
     typealias HChallengeResult = (disposition: URLSession.AuthChallengeDisposition, credential: URLCredential?)
 

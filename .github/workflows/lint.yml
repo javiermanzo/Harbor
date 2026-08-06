@@ -1,0 +1,17 @@
+name: Lint
+
+on:
+  push:
+    branches: [ main, 'release/*' ]
+  pull_request:
+    branches: [ main, 'release/*' ]
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+    - name: SwiftLint
+      uses: norio-nomura/action-swiftlint@b3fcfb2c5a82d46c48495dda0bcb4c0e981bfc54 # v3.2.1
+      with:
+        args: --strict

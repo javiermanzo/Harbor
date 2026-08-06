@@ -7,6 +7,11 @@
 
 import Foundation
 import Harbor
+import LogBird
+
+enum AuthError: Error {
+    case noRefreshToken
+}
 
 // MARK: - Token Auth Provider
 
@@ -22,9 +27,11 @@ final class TokenAuthProvider: HAuthProviderProtocol, @unchecked Sendable {
         return HAuthorizationHeader(key: "Authorization", value: "Bearer \(token)")
     }
 
+    private static let logger = LogBird(subsystem: "com.harbor.example", category: "Auth")
+
     func authFailed() async {
         // Handle auth failure - e.g., refresh token or show login
-        print("Authentication failed!")
+        Self.logger.log("Authentication failed!", level: .error)
     }
 
     func setToken(_ token: String, expiresIn: TimeInterval) {
@@ -38,117 +45,7 @@ final class TokenAuthProvider: HAuthProviderProtocol, @unchecked Sendable {
     }
 }
 
-// MARK: - OAuth2 Auth Provider
 
-/// OAuth2 authentication provider
-final class OAuth2AuthProvider: HAuthProviderProtocol, @unchecked Sendable {
-    private var accessToken: String?
-    private var refreshToken: String?
-    private var tokenExpiration: Date?
-
-    private let clientId: String
-    private let clientSecret: String
-    private let tokenEndpoint: String
-
-    init(clientId: String, clientSecret: String, tokenEndpoint: String) {
-        self.clientId = clientId
-        self.clientSecret = clientSecret
-        self.tokenEndpoint = tokenEndpoint
-    }
-
-    func getAuthorizationHeader() async -> HAuthorizationHeader? {
-        guard let token = accessToken else {
-            return nil
-        }
-        return HAuthorizationHeader(key: "Authorization", value: "Bearer \(token)")
-    }
-
-    func authFailed() async {
-        // Try to refresh token
-        do {
-            try await refreshToken()
-        } catch {
-            print("Failed to refresh token: \(error)")
-        }
-    }
-
-    private func refreshToken() async throws {
-        guard let refreshToken = refreshToken else {
-            throw AuthError.noRefreshToken
-        }
-
-        // Build refresh token request
-        var request = URLRequest(url: URL(string: tokenEndpoint)!)
-        request.httpMethod = "POST"
-        request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
-
-        let body = [
-            "grant_type": "refresh_token",
-            "refresh_token": refreshToken,
-            "client_id": clientId,
-            "client_secret": clientSecret
-        ]
-        request.httpBody = body.map { "\($0.key)=\($0.value)" }
-            .joined(separator: "&")
-            .data(using: .utf8)
-
-        // In real implementation, make the request and parse response
-        // For demo, we'll simulate
-        throw AuthError.refreshFailed
-    }
-
-    func setTokens(access: String, refresh: String, expiresIn: TimeInterval) {
-        self.accessToken = access
-        self.refreshToken = refresh
-        self.tokenExpiration = Date().addingTimeInterval(expiresIn)
-    }
-
-    func logout() {
-        self.accessToken = nil
-        self.refreshToken = nil
-        self.tokenExpiration = nil
-    }
-}
-
-enum AuthError: Error, LocalizedError {
-    case noRefreshToken
-    case refreshFailed
-    case invalidCredentials
-
-    var errorDescription: String? {
-        switch self {
-        case .noRefreshToken:
-            return "No refresh token available"
-        case .refreshFailed:
-            return "Failed to refresh token"
-        case .invalidCredentials:
-            return "Invalid credentials"
-        }
-    }
-}
-
-// MARK: - API Key Auth Provider
-
-/// API Key authentication provider
-final class APIKeyAuthProvider: HAuthProviderProtocol, @unchecked Sendable {
-    private let apiKey: String
-    private let headerName: String
-
-    init(apiKey: String, headerName: String = "X-API-Key") {
-        self.apiKey = apiKey
-        self.headerName = headerName
-    }
-
-    func getAuthorizationHeader() async -> HAuthorizationHeader? {
-        return HAuthorizationHeader(key: headerName, value: apiKey)
-    }
-
-    func authFailed() async {
-        // API keys don't fail - nothing to do
-    }
-}
-
-// MARK: - Custom Auth Provider Example
 
 /// Custom authentication with token refresh and retry logic
 final class CustomAuthProvider: HAuthProviderProtocol, @unchecked Sendable {
@@ -173,12 +70,14 @@ final class CustomAuthProvider: HAuthProviderProtocol, @unchecked Sendable {
         )
     }
 
+    private static let logger = LogBird(subsystem: "com.harbor.example", category: "Auth")
+
     func authFailed() async {
         // Try to refresh the token
         do {
             try await refreshTokenInternal()
         } catch {
-            print("Auth refresh failed: \(error)")
+            Self.logger.log("Auth refresh failed", error: error, level: .error)
         }
     }
 
@@ -238,9 +137,11 @@ final class RefreshingAuthProvider: HAuthProviderProtocol, @unchecked Sendable {
         return HAuthorizationHeader(key: "Authorization", value: "Bearer \(accessToken)")
     }
 
+    private static let logger = LogBird(subsystem: "com.harbor.example", category: "Auth")
+
     func authFailed() async {
         // Called when Harbor cannot recover the request with a refreshed token.
-        print("Authentication failed: no fresh token available")
+        Self.logger.log("Authentication failed: no fresh token available", level: .error)
     }
 
     private func refreshAccessToken() {

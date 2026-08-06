@@ -18,10 +18,10 @@ public extension HCache {
 
         /// Use Harbor's custom cache system with full control over expiration and storage.
         case custom(Configuration)
-        
+
         /// No caching - always fetch fresh data from network.
         case disabled
-        
+
         /// Whether caching is enabled for this type.
         var isCachingEnabled: Bool {
             switch self {
@@ -31,9 +31,9 @@ public extension HCache {
                 return false
             }
         }
-        
+
         // MARK: - Equatable
-        
+
         public static func == (lhs: CacheType, rhs: CacheType) -> Bool {
             switch (lhs, rhs) {
             case (.urlCache(let lCache, let lPolicy), .urlCache(let rCache, let rPolicy)):

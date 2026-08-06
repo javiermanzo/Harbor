@@ -36,10 +36,10 @@ public extension Harbor {
     /// - Throws: `HMTLSError` when the identity could not be extracted from the P12
     ///   (file missing, wrong password, malformed, no identity). mTLS stays disabled in that case.
     static func setMTLS(_ mTLS: HMTLS) async throws {
-        let loggingEnabled = HConfig.shared.isLoggingEnabled
+
         do {
             let identity = try await Task.detached {
-                try await mTLS.extractIdentity(loggingEnabled: loggingEnabled)
+                try await mTLS.extractIdentity()
             }.value
             HConfig.shared.mTLSIdentity = identity
             HRequestManager.invalidateURLSession()

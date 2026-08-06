@@ -24,9 +24,7 @@ struct RequestsView: View {
     // Auth provider for the token-refresh demo (starts with an expired token)
     private let refreshAuthProvider = RefreshingAuthProvider()
 
-    init() {
-        // Configure global settings on first appear
-    }
+    @State private var isHarborSetup = false
 
     func setupOnAppear() {
         Self.logger.log("setupOnAppear called", level: .info)
@@ -37,6 +35,9 @@ struct RequestsView: View {
     }
 
     private func setupHarbor() async {
+        guard !isHarborSetup else { return }
+        isHarborSetup = true
+
         // Set default headers for all requests
         await Harbor.setDefaultHeaderParameters([
             "X-Client-Version": "1.0.0",
@@ -68,13 +69,13 @@ struct RequestsView: View {
                             SectionHeader(title: "Basic GET Requests")
 
                             ExampleButton(title: "GET - Simple Request", icon: "arrow.down.circle", action: { performBasicGet() })
-                            
+
 
                             ExampleButton(title: "GET - With Path Parameter", icon: "arrow.right.circle", action: { performGetWithPathParameter() })
-                            
+
 
                             ExampleButton(title: "GET - With Query Params", icon: "magnifyingglass", action: { performGetWithQueryParams() })
-                            
+
                         }
 
                         // MARK: - POST Requests
@@ -112,7 +113,6 @@ struct RequestsView: View {
 
                             ExampleButton(title: "GET - Cache Only", icon: "internaldrive", action: { performCacheOnlyRequest() })
 
-                            ExampleButton(title: "GET - Remote Only", icon: "antenna.radiowaves.left.and.right", action: { performRemoteOnlyRequest() })
 
                             ExampleButton(title: "Clear All Cache", icon: "xmark.circle", isDestructive: true, action: { clearAllCache() })
                         }
@@ -162,7 +162,6 @@ struct RequestsView: View {
                         Section {
                             SectionHeader(title: "Error Handling")
 
-                            ExampleButton(title: "Handle Errors", icon: "exclamationmark.triangle", action: { performErrorHandling() })
                         }
 
                         // MARK: - JSON-RPC
@@ -456,21 +455,6 @@ struct RequestsView: View {
         }
     }
 
-    func performRemoteOnlyRequest() {
-        addResult("=== GET - Remote Only ===")
-        performWithLoading {
-            let response = await RemoteOnlyUsersRequest().request()
-
-            await MainActor.run {
-                switch response {
-                case .success(let users):
-                    addResult("Got \(users.count) users (bypassed cache)")
-                case .error(let error):
-                    addResult("Error: \(error.localizedDescription)")
-                }
-            }
-        }
-    }
 
     func clearAllCache() {
         addResult("=== Clearing Cache ===")
@@ -647,24 +631,6 @@ struct RequestsView: View {
         }
     }
 
-    // MARK: - Error Handling
-
-    func performErrorHandling() {
-        addResult("=== Error Handling Examples ===")
-        performWithLoading {
-            let response = await ErrorProneRequest().request()
-
-            await MainActor.run {
-                switch response {
-                case .success(let errorResponse):
-                    addResult("Error response: \(errorResponse.error)")
-                case .error(let error):
-                    addResult("Parsed error: \(error)")
-                    addResult("Error type: \(type(of: error))")
-                }
-            }
-        }
-    }
 
     // MARK: - JSON-RPC
 

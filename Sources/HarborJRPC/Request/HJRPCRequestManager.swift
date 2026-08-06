@@ -9,7 +9,7 @@ import Foundation
 import Harbor
 
 @HRequestManagerActor
-enum HJRPCRequestManager {
+enum HJRPCRequestManager: Sendable {
     static var config: HJRPCConfig = HJRPCConfig()
 }
 

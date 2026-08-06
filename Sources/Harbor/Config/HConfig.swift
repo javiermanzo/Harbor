@@ -79,6 +79,11 @@ struct HConfig: @unchecked Sendable {
     /// URLProtocol classes injected into internally built sessions, allowing networking
     /// to be stubbed per session instead of registering protocols globally.
     var protocolClasses: [AnyClass]?
+    /// Default JSON decoder used for parsing responses.
+    nonisolated static var jsonDecoder: JSONDecoder {
+        get { HJSONDecoderStorage.decoder }
+        set { HJSONDecoderStorage.decoder = newValue }
+    }
 
     /// Whether mocks are currently enabled based on build configuration and `mocksOnlyInDebug`.
     /// An explicit override (`mocksEnabledOverride`) takes precedence over the build rule.
@@ -97,6 +102,23 @@ struct HConfig: @unchecked Sendable {
     private static func validatePins(_ keys: [String]) {
         for key in keys where !HSPKI.isValidPin(key) {
             Self.logger.log("SSL pinning key \"\(key)\" is not a valid base64 SHA-256 hash and will never match. Pins must be base64(SHA256(SPKI)).", level: .warning)
+        }
+    }
+}
+
+private struct HJSONDecoderStorage {
+    static let lock = NSLock()
+    nonisolated(unsafe) static var _decoder = JSONDecoder()
+    static var decoder: JSONDecoder {
+        get {
+            lock.lock()
+            defer { lock.unlock() }
+            return _decoder
+        }
+        set {
+            lock.lock()
+            defer { lock.unlock() }
+            _decoder = newValue
         }
     }
 }

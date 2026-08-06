@@ -95,7 +95,7 @@ public protocol HRequestWithResultProtocol: HRequestBaseRequestProtocol {
     /// The model type that this request returns.
     associatedtype Model: HModel
     /// Parses response data into the specified model type.
-    func parseData<Model: Codable> (data: Data, model: Model.Type) throws -> Model
+    func parseData<T: Codable> (data: Data, model: T.Type) throws -> T
     /// Executes the request and returns a typed response.
     func request() async -> HResponseWithResult<Model>
 }
@@ -106,11 +106,11 @@ public extension HRequestWithResultProtocol {
     func request() async -> HResponseWithResult<Model> {
         return await HRequestManager.request(model: Model.self, request: self)
     }
-    
+
     /// Default implementation using `JSONDecoder`.
-    func parseData<Model: Codable> (data: Data, model: Model.Type) throws -> Model {
-        let decoder = JSONDecoder()
-        return try decoder.decode(Model.self, from: data)
+    func parseData<T: Codable> (data: Data, model: T.Type) throws -> T {
+        let decoder = HConfig.jsonDecoder
+        return try decoder.decode(T.self, from: data)
     }
 }
 
@@ -155,7 +155,7 @@ public extension HGetRequestProtocol {
     var queryParameters: [String: String]? { nil }
     /// Default: `nil`.
     var cacheType: HCache.CacheType? { nil }
-    
+
     /// Creates an async throwing stream that emits responses from cache and/or remote sources.
     /// - Parameter source: The data source preference (default: .cacheAndRemote)
     /// - Returns: AsyncThrowingStream that yields (Model, HOriginType) tuples
@@ -172,7 +172,7 @@ public extension HGetRequestProtocol {
             }
         }
     }
-    
+
     /// Internal handler for stream request logic. Every path finishes the continuation exactly once.
     private func handleStreamRequest(
         source: HRequestSource,

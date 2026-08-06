@@ -18,14 +18,14 @@ enum PKCS12Error: Error, Equatable {
 }
 
 /// Helper class to extract client identity and certificates from a PKCS#12 archive.
-final class PKCS12 {
+struct PKCS12 {
 
     private static let logger = LogBird(subsystem: "com.harbor", category: "p12")
 
     /// The label of the imported item.
     let label: String?
     /// The key identifier.
-    let keyID: NSData?
+    let keyID: Data?
     /// The trust management object.
     let trust: SecTrust?
     /// The certificate chain including intermediate certificates.
@@ -33,7 +33,7 @@ final class PKCS12 {
     /// The extracted client identity.
     let identity: SecIdentity?
 
-    private init(label: String?, keyID: NSData?, trust: SecTrust?, certChain: [SecCertificate]?, identity: SecIdentity?) {
+    private init(label: String?, keyID: Data?, trust: SecTrust?, certChain: [SecCertificate]?, identity: SecIdentity?) {
         self.label = label
         self.keyID = keyID
         self.trust = trust
@@ -45,11 +45,7 @@ final class PKCS12 {
     /// - Parameters:
     ///   - p12Data: The PKCS#12 archive data.
     ///   - password: The password to decrypt the archive.
-    ///   - loggingEnabled: If true, parsing failures are logged.
-    /// - Throws: `PKCS12Error.importFailed` with the `SecPKCS12Import` status when the
-    ///   archive is rejected, or `PKCS12Error.malformedContents` when the imported items
-    ///   cannot be read.
-    static func parse(p12Data: Data, password: String, loggingEnabled: Bool = false) throws(PKCS12Error) -> PKCS12 {
+    static func parse(p12Data: Data, password: String) throws(PKCS12Error) -> PKCS12 {
         let importPasswordOption: NSDictionary = [kSecImportExportPassphrase as NSString: password]
 
         var items: CFArray?
@@ -58,10 +54,8 @@ final class PKCS12 {
 
         guard status == errSecSuccess else {
             #if DEBUG
-            if loggingEnabled {
-                let message = SecCopyErrorMessageString(status, nil) as String? ?? "Unknown error"
-                Self.logger.log("PKCS12: import failed with status \(status): \(message)")
-            }
+            let message = SecCopyErrorMessageString(status, nil) as String? ?? "Unknown error"
+            Self.logger.log("PKCS12: import failed with status \(status): \(message)")
             #endif
             throw .importFailed(status)
         }
@@ -69,15 +63,13 @@ final class PKCS12 {
         guard let theItemsNSArray = items as NSArray?,
               let dictArray = theItemsNSArray as? [[String: AnyObject]] else {
             #if DEBUG
-            if loggingEnabled {
-                Self.logger.log("PKCS12: error loading items")
-            }
+            Self.logger.log("PKCS12: error loading items")
             #endif
             throw .malformedContents
         }
 
         return PKCS12(label: getValue(by: kSecImportItemLabel, dictionaryArray: dictArray),
-                      keyID: getValue(by: kSecImportItemKeyID, dictionaryArray: dictArray),
+                      keyID: getValue(by: kSecImportItemKeyID, dictionaryArray: dictArray) as Data?,
                       trust: getValue(by: kSecImportItemTrust, dictionaryArray: dictArray),
                       certChain: getValue(by: kSecImportItemCertChain, dictionaryArray: dictArray),
                       identity: getValue(by: kSecImportItemIdentity, dictionaryArray: dictArray))

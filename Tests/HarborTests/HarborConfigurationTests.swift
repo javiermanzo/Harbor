@@ -9,7 +9,7 @@ import XCTest
 @testable import Harbor
 
 final class HarborConfigurationTests: XCTestCase {
-    
+
     override func setUp() async throws {
         // Reset all configurations to default
         await Harbor.setDefaultHeaderParameters(nil)
@@ -20,7 +20,7 @@ final class HarborConfigurationTests: XCTestCase {
         await Harbor.setMocksOnlyInDebug(true)
         await Harbor.removeAllMocks()
     }
-    
+
     override func tearDown() async throws {
         // Reset all configurations to default
         await Harbor.setDefaultHeaderParameters(nil)
@@ -31,7 +31,7 @@ final class HarborConfigurationTests: XCTestCase {
         await Harbor.setMocksOnlyInDebug(true)
         await Harbor.removeAllMocks()
     }
-    
+
     // MARK: - Default Headers Tests
 
     func testSetDefaultHeaderParameters() async throws {
@@ -64,7 +64,7 @@ final class HarborConfigurationTests: XCTestCase {
         let urlRequest = try await HURLBuilder.buildUrlRequest(request: request)
         XCTAssertNil(urlRequest.value(forHTTPHeaderField: "X-API-Key"))
     }
-    
+
     func testDefaultHeadersAppliedToRequest() async throws {
         // Given
         let headers = [
@@ -72,18 +72,18 @@ final class HarborConfigurationTests: XCTestCase {
             "X-Client-Version": "1.0.0"
         ]
         await Harbor.setDefaultHeaderParameters(headers)
-        
+
         let mockResponse = TestConfigData(value: "header-test")
         let jsonData = try JSONEncoder().encode(mockResponse)
         let jsonString = String(data: jsonData, encoding: .utf8)!
-        
+
         let mock = HMock(request: TestConfigRequest.self, statusCode: 200, jsonResponse: jsonString)
         await Harbor.register(mock: mock)
-        
+
         // When
         let request = TestConfigRequest()
         let response = await request.request()
-        
+
         // Then
         switch response {
         case .success(let data):
@@ -92,7 +92,7 @@ final class HarborConfigurationTests: XCTestCase {
             XCTFail("Expected success but got error: \(error)")
         }
     }
-    
+
     // MARK: - Auth Provider Tests
 
     func testSetAuthProvider() async throws {
@@ -126,23 +126,23 @@ final class HarborConfigurationTests: XCTestCase {
             return XCTFail("Expected .authProviderNeeded after clearing the provider but got: \(result)")
         }
     }
-    
+
     func testAuthProviderAppliedToRequest() async throws {
         // Given
         let authProvider = TestAuthProvider()
         await Harbor.setAuthProvider(authProvider)
-        
+
         let mockResponse = TestConfigData(value: "auth-test")
         let jsonData = try JSONEncoder().encode(mockResponse)
         let jsonString = String(data: jsonData, encoding: .utf8)!
-        
+
         let mock = HMock(request: TestAuthenticatedConfigRequest.self, statusCode: 200, jsonResponse: jsonString)
         await Harbor.register(mock: mock)
-        
+
         // When
         let request = TestAuthenticatedConfigRequest()
         let response = await request.request()
-        
+
         // Then
         switch response {
         case .success(let data):
@@ -151,7 +151,7 @@ final class HarborConfigurationTests: XCTestCase {
             XCTFail("Expected success but got error: \(error)")
         }
     }
-    
+
     // MARK: - Custom URLSession Tests
 
     func testSetCustomURLSession() async throws {
@@ -183,25 +183,25 @@ final class HarborConfigurationTests: XCTestCase {
         let session = await HRequestManager.getURLSession(for: request)
         XCTAssertTrue(session === URLSession.shared)
     }
-    
+
     func testCustomURLSessionAppliedToRequest() async throws {
         // Given
         let config = URLSessionConfiguration.default
         config.httpAdditionalHeaders = ["X-Custom-Session": "true"]
         let customSession = URLSession(configuration: config)
         await Harbor.setCustomURLSession(customSession)
-        
+
         let mockResponse = TestConfigData(value: "session-test")
         let jsonData = try JSONEncoder().encode(mockResponse)
         let jsonString = String(data: jsonData, encoding: .utf8)!
-        
+
         let mock = HMock(request: TestConfigRequest.self, statusCode: 200, jsonResponse: jsonString)
         await Harbor.register(mock: mock)
-        
+
         // When
         let request = TestConfigRequest()
         let response = await request.request()
-        
+
         // Then
         switch response {
         case .success(let data):
@@ -210,7 +210,7 @@ final class HarborConfigurationTests: XCTestCase {
             XCTFail("Expected success but got error: \(error)")
         }
     }
-    
+
     // MARK: - Timeout Configuration Tests
 
     func testSetDefaultTimeoutInterval() async throws {
@@ -245,22 +245,22 @@ final class HarborConfigurationTests: XCTestCase {
         let override = await mocksEnabledOverrideValue()
         XCTAssertNil(override)
     }
-    
+
     func testMocksOnlyInDebugConfiguration() async throws {
         // Given
         await Harbor.setMocksOnlyInDebug(false) // Allow mocks in all modes
-        
+
         let mockResponse = TestConfigData(value: "mock-config-test")
         let jsonData = try JSONEncoder().encode(mockResponse)
         let jsonString = String(data: jsonData, encoding: .utf8)!
-        
+
         let mock = HMock(request: TestConfigRequest.self, statusCode: 200, jsonResponse: jsonString)
         await Harbor.register(mock: mock)
-        
+
         // When
         let request = TestConfigRequest()
         let response = await request.request()
-        
+
         // Then
         switch response {
         case .success(let data):
@@ -269,33 +269,33 @@ final class HarborConfigurationTests: XCTestCase {
             XCTFail("Expected success but got error: \(error)")
         }
     }
-    
+
     // MARK: - Combined Configuration Tests
-    
+
     func testCombinedConfiguration() async throws {
         // Given - Multiple configurations
         let headers = ["X-API-Key": "combined-test"]
         await Harbor.setDefaultHeaderParameters(headers)
-        
+
         let authProvider = TestAuthProvider()
         await Harbor.setAuthProvider(authProvider)
-        
+
         let customSession = URLSession(configuration: .default)
         await Harbor.setCustomURLSession(customSession)
-        
+
         await Harbor.setMocksOnlyInDebug(false)
-        
+
         let mockResponse = TestConfigData(value: "combined-config-test")
         let jsonData = try JSONEncoder().encode(mockResponse)
         let jsonString = String(data: jsonData, encoding: .utf8)!
-        
+
         let mock = HMock(request: TestFullyConfiguredRequest.self, statusCode: 200, jsonResponse: jsonString)
         await Harbor.register(mock: mock)
-        
+
         // When
         let request = TestFullyConfiguredRequest()
         let response = await request.request()
-        
+
         // Then
         switch response {
         case .success(let data):
@@ -304,7 +304,7 @@ final class HarborConfigurationTests: XCTestCase {
             XCTFail("Expected success but got error: \(error)")
         }
     }
-    
+
     // MARK: - Configuration Reset Tests
 
     func testConfigurationReset() async throws {
@@ -373,7 +373,7 @@ private final class TestAuthProvider: HAuthProviderProtocol, @unchecked Sendable
     func getAuthorizationHeader() async -> HAuthorizationHeader? {
         return HAuthorizationHeader(key: "Authorization", value: "Bearer test-token")
     }
-    
+
     func authFailed() async {
         // Handle auth failure
     }

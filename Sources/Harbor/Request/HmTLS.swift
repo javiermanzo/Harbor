@@ -80,7 +80,7 @@ public struct HMTLS: Sendable {
     ///   when the password provider throws, `.invalidPassword` when the password is rejected,
     ///   `.invalidP12Format` when the import fails for any other reason, or `.noIdentity`
     ///   when the file holds no identity.
-    func extractIdentity(loggingEnabled: Bool = false) async throws(HMTLSError) -> HMTLSIdentity {
+    func extractIdentity() async throws(HMTLSError) -> HMTLSIdentity {
         guard let p12Data = try? Data(contentsOf: p12FileUrl) else {
             throw HMTLSError.fileNotFound
         }
@@ -94,9 +94,9 @@ public struct HMTLS: Sendable {
 
         let p12Contents: PKCS12
         do {
-            p12Contents = try PKCS12.parse(p12Data: p12Data, password: password, loggingEnabled: loggingEnabled)
-        } catch {
-            switch error {
+            p12Contents = try PKCS12.parse(p12Data: p12Data, password: password)
+        } catch let pkcsError {
+            switch pkcsError {
             case .importFailed(let status):
                 throw status == errSecAuthFailed ? HMTLSError.invalidPassword : HMTLSError.invalidP12Format
             case .malformedContents:

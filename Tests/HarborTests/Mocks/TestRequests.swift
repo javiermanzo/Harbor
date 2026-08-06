@@ -4,28 +4,28 @@ import Foundation
 
 struct SecureGetRequest: HGetRequestProtocol {
     typealias Model = TestSecureData
-    
+
     var url: String { "https://secure.example.com/data" }
 }
 
 struct MTLSGetRequest: HGetRequestProtocol {
     typealias Model = TestSecureData
-    
+
     var url: String { "https://mtls.example.com/data" }
 }
 
 struct FullySecureGetRequest: HGetRequestProtocol {
     typealias Model = TestSecureData
-    
+
     var url: String { "https://fullysecure.example.com/data" }
 }
 
 struct TestDebugRequest: HGetRequestProtocol, HDebugRequestProtocol {
     typealias Model = MockModel
-    
+
     let url: String = "https://api.example.com/test"
     var debugType: HDebugRequestType
-    
+
     init(debugType: HDebugRequestType) {
         self.debugType = debugType
     }
@@ -33,27 +33,27 @@ struct TestDebugRequest: HGetRequestProtocol, HDebugRequestProtocol {
 
 struct TestStreamRequest: HGetRequestProtocol {
     typealias Model = TestStreamData
-    
+
     let url: String = "https://stream.example.com/test"
     let cacheType: HCache.CacheType? = .custom(HCache.Configuration())
 }
 
 struct TestConfigRequest: HGetRequestProtocol {
     typealias Model = TestConfigData
-    
+
     var url: String { "https://config.example.com/test" }
 }
 
 struct TestAuthenticatedConfigRequest: HGetRequestProtocol {
     typealias Model = TestConfigData
-    
+
     var url: String { "https://config.example.com/auth-test" }
     var needsAuth: Bool { true }
 }
 
 struct TestFullyConfiguredRequest: HGetRequestProtocol {
     typealias Model = TestConfigData
-    
+
     var url: String { "https://api.example.com/full-config-test" }
     var needsAuth: Bool { true }
     var headerParameters: [String: String]? {
@@ -83,7 +83,7 @@ struct GetUsersCustomURLCacheRequest: HGetRequestProtocol {
     typealias Model = TestUser
     let url = "https://api.example.com/users"
     let cacheType: HCache.CacheType?
-    
+
     init(urlCache: URLCache) {
         self.cacheType = .urlCache(urlCache: urlCache)
     }
@@ -91,21 +91,21 @@ struct GetUsersCustomURLCacheRequest: HGetRequestProtocol {
 
 struct GetUserRequest: HGetRequestProtocol {
     typealias Model = TestUser
-    
+
     let userId: String
-    
+
     var url: String { "https://api.example.com/users/\(userId)" }
 }
 
 struct CreateUserRequest: HPostRequestProtocol, @unchecked Sendable {
     typealias Model = TestUser
-    
+
     let name: String
     let email: String
     var bodyParameters: [String: Any]?
-    
+
     var url: String { "https://api.example.com/users" }
-    
+
     init(name: String, email: String) {
         self.name = name
         self.email = email
@@ -115,14 +115,14 @@ struct CreateUserRequest: HPostRequestProtocol, @unchecked Sendable {
 
 struct UploadFileRequest: HPostRequestProtocol, @unchecked Sendable {
     typealias Model = FileUploadResponse
-    
+
     let fileName: String
     let fileData: Data
     var bodyParameters: [String: Any]? = nil
     var multipartBody: [String: HFormValue]?
-    
+
     var url: String { "https://api.example.com/upload" }
-    
+
     init(fileName: String, fileData: Data) {
         self.fileName = fileName
         self.fileData = fileData
@@ -134,20 +134,20 @@ struct UploadFileRequest: HPostRequestProtocol, @unchecked Sendable {
 
 struct DeleteUserRequest: HDeleteRequestProtocol {
     let userId: String
-    
+
     var url: String { "https://api.example.com/users/\(userId)" }
 }
 
 struct AuthenticatedRequest: HGetRequestProtocol {
     typealias Model = ProtectedData
-    
+
     var url: String { "https://api.example.com/protected" }
     var needsAuth: Bool { true }
 }
 
 struct CustomHeadersRequest: HGetRequestProtocol {
     typealias Model = TestUser
-    
+
     var url: String { "https://api.example.com/users/1" }
     var headerParameters: [String: String]? = [
         "X-API-Version": "v2",
@@ -158,9 +158,9 @@ struct CustomHeadersRequest: HGetRequestProtocol {
 
 struct GetUserByIdRequest: HGetRequestProtocol {
     typealias Model = TestUser
-    
+
     let id: Int
-    
+
     var url: String { "https://api.example.com/users/{id}" }
     var pathParameters: [String: String]? { ["id": "\(id)"] }
 }
@@ -170,9 +170,9 @@ struct UpdateUserRequest: HPutRequestProtocol, @unchecked Sendable {
     let name: String
     let email: String
     var bodyParameters: [String: Any]?
-    
+
     var url: String { "https://api.example.com/users/\(id)" }
-    
+
     init(id: Int, name: String, email: String) {
         self.id = id
         self.name = name
@@ -183,15 +183,15 @@ struct UpdateUserRequest: HPutRequestProtocol, @unchecked Sendable {
 
 struct UpdateUserWithFileRequest: HPutRequestProtocol, @unchecked Sendable {
     typealias Model = TestUser
-    
+
     let id: Int
     let name: String
     let fileData: Data
     var bodyParameters: [String: Any]? = nil
     var multipartBody: [String: HFormValue]?
-    
+
     var url: String { "https://api.example.com/users/\(id)" }
-    
+
     init(id: Int, name: String, avatar: Data) {
         self.id = id
         self.name = name
@@ -206,9 +206,9 @@ struct PartialUpdateUserRequest: HPatchRequestProtocol, @unchecked Sendable {
     let id: Int
     let name: String
     var bodyParameters: [String: Any]?
-    
+
     var url: String { "https://api.example.com/users/\(id)" }
-    
+
     init(id: Int, name: String) {
         self.id = id
         self.name = name
@@ -220,10 +220,10 @@ struct PartialUpdateUserWithJSONRequest: HPatchRequestProtocol, @unchecked Senda
     let id: Int
     let email: String
     var bodyParameters: [String: Any]?
-    
+
     var url: String { "https://api.example.com/users/\(id)" }
     var bodyType: HRequestDataType { .json }
-    
+
     init(id: Int, email: String) {
         self.id = id
         self.email = email
@@ -233,31 +233,31 @@ struct PartialUpdateUserWithJSONRequest: HPatchRequestProtocol, @unchecked Senda
 
 struct TimeoutRequest: HGetRequestProtocol {
     typealias Model = TestUser
-    
+
     var url: String { "https://slow.example.com/timeout" }
 }
 
 struct ConnectionFailureRequest: HGetRequestProtocol {
     typealias Model = TestUser
-    
+
     var url: String { "https://unreachable.example.com/data" }
 }
 
 struct InvalidHostRequest: HGetRequestProtocol {
     typealias Model = TestUser
-    
+
     var url: String { "https://nonexistent.invalid.domain/data" }
 }
 
 struct MalformedRequest: HGetRequestProtocol {
     typealias Model = TestUser
-    
+
     var url: String { "invalid-url-format" }
 }
 
 struct CancellableRequest: HGetRequestProtocol {
     typealias Model = TestUser
-    
+
     var url: String { "https://api.example.com/slow-endpoint" }
 }
 
@@ -292,21 +292,21 @@ struct TestDiskRequest: HGetRequestProtocol {
 
 struct TestCacheableRequest: HGetRequestProtocol {
     typealias Model = TestCacheData
-    
+
     let url: String = "https://cache.example.com/test"
     let cacheType: HCache.CacheType? = .custom(HCache.Configuration())
 }
 
 struct TestDefaultCacheableRequest: HGetRequestProtocol {
     typealias Model = TestCacheData
-    
-    let url: String = "https://cache.example.com/non-cached" 
+
+    let url: String = "https://cache.example.com/non-cached"
     // cache defaults to nil (uses HConfig default)
 }
 
 struct TestCacheableGetRequest: HGetRequestProtocol {
     typealias Model = TestCacheData
-    
+
     let url: String = "https://cache.example.com/test"
     let cacheType: HCache.CacheType? = .custom(HCache.Configuration())
     let queryParameters: [String: String]? = ["page": "1", "limit": "10"]
@@ -314,7 +314,7 @@ struct TestCacheableGetRequest: HGetRequestProtocol {
 
 struct TestCacheablePathRequest: HGetRequestProtocol {
     typealias Model = TestCacheData
-    
+
     let url: String = "https://cache.example.com/users/{userId}"
     let cacheType: HCache.CacheType? = .custom(HCache.Configuration())
     let pathParameters: [String: String]? = ["userId": "123"]
@@ -322,14 +322,14 @@ struct TestCacheablePathRequest: HGetRequestProtocol {
 
 struct TestCustomExpirationRequest: HGetRequestProtocol {
     typealias Model = TestCacheData
-    
+
     let url: String = "https://cache.example.com/custom-expiration"
     let cacheType: HCache.CacheType? = .custom(HCache.Configuration(expirationTime: 60))
 }
 
 struct TestOneHourCacheRequest: HGetRequestProtocol {
     typealias Model = TestCacheData
-    
+
     let url: String = "https://cache.example.com/one-hour"
     let cacheType: HCache.CacheType? = .custom(HCache.Configuration(expirationTime: .oneHour))
 }
@@ -343,7 +343,7 @@ struct TestExplicitlyDisabledRequest: HGetRequestProtocol {
 
 struct TestLongCacheRequest: HGetRequestProtocol {
     typealias Model = TestCacheData
-    
+
     var url: String = "https://cache.example.com/long-test"
     var cacheType: HCache.CacheType? = .custom(HCache.Configuration(expirationTime: .oneHour)) // 1 hour
 }
@@ -439,10 +439,10 @@ struct TestEmptyResponseRequest: HRequestWithEmptyResponseProtocol {
 
 struct GetUsersRequest: HGetRequestProtocol {
     typealias Model = [TestUser]
-    
+
     let page: Int
     let limit: Int
-    
+
     var url: String { "https://api.example.com/users" }
     var queryParameters: [String: String]? {
         ["page": "\(page)", "limit": "\(limit)"]

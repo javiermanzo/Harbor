@@ -5,7 +5,7 @@ import Foundation
 final class LocalStubURLProtocol: URLProtocol {
     private static let lock = NSLock()
     nonisolated(unsafe) private static var responses: [URL: (Data, HTTPURLResponse, Error?)] = [:]
-    
+
     /// Registers a canned response for a specific URL.
     /// - Parameters:
     ///   - url: The URL to intercept.
@@ -17,36 +17,36 @@ final class LocalStubURLProtocol: URLProtocol {
         defer { lock.unlock() }
         responses[url] = (data, response, error)
     }
-    
+
     /// Clears all previously registered stubs.
     static func clearStubs() {
         lock.lock()
         defer { lock.unlock() }
         responses.removeAll()
     }
-    
+
     override class func canInit(with request: URLRequest) -> Bool {
         guard let url = request.url else { return false }
         return url.host == "pokeapi.co" || url.host == "stream.example.com"
     }
-    
+
     override class func canonicalRequest(for request: URLRequest) -> URLRequest {
         return request
     }
-    
+
     override func startLoading() {
         guard let url = request.url else { return }
-        
+
         LocalStubURLProtocol.lock.lock()
         let stub = LocalStubURLProtocol.responses[url]
         LocalStubURLProtocol.lock.unlock()
-        
+
         if let (data, response, error) = stub {
             if let error = error {
                 client?.urlProtocol(self, didFailWithError: error)
                 return
             }
-            
+
             // Handle ETag / 304 Not Modified
             if let etag = response.value(forHTTPHeaderField: "ETag"),
                let clientETag = request.value(forHTTPHeaderField: "If-None-Match"),
@@ -56,7 +56,7 @@ final class LocalStubURLProtocol: URLProtocol {
                 client?.urlProtocolDidFinishLoading(self)
                 return
             }
-            
+
             client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .allowed)
             client?.urlProtocol(self, didLoad: data)
             client?.urlProtocolDidFinishLoading(self)
@@ -65,6 +65,6 @@ final class LocalStubURLProtocol: URLProtocol {
             client?.urlProtocol(self, didFailWithError: error)
         }
     }
-    
+
     override func stopLoading() {}
 }

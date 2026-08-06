@@ -9,18 +9,18 @@ import XCTest
 @testable import Harbor
 
 final class HarborRealServiceTests: XCTestCase {
-    
+
     struct TestResource: HModel {
         let name: String
         let id: Int
     }
-    
+
     struct GetTestResourceCustomCache: HGetRequestProtocol {
         typealias Model = TestResource
         let url = "https://pokeapi.co/api/v2/pokemon/ditto"
         let cacheType: HCache.CacheType? = .custom(HCache.Configuration(expirationTime: 60))
     }
-    
+
     struct GetTestResourceURLCache: HGetRequestProtocol {
         typealias Model = TestResource
         let url = "https://pokeapi.co/api/v2/pokemon/mew"
@@ -45,19 +45,19 @@ final class HarborRealServiceTests: XCTestCase {
         // Expiration larga para que no expire durante el test
         let cacheType: HCache.CacheType? = .custom(HCache.Configuration(expirationTime: 3600))
     }
-    
+
     override func setUp() async throws {
         LocalStubURLProtocol.clearStubs()
-        
+
         let url = URL(string: "https://pokeapi.co/api/v2/pokemon/ditto")!
         let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: ["ETag": "\"mocked-etag\""])!
         let data = "{\"name\": \"ditto\", \"id\": 132}".data(using: .utf8)!
         LocalStubURLProtocol.registerStub(for: url, data: data, response: response)
-        
+
         let url2 = URL(string: "https://pokeapi.co/api/v2/pokemon/mew")!
         let response2 = HTTPURLResponse(url: url2, statusCode: 200, httpVersion: nil, headerFields: ["ETag": "\"mocked-etag-mew\""])!
         LocalStubURLProtocol.registerStub(for: url2, data: data, response: response2)
-        
+
         await Harbor.setProtocolClasses([LocalStubURLProtocol.self])
         await Harbor.removeAllMocks()
         await Harbor.clearAllCache()
@@ -70,7 +70,7 @@ final class HarborRealServiceTests: XCTestCase {
         await Harbor.removeAllMocks()
         await Harbor.clearAllCache()
     }
-    
+
     func testRealNetworkConnection() async throws {
         try NetworkTestFlag.skipUnlessEnabled()
         await Harbor.setProtocolClasses(nil)
@@ -83,13 +83,13 @@ final class HarborRealServiceTests: XCTestCase {
             XCTFail("Request failed: \(err)")
         }
     }
-    
+
     func testCustomCacheWithRealService() async throws {
         let request = GetTestResourceCustomCache()
-        
+
         let initialCache = await request.cache()
         XCTAssertNil(initialCache)
-        
+
         let response = await request.request()
         switch response {
         case .success(let user):
@@ -97,19 +97,19 @@ final class HarborRealServiceTests: XCTestCase {
         case .error(let err):
             XCTFail("Request failed: \(err)")
         }
-        
+
         // Fetch from cache
         let cachedUser = await request.cache()
         XCTAssertNotNil(cachedUser)
         if cachedUser?.name == "ditto" || cachedUser?.name == "mew" {} else { XCTFail("Unexpected cached user name") }; XCTAssertTrue(cachedUser?.name == "ditto" || cachedUser?.name == "mew")
     }
-    
+
     func testURLCacheWithRealService() async throws {
         let request = GetTestResourceURLCache()
-        
+
         let initialCache = await request.cache()
         XCTAssertNil(initialCache)
-        
+
         let response = await request.request()
         switch response {
         case .success(let user):
@@ -117,20 +117,20 @@ final class HarborRealServiceTests: XCTestCase {
         case .error(let err):
             XCTFail("Request failed: \(err)")
         }
-        
+
         await waitForCachedResponse(of: request, in: .shared)
 
         let cachedUser = await request.cache()
         XCTAssertNotNil(cachedUser)
         if cachedUser?.name == "ditto" || cachedUser?.name == "mew" {} else { XCTFail("Unexpected cached user name") }; XCTAssertTrue(cachedUser?.name == "ditto" || cachedUser?.name == "mew")
     }
-    
+
     func testCustomCacheRequestStream() async throws {
         let request = GetTestResourceCustomCache()
-        
+
         // Populate cache
         let _ = await request.request()
-        
+
         var resultsCount = 0
         do {
             for try await (response, _) in request.requestStream(source: .cacheAndRemote) {
@@ -140,13 +140,13 @@ final class HarborRealServiceTests: XCTestCase {
         } catch {
             XCTFail("Stream failed: \(error)")
         }
-        
+
         XCTAssertEqual(resultsCount, 2, "Stream should return twice (once from cache, once from remote)")
     }
-    
+
     func testURLCacheRequestStream() async throws {
         let request = GetTestResourceURLCache()
-        
+
         // Populate cache
         let _ = await request.request()
 
@@ -161,15 +161,15 @@ final class HarborRealServiceTests: XCTestCase {
         } catch {
             XCTFail("Stream failed: \(error)")
         }
-        
+
         XCTAssertEqual(resultsCount, 2, "Stream should return twice (once from cache, once from remote)")
     }
-    
+
     func testCustomCacheRequestStreamCacheOnly() async throws {
         let request = GetTestResourceCustomCache()
-        
+
         let _ = await request.request()
-        
+
         var resultsCount = 0
         do {
             for try await (response, origin) in request.requestStream(source: .cacheOnly) {
@@ -185,7 +185,7 @@ final class HarborRealServiceTests: XCTestCase {
 
     func testCustomCacheRequestStreamRemoteOnly() async throws {
         let request = GetTestResourceCustomCache()
-        
+
         var resultsCount = 0
         do {
             for try await (response, origin) in request.requestStream(source: .remoteOnly) {
@@ -201,7 +201,7 @@ final class HarborRealServiceTests: XCTestCase {
 
     func testURLCacheRequestStreamCacheOnly() async throws {
         let request = GetTestResourceURLCache()
-        
+
         // Populate cache
         let _ = await request.request()
 
@@ -219,10 +219,10 @@ final class HarborRealServiceTests: XCTestCase {
         }
         XCTAssertEqual(resultsCount, 1, "Stream should return once from cache")
     }
-    
+
     func testURLCacheRequestStreamRemoteOnly() async throws {
         let request = GetTestResourceURLCache()
-        
+
         var resultsCount = 0
         do {
             for try await (response, origin) in request.requestStream(source: .remoteOnly) {

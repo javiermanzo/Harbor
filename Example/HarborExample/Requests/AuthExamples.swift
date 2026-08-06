@@ -9,6 +9,10 @@ import Foundation
 import Harbor
 import LogBird
 
+enum AuthError: Error {
+    case noRefreshToken
+}
+
 // MARK: - Token Auth Provider
 
 /// Token-based authentication provider

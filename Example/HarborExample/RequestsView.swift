@@ -183,6 +183,30 @@ struct RequestsView: View {
                             ExampleButton(title: "Configure SSL Pinning", icon: "checkmark.shield", action: { configureSSLPinning() })
                         }
 
+                        // MARK: - Mocking
+                        Section {
+                            SectionHeader(title: "Mocking")
+                            Toggle(isOn: Binding(
+                                get: { Harbor.mocksEnabled },
+                                set: { Harbor.setMocksEnabled($0) }
+                            )) {
+                                HStack {
+                                    Image(systemName: "theatermasks")
+                                        .frame(width: 24)
+                                    Text("Enable Mocks")
+                                }
+                            }
+                            .padding()
+                            .background(Color.accentColor.opacity(0.1))
+                            .cornerRadius(10)
+
+                            ExampleButton(title: "Register Mock Response", icon: "text.badge.plus", action: { registerMock() })
+                            ExampleButton(title: "Clear Mocks", icon: "trash", isDestructive: true, action: {
+                                Harbor.removeAllMocks()
+                                addResult("All mocks removed")
+                            })
+                        }
+
                         // MARK: - Debug
                         Section {
                             SectionHeader(title: "Debug Mode")
@@ -770,6 +794,23 @@ struct RequestsView: View {
                 }
             }
         }
+    }
+
+    // MARK: - Mocking
+
+    func registerMock() {
+        let json = """
+        [
+          {
+            "id": 999,
+            "name": "Mocked User",
+            "email": "mock@example.com"
+          }
+        ]
+        """
+        let mock = HMock(request: GetUsersRequest.self, statusCode: 200, jsonResponse: json)
+        Harbor.register(mock: mock)
+        addResult("Registered mock for GetUsersRequest. Toggle 'Enable Mocks' and fetch users to see it.")
     }
 
     // MARK: - Debug

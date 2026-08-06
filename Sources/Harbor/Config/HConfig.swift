@@ -13,7 +13,7 @@ import LogBird
 /// This struct holds all the global configuration options used by the library.
 /// Access is serialized via `@HRequestManagerActor` to ensure thread safety.
 @HRequestManagerActor
-struct HConfig: Sendable {
+struct HConfig: @unchecked Sendable {
     /// Shared singleton instance of the configuration.
     static var shared = HConfig()
 
@@ -54,6 +54,9 @@ struct HConfig: Sendable {
     var customURLSession: URLSession?
     /// Whether mocks should only be enabled in DEBUG builds. Default is true.
     var mocksOnlyInDebug: Bool = true
+    /// Explicit override for `mocksEnabled`. When non-nil it takes precedence over the
+    /// DEBUG/`mocksOnlyInDebug` computation, letting tests (or release builds) force mocks on/off.
+    var mocksEnabledOverride: Bool?
     /// Whether debug logging is enabled. Default is true in DEBUG builds, false in RELEASE builds.
     #if DEBUG
     var isLoggingEnabled: Bool = true
@@ -78,7 +81,11 @@ struct HConfig: Sendable {
     var protocolClasses: [AnyClass]?
 
     /// Whether mocks are currently enabled based on build configuration and `mocksOnlyInDebug`.
+    /// An explicit override (`mocksEnabledOverride`) takes precedence over the build rule.
     var mocksEnabled: Bool {
+        if let override = mocksEnabledOverride {
+            return override
+        }
         #if DEBUG
         return true
         #else

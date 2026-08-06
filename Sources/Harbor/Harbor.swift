@@ -19,11 +19,13 @@ public enum Harbor {}
 public extension Harbor {
 
     /// Configures authentication provider for requests requiring auth.
+    /// - Note: This is a method rather than a `get set` property to allow cross-actor mutation, as Swift forbids mutating actor-isolated static properties from outside the actor's context.
     static func setAuthProvider(_ authProvider: HAuthProviderProtocol?) {
         HConfig.shared.authProvider = authProvider
     }
 
     /// Sets default headers applied to all requests.
+    /// - Note: This is a method rather than a `get set` property to allow cross-actor mutation, as Swift forbids mutating actor-isolated static properties from outside the actor's context.
     static func setDefaultHeaderParameters(_ defaultHeaderParameters: [String: String]?) {
         HConfig.shared.defaultHeaderParameters = defaultHeaderParameters
     }
@@ -112,18 +114,21 @@ public extension Harbor {
     }
 
     /// Sets custom URLSession for all Harbor requests.
+    /// - Note: This is a method rather than a `get set` property to allow cross-actor mutation, as Swift forbids mutating actor-isolated static properties from outside the actor's context.
     static func setCustomURLSession(_ customURLSession: URLSession) {
         HConfig.shared.customURLSession = customURLSession
     }
 
     /// Sets default cache type for requests without explicit cache settings.
     /// Default is .urlCache.
+    /// - Note: This is a method rather than a `get set` property to allow cross-actor mutation, as Swift forbids mutating actor-isolated static properties from outside the actor's context.
     static func setDefaultCacheType(_ cacheType: HCache.CacheType) {
         HConfig.shared.cacheType = cacheType
     }
 
     /// Sets default timeout interval for requests.
     /// Default is 15 seconds.
+    /// - Note: This is a method rather than a `get set` property to allow cross-actor mutation, as Swift forbids mutating actor-isolated static properties from outside the actor's context.
     static func setDefaultTimeoutInterval(_ timeout: TimeInterval) {
         HConfig.shared.timeoutInterval = timeout
         HRequestManager.invalidateURLSession()
@@ -132,12 +137,26 @@ public extension Harbor {
 
 
     /// Configures whether mocks are only active in DEBUG builds.
+    /// - Note: This is a method rather than a `get set` property to allow cross-actor mutation, as Swift forbids mutating actor-isolated static properties from outside the actor's context.
     static func setMocksOnlyInDebug(_ value: Bool) {
         HConfig.shared.mocksOnlyInDebug = value
     }
 
+    /// Returns whether mocks are currently enabled.
+    static var mocksEnabled: Bool {
+        HConfig.shared.mocksEnabled
+    }
+
+    /// Forces mocks on or off regardless of build configuration. Pass `nil` to restore the
+    /// default behavior (enabled in DEBUG, gated by `mocksOnlyInDebug` elsewhere).
+    /// - Note: This is a method rather than a `get set` property to allow cross-actor mutation, as Swift forbids mutating actor-isolated static properties from outside the actor's context.
+    static func setMocksEnabled(_ enabled: Bool?) {
+        HConfig.shared.mocksEnabledOverride = enabled
+    }
+
     /// Configures whether debug logs are enabled.
     /// - Parameter enabled: If true, logs will be printed (subject to #if DEBUG). If false, no logs will be printed.
+    /// - Note: This is a method rather than a `get set` property to allow cross-actor mutation, as Swift forbids mutating actor-isolated static properties from outside the actor's context.
     static func setLoggingEnabled(_ enabled: Bool) {
         HConfig.shared.isLoggingEnabled = enabled
     }
@@ -169,12 +188,14 @@ public extension Harbor {
     /// Proxy-Authorization) and sensitive fields in JSON response bodies (e.g. `access_token`,
     /// `refresh_token`) are printed in debug logs and generated cURL commands.
     /// - Parameter enabled: If true, real values are printed. If false (default), values are redacted as `<redacted>`.
+    /// - Note: This is a method rather than a `get set` property to allow cross-actor mutation, as Swift forbids mutating actor-isolated static properties from outside the actor's context.
     static func setLogSensitiveHeaders(_ enabled: Bool) {
         HConfig.shared.logSensitiveHeaders = enabled
     }
 
     /// Configures whether requests handle cookies through the shared cookie storage.
     /// Default is false.
+    /// - Note: This is a method rather than a `get set` property to allow cross-actor mutation, as Swift forbids mutating actor-isolated static properties from outside the actor's context.
     static func setHTTPShouldHandleCookies(_ enabled: Bool) {
         HConfig.shared.httpShouldHandleCookies = enabled
         HRequestManager.invalidateURLSession()
@@ -183,6 +204,7 @@ public extension Harbor {
     /// Configures whether DEBUG/simulator builds assume network availability instead of
     /// trusting the connectivity monitor. Default is true; set to false to exercise
     /// `.noConnection` flows in debug builds.
+    /// - Note: This is a method rather than a `get set` property to allow cross-actor mutation, as Swift forbids mutating actor-isolated static properties from outside the actor's context.
     static func setAssumeNetworkAvailableInDebug(_ value: Bool) {
         HConfig.shared.assumeNetworkAvailableInDebug = value
     }
@@ -208,6 +230,12 @@ public extension Harbor {
         HMocker.register(mock: mock)
     }
 
+    /// Registers a scripted sequence of mock responses for a request type. Each request of the
+    /// given type resolves to the next response in order; the last one repeats thereafter.
+    static func registerMockSequence(_ sequence: HMockSequence) {
+        HMocker.registerMockSequence(sequence)
+    }
+
     /// Removes a specific mock.
     static func remove(mock: HMock) {
         HMocker.remove(mock: mock)
@@ -216,6 +244,16 @@ public extension Harbor {
     /// Removes all registered mocks.
     static func removeAllMocks() {
         HMocker.removeAll()
+    }
+
+    /// Number of times requests of the given type have been resolved through a mock.
+    static func mockCallCount(for requestType: HRequestBaseRequestProtocol.Type) -> Int {
+        HMocker.callCount(for: requestType)
+    }
+
+    /// Whether a mock (single or sequenced) is currently registered for the request type.
+    static func isMockRegistered(_ requestType: HRequestBaseRequestProtocol.Type) -> Bool {
+        HMocker.isRegistered(requestType)
     }
 }
 
@@ -239,13 +277,3 @@ public extension Harbor {
     }
 }
 
-// MARK: - Internal Configuration
-
-extension Harbor {
-    /// Sets URLProtocol classes for internally built sessions.
-    /// This is internal for testing purposes.
-    static func setProtocolClasses(_ protocolClasses: [AnyClass]?) {
-        HConfig.shared.protocolClasses = protocolClasses
-        HRequestManager.invalidateURLSession()
-    }
-}

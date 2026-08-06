@@ -45,7 +45,7 @@ final class HarborCacheTests: XCTestCase {
             return
         }
 
-        let mock = await HMock(request: TestDefaultCacheableRequest.self, statusCode: 200, jsonResponse: jsonString)
+        let mock = HMock(request: TestDefaultCacheableRequest.self, statusCode: 200, jsonResponse: jsonString)
         await Harbor.register(mock: mock)
 
         let request = TestDefaultCacheableRequest() // cacheType is nil
@@ -73,7 +73,7 @@ final class HarborCacheTests: XCTestCase {
             return
         }
 
-        let mock = await HMock(request: TestDefaultCacheableRequest.self, statusCode: 200, jsonResponse: jsonString)
+        let mock = HMock(request: TestDefaultCacheableRequest.self, statusCode: 200, jsonResponse: jsonString)
         await Harbor.register(mock: mock)
 
         let request = TestDefaultCacheableRequest() // cacheType is nil, uses the global default
@@ -109,7 +109,7 @@ final class HarborCacheTests: XCTestCase {
             return
         }
         
-        let mock = await HMock(request: TestExplicitlyDisabledRequest.self, statusCode: 200, jsonResponse: jsonString)
+        let mock = HMock(request: TestExplicitlyDisabledRequest.self, statusCode: 200, jsonResponse: jsonString)
         await Harbor.register(mock: mock)
         
         let request = TestExplicitlyDisabledRequest()
@@ -122,8 +122,8 @@ final class HarborCacheTests: XCTestCase {
         switch response {
         case .success(let data):
             XCTAssertEqual(data.value, "disabled-cache-test")
-        case .error(_):
-            XCTFail("Expected success but got error")
+        case .error(let error):
+            XCTFail("Expected success but got error: \(error)")
         }
         
         // Verify data is not cached
@@ -166,7 +166,7 @@ final class HarborCacheTests: XCTestCase {
             return
         }
         
-        let mock = await HMock(request: TestCustomExpirationRequest.self, statusCode: 200, jsonResponse: jsonString)
+        let mock = HMock(request: TestCustomExpirationRequest.self, statusCode: 200, jsonResponse: jsonString)
         await Harbor.register(mock: mock)
         
         let request = TestCustomExpirationRequest()
@@ -199,7 +199,7 @@ final class HarborCacheTests: XCTestCase {
             return
         }
 
-        let mock = await HMock(request: TestZeroExpirationRequest.self, statusCode: 200, jsonResponse: jsonString)
+        let mock = HMock(request: TestZeroExpirationRequest.self, statusCode: 200, jsonResponse: jsonString)
         await Harbor.register(mock: mock)
 
         let request = TestZeroExpirationRequest()
@@ -223,7 +223,7 @@ final class HarborCacheTests: XCTestCase {
             return
         }
         
-        let mock = await HMock(request: TestOneHourCacheRequest.self, statusCode: 200, jsonResponse: jsonString)
+        let mock = HMock(request: TestOneHourCacheRequest.self, statusCode: 200, jsonResponse: jsonString)
         await Harbor.register(mock: mock)
         
         let request = TestOneHourCacheRequest()
@@ -269,7 +269,7 @@ final class HarborCacheTests: XCTestCase {
             return
         }
 
-        let mock = await HMock(
+        let mock = HMock(
             request: TestLongCacheRequest.self,
             statusCode: 200,
             jsonResponse: jsonString,
@@ -296,7 +296,7 @@ final class HarborCacheTests: XCTestCase {
 
         // The opposite direction also holds: an immediately expiring config is
         // overridden by a positive max-age from the response.
-        let mock2 = await HMock(
+        let mock2 = HMock(
             request: TestZeroExpirationRequest.self,
             statusCode: 200,
             jsonResponse: jsonString,
@@ -327,7 +327,7 @@ final class HarborCacheTests: XCTestCase {
             return
         }
         
-        let mock = await HMock(
+        let mock = HMock(
             request: TestCacheableRequest.self,
             statusCode: 200,
             jsonResponse: jsonString
@@ -363,7 +363,7 @@ final class HarborCacheTests: XCTestCase {
             return
         }
 
-        let mock = await HMock(
+        let mock = HMock(
             request: TestNoCacheRequest.self,
             statusCode: 200,
             jsonResponse: jsonString,
@@ -457,7 +457,7 @@ final class HarborCacheTests: XCTestCase {
             return
         }
         
-        let mock = await HMock(request: TestCacheableRequest.self, statusCode: 200, jsonResponse: jsonString)
+        let mock = HMock(request: TestCacheableRequest.self, statusCode: 200, jsonResponse: jsonString)
         await Harbor.register(mock: mock)
         
         let request = TestCacheableRequest()
@@ -493,7 +493,7 @@ final class HarborCacheTests: XCTestCase {
             return
         }
         
-        let mock = await HMock(request: TestDefaultCacheableRequest.self, statusCode: 200, jsonResponse: jsonString)
+        let mock = HMock(request: TestDefaultCacheableRequest.self, statusCode: 200, jsonResponse: jsonString)
         await Harbor.register(mock: mock)
         
         let request = TestDefaultCacheableRequest()
@@ -524,7 +524,7 @@ final class HarborCacheTests: XCTestCase {
         }
         
         // Test using request integration
-        let mock = await HMock(request: TestCacheableRequest.self, statusCode: 200, jsonResponse: jsonString)
+        let mock = HMock(request: TestCacheableRequest.self, statusCode: 200, jsonResponse: jsonString)
         await Harbor.register(mock: mock)
         
         let request = TestCacheableRequest()
@@ -552,7 +552,7 @@ final class HarborCacheTests: XCTestCase {
             return
         }
         
-        let mock = await HMock(request: TestCacheableRequest.self, statusCode: 200, jsonResponse: jsonString)
+        let mock = HMock(request: TestCacheableRequest.self, statusCode: 200, jsonResponse: jsonString)
         await Harbor.register(mock: mock)
         
         let request = TestCacheableRequest()
@@ -562,8 +562,8 @@ final class HarborCacheTests: XCTestCase {
         switch firstResponse {
         case .success(let data):
             XCTAssertEqual(data.value, "harbor-api-test")
-        case .error(_):
-            XCTFail("Expected success but got error")
+        case .error(let error):
+            XCTFail("Expected success but got error: \(error)")
         }
         
         // Test request.cache() API
@@ -582,7 +582,7 @@ final class HarborCacheTests: XCTestCase {
             return
         }
         
-        let mock = await HMock(request: TestCacheableRequest.self, statusCode: 200, jsonResponse: jsonString)
+        let mock = HMock(request: TestCacheableRequest.self, statusCode: 200, jsonResponse: jsonString)
         await Harbor.register(mock: mock)
         
         let request = TestCacheableRequest()
@@ -592,8 +592,8 @@ final class HarborCacheTests: XCTestCase {
         switch firstResponse {
         case .success(let data):
             XCTAssertEqual(data.value, "clear-cache-test")
-        case .error(_):
-            XCTFail("Expected success but got error")
+        case .error(let error):
+            XCTFail("Expected success but got error: \(error)")
         }
         
         // Verify data is cached
@@ -668,7 +668,7 @@ final class HarborCacheTests: XCTestCase {
             return
         }
 
-        let mock = await HMock(
+        let mock = HMock(
             request: TestNoStoreRequest.self,
             statusCode: 200,
             jsonResponse: jsonString,
@@ -704,7 +704,7 @@ final class HarborCacheTests: XCTestCase {
             return
         }
 
-        let mock = await HMock(
+        let mock = HMock(
             request: TestLowercaseHeadersRequest.self,
             statusCode: 200,
             jsonResponse: jsonString,
@@ -740,7 +740,7 @@ final class HarborCacheTests: XCTestCase {
             return
         }
 
-        let mock = await HMock(
+        let mock = HMock(
             request: TestVaryEnRequest.self,
             statusCode: 200,
             jsonResponse: jsonString,
@@ -796,7 +796,7 @@ final class HarborCacheTests: XCTestCase {
         let urlRequest = try await HURLBuilder.buildUrlRequest(request: request)
         XCTAssertEqual(urlRequest.value(forHTTPHeaderField: "If-None-Match"), "\"abc\"")
 
-        let mock = await HMock(
+        let mock = HMock(
             request: TestRevalidationRequest.self,
             statusCode: 304,
             headers: ["Cache-Control": "max-age=3600"]
@@ -861,7 +861,7 @@ final class HarborCacheTests: XCTestCase {
             return
         }
 
-        let successMock = await HMock(
+        let successMock = HMock(
             request: TestStaleOnErrorRequest.self,
             statusCode: 200,
             jsonResponse: jsonString,
@@ -874,7 +874,7 @@ final class HarborCacheTests: XCTestCase {
 
         await Harbor.removeAllMocks()
 
-        let errorMock = await HMock(request: TestStaleOnErrorRequest.self, statusCode: 500)
+        let errorMock = HMock(request: TestStaleOnErrorRequest.self, statusCode: 500)
         await Harbor.register(mock: errorMock)
 
         let response = await request.request()
@@ -896,7 +896,7 @@ final class HarborCacheTests: XCTestCase {
             return
         }
 
-        let successMock = await HMock(
+        let successMock = HMock(
             request: TestStaleOnErrorMustRevalidateRequest.self,
             statusCode: 200,
             jsonResponse: jsonString,
@@ -909,7 +909,7 @@ final class HarborCacheTests: XCTestCase {
 
         await Harbor.removeAllMocks()
 
-        let errorMock = await HMock(request: TestStaleOnErrorMustRevalidateRequest.self, statusCode: 500)
+        let errorMock = HMock(request: TestStaleOnErrorMustRevalidateRequest.self, statusCode: 500)
         await Harbor.register(mock: errorMock)
 
         let response = await request.request()
@@ -1049,7 +1049,7 @@ final class HarborCacheTests: XCTestCase {
     // MARK: - Empty Response Tests
 
     func testEmptyResponseNotModifiedReturnsSuccess() async {
-        let mock = await HMock(request: TestEmptyResponseRequest.self, statusCode: 304)
+        let mock = HMock(request: TestEmptyResponseRequest.self, statusCode: 304)
         await Harbor.register(mock: mock)
 
         let response = await TestEmptyResponseRequest().request()
@@ -1066,153 +1066,3 @@ final class HarborCacheTests: XCTestCase {
 
 // MARK: - Test Models and Requests
 
-private struct TestCacheData: HModel {
-    let value: String
-    let timestamp: Date
-}
-
-private struct TestCacheableRequest: HGetRequestProtocol {
-    typealias Model = TestCacheData
-    
-    let url: String = "https://cache.example.com/test"
-    let cacheType: HCache.CacheType? = .custom(HCache.Configuration())
-}
-
-private struct TestDefaultCacheableRequest: HGetRequestProtocol {
-    typealias Model = TestCacheData
-    
-    let url: String = "https://cache.example.com/non-cached" 
-    // cache defaults to nil (uses HConfig default)
-}
-
-private struct TestCacheableGetRequest: HGetRequestProtocol {
-    typealias Model = TestCacheData
-    
-    let url: String = "https://cache.example.com/test"
-    let cacheType: HCache.CacheType? = .custom(HCache.Configuration())
-    let queryParameters: [String: String]? = ["page": "1", "limit": "10"]
-}
-
-private struct TestCacheablePathRequest: HGetRequestProtocol {
-    typealias Model = TestCacheData
-    
-    let url: String = "https://cache.example.com/users/{userId}"
-    let cacheType: HCache.CacheType? = .custom(HCache.Configuration())
-    let pathParameters: [String: String]? = ["userId": "123"]
-}
-
-private struct TestCustomExpirationRequest: HGetRequestProtocol {
-    typealias Model = TestCacheData
-    
-    let url: String = "https://cache.example.com/custom-expiration"
-    let cacheType: HCache.CacheType? = .custom(HCache.Configuration(expirationTime: 60))
-}
-
-private struct TestOneHourCacheRequest: HGetRequestProtocol {
-    typealias Model = TestCacheData
-    
-    let url: String = "https://cache.example.com/one-hour"
-    let cacheType: HCache.CacheType? = .custom(HCache.Configuration(expirationTime: .oneHour))
-}
-
-private struct TestExplicitlyDisabledRequest: HGetRequestProtocol {
-    typealias Model = TestCacheData
-
-    let url: String = "https://cache.example.com/explicitly-disabled"
-    let cacheType: HCache.CacheType? = .disabled
-}
-
-private struct TestLongCacheRequest: HGetRequestProtocol {
-    typealias Model = TestCacheData
-    
-    var url: String = "https://cache.example.com/long-test"
-    var cacheType: HCache.CacheType? = .custom(HCache.Configuration(expirationTime: .oneHour)) // 1 hour
-}
-
-private struct TestNoCacheRequest: HGetRequestProtocol {
-    typealias Model = TestCacheData
-
-    let url: String = "https://cache.example.com/no-cache-test"
-    let cacheType: HCache.CacheType? = .custom(HCache.Configuration())
-}
-
-private struct TestZeroExpirationRequest: HGetRequestProtocol {
-    typealias Model = TestCacheData
-
-    let url: String = "https://cache.example.com/zero-expiration"
-    let cacheType: HCache.CacheType? = .custom(HCache.Configuration(expirationTime: 0))
-}
-
-private struct TestNoStoreRequest: HGetRequestProtocol {
-    typealias Model = TestCacheData
-
-    let url: String = "https://cache.example.com/no-store"
-    let cacheType: HCache.CacheType? = .custom(HCache.Configuration())
-}
-
-private struct TestLowercaseHeadersRequest: HGetRequestProtocol {
-    typealias Model = TestCacheData
-
-    let url: String = "https://cache.example.com/lowercase-headers"
-    let cacheType: HCache.CacheType? = .custom(HCache.Configuration())
-}
-
-private struct TestVaryEnRequest: HGetRequestProtocol {
-    typealias Model = TestCacheData
-
-    let url: String = "https://cache.example.com/vary"
-    let cacheType: HCache.CacheType? = .custom(HCache.Configuration())
-    var headerParameters: [String: String]? = ["Accept-Language": "en"]
-}
-
-private struct TestVaryEsRequest: HGetRequestProtocol {
-    typealias Model = TestCacheData
-
-    let url: String = "https://cache.example.com/vary"
-    let cacheType: HCache.CacheType? = .custom(HCache.Configuration())
-    var headerParameters: [String: String]? = ["Accept-Language": "es"]
-}
-
-private struct TestRevalidationRequest: HGetRequestProtocol {
-    typealias Model = TestCacheData
-
-    let url: String = "https://cache.example.com/revalidate"
-    let cacheType: HCache.CacheType? = .custom(HCache.Configuration())
-}
-
-private struct TestStaleOnErrorRequest: HGetRequestProtocol {
-    typealias Model = TestCacheData
-
-    let url: String = "https://cache.example.com/stale-on-error"
-    let cacheType: HCache.CacheType? = .custom(HCache.Configuration())
-}
-
-private struct TestStaleOnErrorMustRevalidateRequest: HGetRequestProtocol {
-    typealias Model = TestCacheData
-
-    let url: String = "https://cache.example.com/stale-on-error-must-revalidate"
-    let cacheType: HCache.CacheType? = .custom(HCache.Configuration())
-}
-
-private struct TestStaleOfflineRequest: HGetRequestProtocol {
-    typealias Model = TestCacheData
-
-    let url: String = "https://cache.example.com/stale-offline"
-    let cacheType: HCache.CacheType? = .custom(HCache.Configuration())
-}
-
-private struct TestDedicatedURLCacheRequest: HGetRequestProtocol {
-    typealias Model = TestCacheData
-
-    let url: String = "https://cache.example.com/dedicated-url-cache"
-    let cacheType: HCache.CacheType?
-
-    init(urlCache: URLCache) {
-        self.cacheType = .urlCache(urlCache: urlCache, requestCachePolicy: .reloadIgnoringLocalCacheData)
-    }
-}
-
-private struct TestEmptyResponseRequest: HRequestWithEmptyResponseProtocol {
-    let url: String = "https://cache.example.com/empty-not-modified"
-    var httpMethod: HHttpMethod { .get }
-}

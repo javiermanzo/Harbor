@@ -49,9 +49,8 @@ final class HarborSecurityTests: XCTestCase {
         Harbor.setSSLPinningKeys([testSHA256])
         
         // Then
-        // SSL pinning should be configured (we can't directly test internal state)
-        // But we can test that the configuration doesn't crash
-        XCTAssertTrue(true)
+        let keys = await HConfig.shared.sslPinningKeys
+        XCTAssertEqual(keys, [testSHA256])
     }
     
     func testSSLPinningWithNilValue() async throws {
@@ -63,8 +62,8 @@ final class HarborSecurityTests: XCTestCase {
         Harbor.setSSLPinningKeys(nil)
         
         // Then
-        // SSL pinning should be disabled
-        XCTAssertTrue(true)
+        let keys = await HConfig.shared.sslPinningKeys
+        XCTAssertNil(keys)
     }
     
     func testSSLPinningWithValidRequest() async throws {
@@ -244,7 +243,8 @@ final class HarborSecurityTests: XCTestCase {
         case .error(let error):
             switch error {
             case .noConnection:
-                XCTAssertTrue(true) // Expected connection error (SSL-related)
+                let count = await HMocker.callCount(for: SecureGetRequest.self)
+                XCTAssertEqual(count, 1)
             default:
                 XCTFail("Expected connection error but got: \(error)")
             }
@@ -511,27 +511,5 @@ private final class SendableCounter: @unchecked Sendable {
 
 // MARK: - Test Models
 
-private struct TestSecureData: HModel {
-    let secret: String
-}
-
 // MARK: - Test Request Implementations
-
-private struct SecureGetRequest: HGetRequestProtocol {
-    typealias Model = TestSecureData
-    
-    var url: String { "https://secure.example.com/data" }
-}
-
-private struct MTLSGetRequest: HGetRequestProtocol {
-    typealias Model = TestSecureData
-    
-    var url: String { "https://mtls.example.com/data" }
-}
-
-private struct FullySecureGetRequest: HGetRequestProtocol {
-    typealias Model = TestSecureData
-    
-    var url: String { "https://fullysecure.example.com/data" }
-}
 

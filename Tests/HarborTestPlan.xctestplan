@@ -4,7 +4,7 @@
       "id" : "9728B792-D184-411E-AE78-45D4849F53C3",
       "name" : "Test Scheme Action",
       "options" : {
-
+        "codeCoverage" : true
       }
     }
   ],

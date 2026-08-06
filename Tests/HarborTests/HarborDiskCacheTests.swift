@@ -255,28 +255,4 @@ final class HarborDiskCacheTests: XCTestCase {
 // MARK: - Helpers
 
 // Mirror of internal DiskEntry for testing
-private struct TestDiskEntry: Codable {
-    let data: Data
-    let timestamp: Date
-    let expirationTime: TimeInterval?
-}
 
-private struct TestDiskModel: HModel {
-    let value: String
-
-    init(from decoder: Decoder) throws {
-        let container = try decoder.singleValueContainer()
-        self.value = try container.decode(String.self)
-    }
-
-    func encode(to encoder: Encoder) throws {
-        var container = encoder.singleValueContainer()
-        try container.encode(value)
-    }
-}
-
-private struct TestDiskRequest: HGetRequestProtocol {
-    typealias Model = TestDiskModel
-    let url: String
-    let cacheType: HCache.CacheType = .custom(HCache.Configuration())
-}

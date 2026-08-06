@@ -36,7 +36,7 @@ final class HarborStreamTests: XCTestCase {
             return
         }
         
-        let mock = await HMock(request: TestStreamRequest.self, statusCode: 200, jsonResponse: jsonString)
+        let mock = HMock(request: TestStreamRequest.self, statusCode: 200, jsonResponse: jsonString)
         await Harbor.register(mock: mock)
         
         let request = TestStreamRequest()
@@ -85,7 +85,7 @@ final class HarborStreamTests: XCTestCase {
             return
         }
         
-        let mock = await HMock(request: TestStreamRequest.self, statusCode: 200, jsonResponse: jsonString)
+        let mock = HMock(request: TestStreamRequest.self, statusCode: 200, jsonResponse: jsonString)
         await Harbor.register(mock: mock)
         
         let request = TestStreamRequest()
@@ -115,7 +115,7 @@ final class HarborStreamTests: XCTestCase {
             return
         }
         
-        let mock = await HMock(request: TestStreamRequest.self, statusCode: 200, jsonResponse: jsonString)
+        let mock = HMock(request: TestStreamRequest.self, statusCode: 200, jsonResponse: jsonString)
         await Harbor.register(mock: mock)
         
         let request = TestStreamRequest()
@@ -151,7 +151,7 @@ final class HarborStreamTests: XCTestCase {
             return
         }
         
-        let mock = await HMock(request: TestStreamRequest.self, statusCode: 200, jsonResponse: jsonString)
+        let mock = HMock(request: TestStreamRequest.self, statusCode: 200, jsonResponse: jsonString)
         await Harbor.register(mock: mock)
         
         let request = TestStreamRequest()
@@ -181,7 +181,7 @@ final class HarborStreamTests: XCTestCase {
             return
         }
         
-        let mock = await HMock(request: TestStreamRequest.self, statusCode: 200, jsonResponse: jsonString)
+        let mock = HMock(request: TestStreamRequest.self, statusCode: 200, jsonResponse: jsonString)
         await Harbor.register(mock: mock)
         
         let request = TestStreamRequest()
@@ -204,7 +204,12 @@ final class HarborStreamTests: XCTestCase {
         await Harbor.removeAllMocks()
     }
     
-    func testRequestStreamNetworkError() async {
+    func testRequestStreamNetworkError() async throws {
+        LocalStubURLProtocol.clearStubs()
+        LocalStubURLProtocol.registerStub(for: URL(string: "https://stream.example.com/data")!, data: Data(), response: HTTPURLResponse(), error: URLError(.notConnectedToInternet))
+        await Harbor.setProtocolClasses([LocalStubURLProtocol.self])
+        defer { Task { await Harbor.setProtocolClasses(nil) } }
+        
         let request = TestStreamRequest()
         
         // No mock registered, should get network error for remote-only
@@ -219,7 +224,12 @@ final class HarborStreamTests: XCTestCase {
         }
     }
     
-    func testRequestStreamCacheAndRemoteWithNetworkError() async {
+    func testRequestStreamCacheAndRemoteWithNetworkError() async throws {
+        LocalStubURLProtocol.clearStubs()
+        LocalStubURLProtocol.registerStub(for: URL(string: "https://stream.example.com/data")!, data: Data(), response: HTTPURLResponse(), error: URLError(.notConnectedToInternet))
+        await Harbor.setProtocolClasses([LocalStubURLProtocol.self])
+        defer { Task { await Harbor.setProtocolClasses(nil) } }
+        
         let testData = TestStreamData(value: "stream-cache-with-error-test", timestamp: Date())
         guard let jsonData = try? JSONEncoder().encode(testData),
               let jsonString = String(data: jsonData, encoding: .utf8) else {
@@ -227,7 +237,7 @@ final class HarborStreamTests: XCTestCase {
             return
         }
         
-        let mock = await HMock(request: TestStreamRequest.self, statusCode: 200, jsonResponse: jsonString)
+        let mock = HMock(request: TestStreamRequest.self, statusCode: 200, jsonResponse: jsonString)
         await Harbor.register(mock: mock)
         
         let request = TestStreamRequest()
@@ -253,6 +263,74 @@ final class HarborStreamTests: XCTestCase {
         XCTAssertEqual(results.count, 1, "Should get only cache result when network fails")
         XCTAssertEqual(results.first?.0.value, "stream-cache-with-error-test")
         XCTAssertEqual(results.first?.1, .cache)
+    }
+
+    /// Tests that a stream requesting data from cache only throws a `noCachedDataFound` error when the cached data has expired.
+    func testRequestStreamCacheOnlyExpired() async {
+        let testData = TestStreamData(value: "stream-expired-test", timestamp: Date())
+        guard let jsonData = try? JSONEncoder().encode(testData) else {
+            XCTFail("Failed to encode test data")
+            return
+        }
+        
+        let request = TestStreamRequest()
+        let url = "https://stream.example.com/data"
+        
+        // Manually store expired data in the cache (max-age=0 means it's immediately expired)
+        let response = HTTPURLResponse(url: URL(string: url)!, statusCode: 200, httpVersion: nil, headerFields: ["Cache-Control": "max-age=0"])
+        await HCache.Manager.shared.storeData(jsonData, forKey: url, config: HCache.Configuration(), response: response)
+        await HCache.Manager.shared.waitForPendingDiskOperations()
+        
+        do {
+            for try await _ in request.requestStream(source: .cacheOnly) {
+                XCTFail("Should not yield any results when cache is expired")
+            }
+            XCTFail("Stream should throw noCachedDataFound error")
+        } catch HRequestError.noCachedDataFound {
+            // Expected error
+        } catch {
+            XCTFail("Should throw noCachedDataFound error, got: \(error)")
+        }
+    }
+    
+    /// Tests that a stream requesting data from both cache and remote recovers gracefully when the cached data fails to decode.
+    /// It should ignore the invalid cache entry and proceed to yield the successful remote response.
+    func testRequestStreamCacheAndRemoteDecodingError() async {
+        let request = TestStreamRequest()
+        let url = "https://stream.example.com/data"
+        
+        // Store invalid JSON data in the cache so decoding throws
+        let invalidData = Data("invalid json".utf8)
+        let cacheResponse = HTTPURLResponse(url: URL(string: url)!, statusCode: 200, httpVersion: nil, headerFields: ["Cache-Control": "max-age=3600"])
+        await HCache.Manager.shared.storeData(invalidData, forKey: url, config: HCache.Configuration(), response: cacheResponse)
+        await HCache.Manager.shared.waitForPendingDiskOperations()
+        
+        // Mock the remote response to succeed
+        let testData = TestStreamData(value: "remote-after-cache-fail", timestamp: Date())
+        guard let jsonData = try? JSONEncoder().encode(testData),
+              let jsonString = String(data: jsonData, encoding: .utf8) else {
+            XCTFail("Failed to encode test data")
+            return
+        }
+        let mock = HMock(request: TestStreamRequest.self, statusCode: 200, jsonResponse: jsonString)
+        await Harbor.register(mock: mock)
+        
+        var results: [(TestStreamData, HOriginType)] = []
+        var caughtError: Error?
+        do {
+            for try await (response, origin) in request.requestStream(source: .cacheAndRemote) {
+                results.append((response, origin))
+            }
+        } catch {
+            caughtError = error
+        }
+        
+        XCTAssertNil(caughtError, "Stream should recover from cache decoding error and proceed to remote")
+        XCTAssertEqual(results.count, 1, "Should only yield remote result since cache decoding failed")
+        XCTAssertEqual(results.first?.0.value, "remote-after-cache-fail")
+        XCTAssertEqual(results.first?.1, .remote)
+        
+        await Harbor.removeAllMocks()
     }
 
     func testRequestStreamCancellationCancelsUnderlyingRequest() async {
@@ -294,18 +372,6 @@ final class HarborStreamTests: XCTestCase {
 }
 
 // MARK: - Test Models and Requests
-
-private struct TestStreamData: HModel {
-    let value: String
-    let timestamp: Date
-}
-
-private struct TestStreamRequest: HGetRequestProtocol {
-    typealias Model = TestStreamData
-    
-    let url: String = "https://stream.example.com/test"
-    let cacheType: HCache.CacheType? = .custom(HCache.Configuration())
-}
 
 /// Mutates the actor-isolated `HConfig.protocolClasses` from nonisolated tests.
 @HRequestManagerActor
@@ -354,15 +420,16 @@ private final class DelayedResponseStubProtocol: URLProtocol {
         Self.lock.unlock()
 
         // Respond asynchronously so `stopLoading` can run while the request is in flight.
-        DispatchQueue.global().asyncAfter(deadline: .now() + 0.5) { [self] in
-            guard let url = request.url,
+        DispatchQueue.global().asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            guard let self = self else { return }
+            guard let url = self.request.url,
                   let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil) else {
-                client?.urlProtocol(self, didFailWithError: URLError(.badURL))
+                self.client?.urlProtocol(self, didFailWithError: URLError(.badURL))
                 return
             }
-            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-            client?.urlProtocol(self, didLoad: Data())
-            client?.urlProtocolDidFinishLoading(self)
+            self.client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+            self.client?.urlProtocol(self, didLoad: Data("delayed response".utf8))
+            self.client?.urlProtocolDidFinishLoading(self)
         }
     }
 

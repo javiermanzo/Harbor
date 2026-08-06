@@ -9,13 +9,12 @@ import Foundation
 
 /// Mock configuration for testing network requests.
 /// Use this to simulate API responses during development and testing.
-@HRequestManagerActor
-public struct HMock {
+public struct HMock: Sendable {
     /// The request type to mock.
     public let request: HRequestBaseRequestProtocol.Type
     /// The HTTP status code to return.
     public let statusCode: Int
-    /// Optional JSON response body.
+    /// Optional JSON response body. When `nil`, the mock produces an empty body.
     public let jsonResponse: String?
     /// Optional error to return instead of success.
     public let error: HRequestError?
@@ -23,11 +22,6 @@ public struct HMock {
     public let delay: Double?
     /// Optional HTTP response headers (e.g. `Cache-Control`, `ETag`).
     public let headers: [String: String]?
-
-    /// The name of the request type being mocked.
-    public var requestName: String {
-        "\(request.self)"
-    }
 
     /// Creates a new mock configuration.
     /// - Parameters:
@@ -37,12 +31,29 @@ public struct HMock {
     ///   - error: Optional error to return instead of success
     ///   - delay: Optional delay in seconds before returning the response
     ///   - headers: Optional HTTP response headers
-    public init(request: HRequestBaseRequestProtocol.Type, statusCode: Int, jsonResponse: String? = nil, error: HRequestError? = nil, delay: Double? = nil, headers: [String: String]? = nil) {
+    public init(request: HRequestBaseRequestProtocol.Type,
+                statusCode: Int,
+                jsonResponse: String? = nil,
+                error: HRequestError? = nil,
+                delay: Double? = nil,
+                headers: [String: String]? = nil) {
         self.request = request
         self.statusCode = statusCode
         self.jsonResponse = jsonResponse
         self.error = error
         self.delay = delay
         self.headers = headers
+    }
+}
+
+extension HMock {
+    /// The response bytes for this mock. Returns empty data when no JSON body is configured.
+    var responseBody: Data {
+        jsonResponse?.data(using: .utf8) ?? Data()
+    }
+
+    /// Whether the mock has an explicit JSON body configured.
+    var hasBody: Bool {
+        jsonResponse != nil
     }
 }

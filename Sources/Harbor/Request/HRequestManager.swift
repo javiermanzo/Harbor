@@ -33,7 +33,7 @@ extension HRequestManager {
     static func request<Model: HModel, Request: HRequestWithResultProtocol>(model: Model.Type, request: Request) async -> HResponseWithResult<Model> {
         let retryPolicy = request.retryPolicy
 
-        if let mock = HMocker.mock(request: request), HConfig.shared.mocksEnabled {
+        if HConfig.shared.mocksEnabled, let mock = HMocker.mock(request: request) {
             if let delay = mock.delay {
                 await sleep(seconds: delay)
             }
@@ -43,7 +43,11 @@ extension HRequestManager {
                 return .error(hError)
             }
 
-            let data = mock.jsonResponse?.data(using: .utf8) ?? Data()
+            if mock.jsonResponse == nil, (200 ... 299).contains(mock.statusCode) {
+                HLogger.log("Mock for \(request) returned status \(mock.statusCode) with no body; decoding will fail for model-returning requests", level: .warning)
+            }
+
+            let data = mock.responseBody
             let mockResponse = HTTPURLResponse(url: mockURL(for: request), statusCode: mock.statusCode, httpVersion: nil, headerFields: mock.headers)
             return await runAttempts(
                 request: request,
@@ -217,7 +221,7 @@ extension HRequestManager {
     static func request<Request: HRequestWithEmptyResponseProtocol>(request: Request) async -> HResponse {
         let retryPolicy = request.retryPolicy
 
-        if let mock = HMocker.mock(request: request), HConfig.shared.mocksEnabled {
+        if HConfig.shared.mocksEnabled, let mock = HMocker.mock(request: request) {
             if let delay = mock.delay {
                 await sleep(seconds: delay)
             }
@@ -227,7 +231,7 @@ extension HRequestManager {
                 return .error(hError)
             }
 
-            let data = mock.jsonResponse?.data(using: .utf8) ?? Data()
+            let data = mock.responseBody
             return await runAttempts(
                 request: request,
                 retryPolicy: retryPolicy,

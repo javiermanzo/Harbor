@@ -14,6 +14,7 @@ private final class HRequestStubProtocol: URLProtocol {
     enum Mode {
         case status(Int)
         case error(URLError)
+        case statusSequence([Int])
     }
 
     private static let lock = NSLock()
@@ -57,21 +58,33 @@ private final class HRequestStubProtocol: URLProtocol {
     override func startLoading() {
         Self.lock.lock()
         Self._startLoadingCount += 1
+        let count = Self._startLoadingCount
         let currentMode = Self._mode
         Self.lock.unlock()
 
+        let statusCode: Int
         switch currentMode {
-        case .status(let statusCode):
+        case .status(let code):
+            statusCode = code
+        case .statusSequence(let codes):
+            let index = min(count - 1, codes.count - 1)
+            statusCode = codes[max(0, index)]
+        case .error:
+            statusCode = 0
+        }
+
+        switch currentMode {
+        case .error(let error):
+            client?.urlProtocol(self, didFailWithError: error)
+        case .status, .statusSequence:
             guard let url = request.url,
                   let response = HTTPURLResponse(url: url, statusCode: statusCode, httpVersion: nil, headerFields: nil) else {
                 client?.urlProtocol(self, didFailWithError: URLError(.badURL))
                 return
             }
             client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-            client?.urlProtocol(self, didLoad: Data())
+            client?.urlProtocol(self, didLoad: Data("{\"quote\":\"ok\"}".utf8))
             client?.urlProtocolDidFinishLoading(self)
-        case .error(let error):
-            client?.urlProtocol(self, didFailWithError: error)
         }
     }
 
@@ -94,30 +107,8 @@ private final class SpyAuthProvider: HAuthProviderProtocol {
     }
 }
 
-private struct StubbedGetRequest: HGetRequestProtocol {
-    typealias Model = MockModel
-
-    var url: String
-    var retryPolicy: HRetryPolicy?
-    var headerParameters: [String: String]?
-    var needsAuth: Bool = false
-
-    init(url: String, retryPolicy: HRetryPolicy? = nil, headerParameters: [String: String]? = nil, needsAuth: Bool = false) {
-        self.url = url
-        self.retryPolicy = retryPolicy
-        self.headerParameters = headerParameters
-        self.needsAuth = needsAuth
-    }
-}
-
 /// Request that needs auth but relies on the default `headerParameters`, which does not persist values.
 /// The authorization header is applied to the built URLRequest, so the flow works anyway.
-private struct HeaderlessAuthGetRequest: HGetRequestProtocol {
-    typealias Model = MockModel
-
-    var url: String { "https://example.com/secure" }
-    var needsAuth: Bool { true }
-}
 
 @HRequestManagerActor
 final class HarborRequestRetryTests: XCTestCase {
@@ -173,6 +164,41 @@ final class HarborRequestRetryTests: XCTestCase {
             XCTFail("Expected .timeout but got: \(response)")
             return
         }
+    }
+
+    func testConnectionLostIsRetriedAndMappedToNoConnection() async throws {
+        // Given a stub that always drops the connection and a request with 1 retry
+        HRequestStubProtocol.mode = .error(URLError(.networkConnectionLost))
+        let request = StubbedGetRequest(url: "https://example.com/drop", retryPolicy: HRetryPolicy(maxRetries: 1, baseDelay: 0.01, multiplier: 1, jitter: 0...0))
+
+        // When
+        let response = await request.request()
+
+        // Then the connection loss is retried once and mapped to .noConnection
+        XCTAssertEqual(HRequestStubProtocol.startLoadingCount, 2)
+
+        guard case .error(let error) = response, case .noConnection = error else {
+            XCTFail("Expected .noConnection but got: \(response)")
+            return
+        }
+    }
+
+    func testRetryTransitionsFromFailureToSuccess() async throws {
+        // Given a stub that returns 500 twice then 200, and a request with 2 retries
+        HRequestStubProtocol.mode = .statusSequence([500, 500, 200])
+        let request = StubbedGetRequest(url: "https://example.com/flaky-then-ok", retryPolicy: HRetryPolicy(maxRetries: 2, baseDelay: 0.01, multiplier: 1, jitter: 0...0))
+
+        // When
+        let response = await request.request()
+
+        // Then the request eventually succeeds on the third attempt
+        XCTAssertEqual(HRequestStubProtocol.startLoadingCount, 3)
+
+        guard case .success(let model) = response else {
+            XCTFail("Expected success after a fail→success transition but got: \(response)")
+            return
+        }
+        XCTAssertEqual(model.quote, "ok")
     }
 
     func testNoRetryByDefault() async throws {

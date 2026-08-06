@@ -207,8 +207,8 @@ final class HarborStreamTests: XCTestCase {
     func testRequestStreamNetworkError() async throws {
         LocalStubURLProtocol.clearStubs()
         LocalStubURLProtocol.registerStub(for: URL(string: "https://stream.example.com/data")!, data: Data(), response: HTTPURLResponse(), error: URLError(.notConnectedToInternet))
-        await HarborTestConfiguration.setLocalStubURLProtocol()
-        defer { Task { await HarborTestConfiguration.resetLocalStubURLProtocol() } }
+        await Harbor.setProtocolClasses([LocalStubURLProtocol.self])
+        defer { Task { await Harbor.setProtocolClasses(nil) } }
         
         let request = TestStreamRequest()
         
@@ -227,8 +227,8 @@ final class HarborStreamTests: XCTestCase {
     func testRequestStreamCacheAndRemoteWithNetworkError() async throws {
         LocalStubURLProtocol.clearStubs()
         LocalStubURLProtocol.registerStub(for: URL(string: "https://stream.example.com/data")!, data: Data(), response: HTTPURLResponse(), error: URLError(.notConnectedToInternet))
-        await HarborTestConfiguration.setLocalStubURLProtocol()
-        defer { Task { await HarborTestConfiguration.resetLocalStubURLProtocol() } }
+        await Harbor.setProtocolClasses([LocalStubURLProtocol.self])
+        defer { Task { await Harbor.setProtocolClasses(nil) } }
         
         let testData = TestStreamData(value: "stream-cache-with-error-test", timestamp: Date())
         guard let jsonData = try? JSONEncoder().encode(testData),

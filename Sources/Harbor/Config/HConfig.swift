@@ -13,7 +13,7 @@ import LogBird
 /// This struct holds all the global configuration options used by the library.
 /// Access is serialized via `@HRequestManagerActor` to ensure thread safety.
 @HRequestManagerActor
-struct HConfig: Sendable {
+struct HConfig: @unchecked Sendable {
     /// Shared singleton instance of the configuration.
     static var shared = HConfig()
 

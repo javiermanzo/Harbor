@@ -8,7 +8,7 @@
 [![Swift](https://img.shields.io/badge/Swift-5.9_6.0-orange?style=flat-square)](https://img.shields.io/badge/Swift-5.9_5.10_6.0-Orange?style=flat-square)
 [![Platforms](https://img.shields.io/badge/Platforms-macOS_iOS-yellowgreen?style=flat-square)](https://img.shields.io/badge/Platforms-macOS_iOS_tvOS_watchOS_vision_OS_Linux_Windows_Android-Green?style=flat-square) 
 [![Swift Package Manager](https://img.shields.io/badge/Swift_Package_Manager-compatible-orange?style=flat-square)](https://swiftpackageindex.com/javiermanzo/Harbor)
-![CocoaPods Compatible](https://img.shields.io/cocoapods/v/Harbor.svg?style=flat-square)
+
 
 Harbor is a library for making API requests in Swift in a simple way using async/await.
 
@@ -16,7 +16,7 @@ Harbor is a library for making API requests in Swift in a simple way using async
 - [Features](#features)
 - [Requirements](#requirements)
 - [Installation](#installation)
-  - [CocoaPods](#cocoapods)
+
   - [Swift Package Manager](#swift-package-manager)
 - [Usage](#usage)
   - [Configuration](#configuration)
@@ -106,20 +106,7 @@ Harbor is a library for making API requests in Swift in a simple way using async
 - iOS 15.0+
 
 ## Installation
-You can add Harbor to your project using [CocoaPods](https://cocoapods.org/) or [Swift Package Manager](https://swift.org/package-manager/).
-
-### CocoaPods
-Add the following line to your Podfile:
-
-```ruby
-pod 'Harbor'
-```
-
-If you also need JSON-RPC support, HarborJRPC is available as a subspec:
-
-```ruby
-pod 'Harbor/JRPC'
-```
+You can add Harbor to your project using [Swift Package Manager](https://swift.org/package-manager/).
 
 ### Swift Package Manager
 Add the following to your `Package.swift` file:
@@ -594,7 +581,7 @@ To use HarborJRPC, add the following import to your file:
 import HarborJRPC
 ```
 
-With Swift Package Manager, add `.product(name: "HarborJRPC", package: "Harbor")` to your target dependencies. With CocoaPods, use `pod 'Harbor/JRPC'`.
+With Swift Package Manager, add `.product(name: "HarborJRPC", package: "Harbor")` to your target dependencies.
 
 ### Configuration
 HarborJRPC only manages the JSON-RPC endpoint URL and protocol version. Network-level settings (timeout, auth provider, mTLS, mocks, logging) are configured through `Harbor`'s API, the same way as for REST requests.

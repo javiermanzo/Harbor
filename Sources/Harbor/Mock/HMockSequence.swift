@@ -7,7 +7,7 @@ import Foundation
 
 /// A scripted sequence of mock responses for a request type, played back in order.
 ///
-/// Register a sequence with `Harbor.registerSequence(_:)`. Each request of the given type
+/// Register a sequence with `Harbor.registerMockSequence(_:)`. Each request of the given type
 /// resolves to the next response; after the last one is consumed it repeats indefinitely.
 public struct HMockSequence: Sendable {
     /// One response in a mock sequence.

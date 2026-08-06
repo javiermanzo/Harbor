@@ -136,6 +136,11 @@ public extension Harbor {
         HConfig.shared.mocksOnlyInDebug = value
     }
 
+    /// Returns whether mocks are currently enabled.
+    static var mocksEnabled: Bool {
+        HConfig.shared.mocksEnabled
+    }
+
     /// Forces mocks on or off regardless of build configuration. Pass `nil` to restore the
     /// default behavior (enabled in DEBUG, gated by `mocksOnlyInDebug` elsewhere).
     static func setMocksEnabled(_ enabled: Bool?) {

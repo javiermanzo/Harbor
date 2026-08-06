@@ -187,7 +187,7 @@ struct RequestsView: View {
                         Section {
                             SectionHeader(title: "Mocking")
                             Toggle(isOn: Binding(
-                                get: { HConfig.shared.mocksEnabled },
+                                get: { Harbor.mocksEnabled },
                                 set: { Harbor.setMocksEnabled($0) }
                             )) {
                                 HStack {

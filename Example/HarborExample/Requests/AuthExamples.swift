@@ -7,6 +7,7 @@
 
 import Foundation
 import Harbor
+import LogBird
 
 // MARK: - Token Auth Provider
 

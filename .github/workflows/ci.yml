@@ -13,7 +13,7 @@ jobs:
     strategy:
       matrix:
         os: [macos-latest]
-        swift: ["5.9", "6.0"]
+        swift: ["6.0"]
     steps:
     - uses: actions/checkout@v4
     - name: Set up Swift

@@ -46,7 +46,7 @@ final class HarborJRPCExtraTests: XCTestCase {
         
         let nullResult = try decoder.decode(HJRPCResult<HJSONValue>.self, from: nullJSON)
         XCTAssertTrue(nullResult.resultIsNull)
-        XCTAssertEqual(nullResult.id, .null)
+        XCTAssertNil(nullResult.id)
         XCTAssertNil(nullResult.result)
     }
 

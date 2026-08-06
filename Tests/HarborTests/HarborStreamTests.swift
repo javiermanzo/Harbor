@@ -365,9 +365,10 @@ private final class DelayedResponseStubProtocol: URLProtocol {
 
         // Respond asynchronously so `stopLoading` can run while the request is in flight.
         DispatchQueue.global().asyncAfter(deadline: .now() + 0.5) { [weak self] in
-            guard let self = self, let url = self.request.url,
+            guard let self = self else { return }
+            guard let url = self.request.url,
                   let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil) else {
-                self?.client?.urlProtocol(self!, didFailWithError: URLError(.badURL))
+                self.client?.urlProtocol(self, didFailWithError: URLError(.badURL))
                 return
             }
             self.client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)

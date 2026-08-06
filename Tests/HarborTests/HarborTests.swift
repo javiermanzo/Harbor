@@ -569,7 +569,7 @@ private struct UploadFileRequest: HPostRequestProtocol, @unchecked Sendable {
     init(fileName: String, fileData: Data) {
         self.fileName = fileName
         self.fileData = fileData
-        let fileURL = FileManager.default.temporaryDirectory.appendingPathComponent(fileName)
+        let fileURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + "_" + fileName)
         try? fileData.write(to: fileURL)
         self.multipartBody = ["file": .file(url: fileURL, mimeType: nil, fileName: fileName), "filename": .text(fileName)]
     }
@@ -640,7 +640,7 @@ private struct UpdateUserWithFileRequest: HPutRequestProtocol, @unchecked Sendab
         self.id = id
         self.name = name
         self.fileData = avatar
-        let fileURL = FileManager.default.temporaryDirectory.appendingPathComponent("avatar.jpg")
+        let fileURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + "_avatar.jpg")
         try? fileData.write(to: fileURL)
         self.multipartBody = ["name": .text(name), "avatar": .file(url: fileURL, mimeType: nil, fileName: "avatar.jpg")]
     }

@@ -10,6 +10,11 @@ disabled_rules:
   - function_name_whitespace
   - vertical_whitespace
   - trailing_newline
+  - nesting
+  - return_arrow_whitespace
+  - large_tuple
+  - identifier_name
+  - unused_optional_binding
 
 excluded:
   - Example

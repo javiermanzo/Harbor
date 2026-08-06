@@ -30,13 +30,32 @@ jobs:
       uses: maxep/spm-lcov-action@765d4ca99e04bd445addad335a670ee64c12661b # v0.3.0
       with:
         output-file: ./lcov.info
+    - name: Upload Coverage Artifact (Base)
+      if: github.event_name == 'push'
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      with:
+        name: coverage-base
+        path: ./lcov.info
+
+    - name: Download Base Coverage
+      if: github.event_name == 'pull_request'
+      uses: dawidd6/action-download-artifact@09f2f74827fd3a8607589e5ad7f9398816f540fe # v3.1.4
+      continue-on-error: true
+      with:
+        github_token: ${{ secrets.GITHUB_TOKEN }}
+        workflow: ci.yml
+        branch: ${{ github.base_ref }}
+        name: coverage-base
+        path: ./base-coverage/
+
     - name: Report Coverage to PR
-      uses: zgosalvez/github-actions-report-lcov@eda775f552bfb2bffbdedea26f19dfb8c24a1648 # v4
+      uses: Nef10/lcov-reporter-action@7946f3508d17375c7685346dd1ca7aad7c6c290a # v0.4.0
       if: github.event_name == 'pull_request'
       with:
         github-token: ${{ secrets.GITHUB_TOKEN }}
-        coverage-files: ./lcov.info
-        update-comment: true
-        artifact-name: code-coverage-report
+        lcov-file: ./lcov.info
+        lcov-base: ./base-coverage/lcov.info
+        filter-changed-files: true
+        delete-old-comments: true
 
 

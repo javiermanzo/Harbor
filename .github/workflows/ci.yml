@@ -23,6 +23,8 @@ jobs:
       run: swift build
     - name: Test
       run: swift test --enable-code-coverage
+    - name: Setup llvm-cov
+      run: sudo ln -s $(xcrun --find llvm-cov) /usr/local/bin/llvm-cov
     - name: Generate LCOV
       uses: maxep/spm-lcov-action@0.3.0
       with:

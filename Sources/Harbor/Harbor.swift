@@ -261,13 +261,3 @@ public extension Harbor {
     }
 }
 
-// MARK: - Internal Configuration
-
-extension Harbor {
-    /// Sets URLProtocol classes for internally built sessions.
-    /// This is internal for testing purposes.
-    static func setProtocolClasses(_ protocolClasses: [AnyClass]?) {
-        HConfig.shared.protocolClasses = protocolClasses
-        HRequestManager.invalidateURLSession()
-    }
-}

@@ -54,7 +54,7 @@ final class HarborRealServiceTests: XCTestCase {
         let data = "{\"name\": \"ditto\", \"id\": 132}".data(using: .utf8)!
         LocalStubURLProtocol.registerStub(for: url, data: data, response: response)
         
-        await Harbor.setProtocolClasses([LocalStubURLProtocol.self])
+        await HarborTestConfiguration.setLocalStubURLProtocol()
         await Harbor.removeAllMocks()
         await Harbor.clearAllCache()
         await Harbor.setMocksOnlyInDebug(false)
@@ -62,14 +62,14 @@ final class HarborRealServiceTests: XCTestCase {
     }
 
     override func tearDown() async throws {
-        await Harbor.setProtocolClasses(nil)
+        await HarborTestConfiguration.resetLocalStubURLProtocol()
         await Harbor.removeAllMocks()
         await Harbor.clearAllCache()
     }
     
     func testRealNetworkConnection() async throws {
         try NetworkTestFlag.skipUnlessEnabled()
-        await Harbor.setProtocolClasses(nil)
+        await HarborTestConfiguration.resetLocalStubURLProtocol()
         let request = GetTestResourceCustomCache()
         let response = await request.request()
         switch response {

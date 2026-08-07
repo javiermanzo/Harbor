@@ -30,6 +30,10 @@ enum HRequestManager {
 // MARK: - Request With Result
 extension HRequestManager {
     /// Executes a request that expects a typed model response.
+    /// - Parameters:
+    ///   - model: The expected model type to decode.
+    ///   - request: The request conforming to `HRequestWithResultProtocol`.
+    /// - Returns: `HResponseWithResult<Model>` containing parsed result or error.
     static func request<Model: HModel, Request: HRequestWithResultProtocol>(model: Model.Type, request: Request) async -> HResponseWithResult<Model> {
         let retryPolicy = request.retryPolicy
 
@@ -96,6 +100,12 @@ extension HRequestManager {
     /// Executes a single network attempt: builds the URLRequest, performs the call and
     /// processes the response. `canRetry` tells whether the loop can run another attempt,
     /// so retryable failures are reported as `.retry` only while attempts remain.
+    /// - Parameters:
+    ///   - model: The expected model type to decode.
+    ///   - request: The request conforming to `HRequestWithResultProtocol`.
+    ///   - authHeader: Optional authorization header to apply.
+    ///   - canRetry: Whether further retry attempts are available.
+    /// - Returns: `HAttemptOutcome` carrying the response or next loop action.
     private static func executeOnce<Model: HModel, Request: HRequestWithResultProtocol>(model: Model.Type, request: Request, authHeader: HAuthorizationHeader?, canRetry: Bool) async -> HAttemptOutcome<HResponseWithResult<Model>> {
         let urlRequest: URLRequest
         do {
@@ -169,6 +179,15 @@ extension HRequestManager {
 
     /// Processes the raw response for a model-returning request, decoding the payload or handling errors/revalidation.
     /// `authHeader` keys the custom-cache reads and writes so `Vary: Authorization` entries are per-credential.
+    /// - Parameters:
+    ///   - model: The expected model type to decode.
+    ///   - request: The request conforming to `HRequestWithResultProtocol`.
+    ///   - statusCode: HTTP status code.
+    ///   - data: Raw response payload.
+    ///   - httpResponse: Optional HTTPURLResponse object.
+    ///   - canRetry: Whether further retries remain.
+    ///   - authHeader: Optional authorization header used for vary keying.
+    /// - Returns: `HAttemptOutcome` carrying the response or next loop action.
     private static func processResponse<Model: HModel, Request: HRequestWithResultProtocol>(model: Model.Type, request: Request, statusCode: Int, data: Data, httpResponse: HTTPURLResponse? = nil, canRetry: Bool = false, authHeader: HAuthorizationHeader? = nil) async -> HAttemptOutcome<HResponseWithResult<Model>> {
         switch statusCode {
         case 200 ... 299:
@@ -218,6 +237,8 @@ extension HRequestManager {
 // MARK: - Request Without Result
 extension HRequestManager {
     /// Executes a request that expects an empty response.
+    /// - Parameter request: The request conforming to `HRequestWithEmptyResponseProtocol`.
+    /// - Returns: `HResponse` indicating success or failure.
     static func request<Request: HRequestWithEmptyResponseProtocol>(request: Request) async -> HResponse {
         let retryPolicy = request.retryPolicy
 
@@ -267,6 +288,11 @@ extension HRequestManager {
     /// Executes a single network attempt: builds the URLRequest, performs the call and
     /// processes the response. `canRetry` tells whether the loop can run another attempt,
     /// so retryable failures are reported as `.retry` only while attempts remain.
+    /// - Parameters:
+    ///   - request: The request conforming to `HRequestWithEmptyResponseProtocol`.
+    ///   - authHeader: Optional authorization header to apply.
+    ///   - canRetry: Whether further retry attempts are available.
+    /// - Returns: `HAttemptOutcome` carrying the response or next loop action.
     private static func executeOnce<Request: HRequestWithEmptyResponseProtocol>(request: Request, authHeader: HAuthorizationHeader?, canRetry: Bool) async -> HAttemptOutcome<HResponse> {
         let urlRequest: URLRequest
         do {
@@ -325,6 +351,13 @@ extension HRequestManager {
     }
 
     /// Processes the raw response for an empty-response request, checking status codes and handling errors.
+    /// - Parameters:
+    ///   - request: The request conforming to `HRequestWithEmptyResponseProtocol`.
+    ///   - statusCode: HTTP status code.
+    ///   - data: Raw response payload.
+    ///   - canRetry: Whether further retries remain.
+    ///   - httpResponse: Optional HTTPURLResponse object.
+    /// - Returns: `HAttemptOutcome` carrying the response or next loop action.
     private static func processResponse<Request: HRequestWithEmptyResponseProtocol>(request: Request, statusCode: Int, data: Data, canRetry: Bool = false, httpResponse: HTTPURLResponse? = nil) async -> HAttemptOutcome<HResponse> {
         switch statusCode {
         case 200 ... 299:
@@ -349,12 +382,13 @@ extension HRequestManager {
 extension HRequestManager {
     /// Runs the retry loop, delegating each attempt to `executeAttempt`. Mocks, connectivity
     /// checks and the initial auth header fetch are evaluated once by the caller, not per attempt.
-    /// `errorResponse` builds the typed response for the cancellation and auth-giveup paths.
-    ///
-    /// `TypedRequest` preserves the concrete request type from the caller through the loop,
-    /// so the executor closure receives the typed request without any existential cast.
-    /// The loop never mutates the request: the authorization header is carried alongside it
-    /// and applied to the built `URLRequest` by the executor.
+    /// - Parameters:
+    ///   - request: The request object being executed.
+    ///   - retryPolicy: Optional retry policy configuration.
+    ///   - authHeader: Optional authorization header.
+    ///   - errorResponse: Closure mapping errors to the response type.
+    ///   - executeAttempt: Closure performing a single attempt.
+    /// - Returns: The final `Response` after all attempt iterations.
     private static func runAttempts<TypedRequest: HRequestBaseRequestProtocol & Sendable, Response: Sendable>(
         request: TypedRequest,
         retryPolicy: HRetryPolicy?,
@@ -402,6 +436,8 @@ extension HRequestManager {
     /// Fails with `.authProviderNeeded` when the request needs auth but no provider is
     /// configured. A provider returning `nil` means no credentials are available and the
     /// request goes out without an authorization header.
+    /// - Parameter request: The target request.
+    /// - Returns: `Result` containing optional header or error.
     static func authorizationHeaderIfNeeded<P: HRequestBaseRequestProtocol>(for request: P) async -> Result<HAuthorizationHeader?, HRequestError> {
         guard request.needsAuth else { return .success(nil) }
 
@@ -414,6 +450,8 @@ extension HRequestManager {
 
     /// Resolves the authorization header for cache vary-key computation without failing the
     /// flow: a missing provider must not turn a cache lookup into an error.
+    /// - Parameter request: The target request.
+    /// - Returns: Optional authorization header.
     private static func cacheAuthHeader<P: HRequestBaseRequestProtocol>(for request: P) async -> HAuthorizationHeader? {
         guard case .success(let authHeader) = await authorizationHeaderIfNeeded(for: request) else { return nil }
         return authHeader

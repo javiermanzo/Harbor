@@ -99,6 +99,8 @@ public extension HJRPCRequestProtocol {
 /// Internal extension for wrapping JSON-RPC requests.
 extension HJRPCRequestProtocol {
     /// Creates a Harbor-compatible request wrapper for this JSON-RPC request.
+    /// - Parameter type: The raw response model type expected.
+    /// - Returns: An `HJRPCRequestWrapper` instance encapsulating request metadata.
     @HRequestManagerActor
     func wrapRequest<RawModel: HModel>(type: RawModel.Type) -> HJRPCRequestWrapper<RawModel> {
         var jsonBody: [String: HJSONValue] = [

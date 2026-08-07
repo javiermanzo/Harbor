@@ -80,6 +80,7 @@ public struct HMTLS: Sendable {
     ///   when the password provider throws, `.invalidPassword` when the password is rejected,
     ///   `.invalidP12Format` when the import fails for any other reason, or `.noIdentity`
     ///   when the file holds no identity.
+    /// - Parameter throws(HMTLSError: The throws(HMTLSError.
     func extractIdentity() async throws(HMTLSError) -> HMTLSIdentity {
         guard let p12Data = try? Data(contentsOf: p12FileUrl) else {
             throw HMTLSError.fileNotFound

@@ -59,6 +59,8 @@ public struct HMockSequence: Sendable {
 
     /// Convenience to build a sequence from raw `HMock` configurations, sharing their
     /// status/body/error/headers/delay.
+    /// - Parameter request: The request.
+    /// - Parameter mocks: The mocks.
     public init(request: HRequestBaseRequestProtocol.Type, mocks: [HMock]) {
         self.request = request
         self.responses = mocks.map {
@@ -71,6 +73,7 @@ public struct HMockSequence: Sendable {
     }
 
     /// Returns the response at the given index, clamping to the last available response.
+    /// - Parameter index: The index.
     func response(at index: Int) -> Response {
         let safeIndex = max(0, min(index, responses.count - 1))
         return responses[safeIndex]

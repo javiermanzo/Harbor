@@ -50,6 +50,7 @@ public enum HJRPCRequestError: Error, Sendable {
 
 extension HJRPCRequestError {
     /// Maps an `HRequestError` to an `HJRPCRequestError`.
+    /// - Parameter hRequestError: The hRequestError.
     static func getError(hRequestError: HRequestError) -> HJRPCRequestError {
         switch hRequestError {
         case .api(let statusCode, let data):

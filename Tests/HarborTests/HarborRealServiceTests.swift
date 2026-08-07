@@ -47,6 +47,7 @@ final class HarborRealServiceTests: XCTestCase {
     }
 
     override func setUp() async throws {
+        URLCache.shared.removeAllCachedResponses()
         LocalStubURLProtocol.clearStubs()
 
         let url = URL(string: "https://pokeapi.co/api/v2/pokemon/ditto")!
@@ -66,6 +67,7 @@ final class HarborRealServiceTests: XCTestCase {
     }
 
     override func tearDown() async throws {
+        URLCache.shared.removeAllCachedResponses()
         await Harbor.setProtocolClasses(nil)
         await Harbor.removeAllMocks()
         await Harbor.clearAllCache()

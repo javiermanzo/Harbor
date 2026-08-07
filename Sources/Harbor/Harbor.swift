@@ -20,12 +20,14 @@ public extension Harbor {
 
     /// Configures authentication provider for requests requiring auth.
     /// - Note: This is a method rather than a `get set` property to allow cross-actor mutation, as Swift forbids mutating actor-isolated static properties from outside the actor's context.
+    /// - Parameter authProvider: The authProvider.
     static func setAuthProvider(_ authProvider: HAuthProviderProtocol?) {
         HConfig.shared.authProvider = authProvider
     }
 
     /// Sets default headers applied to all requests.
     /// - Note: This is a method rather than a `get set` property to allow cross-actor mutation, as Swift forbids mutating actor-isolated static properties from outside the actor's context.
+    /// - Parameter defaultHeaderParameters: The defaultHeaderParameters.
     static func setDefaultHeaderParameters(_ defaultHeaderParameters: [String: String]?) {
         HConfig.shared.defaultHeaderParameters = defaultHeaderParameters
     }
@@ -60,6 +62,7 @@ public extension Harbor {
     /// Enables SSL pinning with SHA256 hashes of the certificate's SubjectPublicKeyInfo (SPKI),
     /// base64 encoded. Provide multiple keys to support key rotation (backup pins).
     /// The pins apply to every host. Use `Harbor.computePin(for:)` to generate pins from a certificate.
+    /// - Parameter sslPinningKeys: The sslPinningKeys.
     static func setSSLPinningKeys(_ sslPinningKeys: [String]?) {
         HConfig.shared.sslPinningKeys = sslPinningKeys
         HRequestManager.invalidateURLSession()
@@ -99,6 +102,7 @@ public extension Harbor {
     /// Enables SSL pinning with SHA256 hashes of the certificate's SubjectPublicKeyInfo (SPKI),
     /// base64 encoded. Provide multiple keys to support key rotation (backup pins).
     /// Use `Harbor.computePin(for:)` to generate pins from a certificate.
+    /// - Parameter sslPinningKeys: The sslPinningKeys.
     @available(*, deprecated, renamed: "setSSLPinningKeys(_:)")
     static func setSSlPinningKeys(_ sslPinningKeys: [String]?) {
         setSSLPinningKeys(sslPinningKeys)
@@ -114,14 +118,17 @@ public extension Harbor {
     }
 
     /// Sets custom URLSession for all Harbor requests.
+    /// Pass `nil` to restore the default Harbor URLSession.
     /// - Note: This is a method rather than a `get set` property to allow cross-actor mutation, as Swift forbids mutating actor-isolated static properties from outside the actor's context.
-    static func setCustomURLSession(_ customURLSession: URLSession) {
+    /// - Parameter customURLSession: The customURLSession.
+    static func setCustomURLSession(_ customURLSession: URLSession?) {
         HConfig.shared.customURLSession = customURLSession
     }
 
     /// Sets default cache type for requests without explicit cache settings.
     /// Default is .urlCache.
     /// - Note: This is a method rather than a `get set` property to allow cross-actor mutation, as Swift forbids mutating actor-isolated static properties from outside the actor's context.
+    /// - Parameter cacheType: The cacheType.
     static func setDefaultCacheType(_ cacheType: HCache.CacheType) {
         HConfig.shared.cacheType = cacheType
     }
@@ -129,6 +136,7 @@ public extension Harbor {
     /// Sets default timeout interval for requests.
     /// Default is 15 seconds.
     /// - Note: This is a method rather than a `get set` property to allow cross-actor mutation, as Swift forbids mutating actor-isolated static properties from outside the actor's context.
+    /// - Parameter timeout: The timeout.
     static func setDefaultTimeoutInterval(_ timeout: TimeInterval) {
         HConfig.shared.timeoutInterval = timeout
         HRequestManager.invalidateURLSession()
@@ -138,6 +146,7 @@ public extension Harbor {
 
     /// Configures whether mocks are only active in DEBUG builds.
     /// - Note: This is a method rather than a `get set` property to allow cross-actor mutation, as Swift forbids mutating actor-isolated static properties from outside the actor's context.
+    /// - Parameter value: The value.
     static func setMocksOnlyInDebug(_ value: Bool) {
         HConfig.shared.mocksOnlyInDebug = value
     }
@@ -150,6 +159,7 @@ public extension Harbor {
     /// Forces mocks on or off regardless of build configuration. Pass `nil` to restore the
     /// default behavior (enabled in DEBUG, gated by `mocksOnlyInDebug` elsewhere).
     /// - Note: This is a method rather than a `get set` property to allow cross-actor mutation, as Swift forbids mutating actor-isolated static properties from outside the actor's context.
+    /// - Parameter enabled: The enabled.
     static func setMocksEnabled(_ enabled: Bool?) {
         HConfig.shared.mocksEnabledOverride = enabled
     }
@@ -196,6 +206,7 @@ public extension Harbor {
     /// Configures whether requests handle cookies through the shared cookie storage.
     /// Default is false.
     /// - Note: This is a method rather than a `get set` property to allow cross-actor mutation, as Swift forbids mutating actor-isolated static properties from outside the actor's context.
+    /// - Parameter enabled: The enabled.
     static func setHTTPShouldHandleCookies(_ enabled: Bool) {
         HConfig.shared.httpShouldHandleCookies = enabled
         HRequestManager.invalidateURLSession()
@@ -205,6 +216,7 @@ public extension Harbor {
     /// trusting the connectivity monitor. Default is true; set to false to exercise
     /// `.noConnection` flows in debug builds.
     /// - Note: This is a method rather than a `get set` property to allow cross-actor mutation, as Swift forbids mutating actor-isolated static properties from outside the actor's context.
+    /// - Parameter value: The value.
     static func setAssumeNetworkAvailableInDebug(_ value: Bool) {
         HConfig.shared.assumeNetworkAvailableInDebug = value
     }
@@ -226,17 +238,20 @@ public extension Harbor {
 public extension Harbor {
 
     /// Registers a mock response for testing.
+    /// - Parameter mock: The mock.
     static func register(mock: HMock) {
         HMocker.register(mock: mock)
     }
 
     /// Registers a scripted sequence of mock responses for a request type. Each request of the
     /// given type resolves to the next response in order; the last one repeats thereafter.
+    /// - Parameter sequence: The sequence.
     static func registerMockSequence(_ sequence: HMockSequence) {
         HMocker.registerMockSequence(sequence)
     }
 
     /// Removes a specific mock.
+    /// - Parameter mock: The mock.
     static func remove(mock: HMock) {
         HMocker.remove(mock: mock)
     }
@@ -247,11 +262,13 @@ public extension Harbor {
     }
 
     /// Number of times requests of the given type have been resolved through a mock.
+    /// - Parameter requestType: The requestType.
     static func mockCallCount(for requestType: HRequestBaseRequestProtocol.Type) -> Int {
         HMocker.callCount(for: requestType)
     }
 
     /// Whether a mock (single or sequenced) is currently registered for the request type.
+    /// - Parameter requestType: The requestType.
     static func isMockRegistered(_ requestType: HRequestBaseRequestProtocol.Type) -> Bool {
         HMocker.isRegistered(requestType)
     }

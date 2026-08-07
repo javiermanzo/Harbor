@@ -36,6 +36,9 @@ extension HCache {
         private static let jsonDecoder = JSONDecoder()
         private static let jsonEncoder = JSONEncoder()
 
+        /// Token to track cache clearance cycles, preventing L1/L2 sync races.
+        private var cacheClearToken = 0
+
         private init() {
             // 1. Setup cache directory safely in Library/Caches
             guard let systemCacheDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first else {
@@ -54,7 +57,7 @@ extension HCache {
 
             // 4. Perform background cleanup, serialized with writes on the disk queue
             let dir = self.cacheDirectory
-            diskQueue.async {
+            diskQueue.async(flags: .barrier) {
                 FileStorage.cleanupExpiredFiles(at: dir)
             }
         }
@@ -188,6 +191,11 @@ extension HCache {
         /// - `no-cache` responses are persisted but marked always stale, so they are never
         ///   served without revalidation while their validators are preserved.
         /// - `Vary` is stored and enforced on reads; `Vary: *` entries are never served directly.
+        /// - Parameter data: The data.
+        /// - Parameter key: The key.
+        /// - Parameter config: The config.
+        /// - Parameter response: The response.
+        /// - Parameter requestHeaders: The requestHeaders.
         func storeData(_ data: Data, forKey key: String, config: HCache.Configuration, response: HTTPURLResponse?, requestHeaders: [String: String]? = nil) async {
             guard data.count <= config.maxObjectSizeInBytes else { return }
 
@@ -215,9 +223,15 @@ extension HCache {
             // Apply the memory capacity from the effective configuration before inserting.
             memoryCache.totalCostLimit = config.memoryCacheCapacityInBytes
 
+            let token = cacheClearToken
+
             // Persist to disk first; only promote to memory when the write succeeds.
             // On failure the previous entry (if any) is left untouched in both levels.
             let written = await writeToDisk(DiskEntry(entry: entry), forKey: key, diskCapacity: config.diskCacheCapacityInBytes)
+
+            // Prevent L1/L2 desync if a clearAllCache executed while we were suspended writing to disk.
+            guard token == cacheClearToken else { return }
+
             if written {
                 memoryCache.setObject(entry, forKey: NSString(string: key), cost: data.count)
             } else {
@@ -227,6 +241,9 @@ extension HCache {
 
         /// Refreshes the stored entry after a `304 Not Modified`: updates the timestamp and the
         /// expiration from the response headers, and merges any updated validators.
+        /// - Parameter key: The key.
+        /// - Parameter response: The response.
+        /// - Parameter config: The config.
         func refreshEntry(forKey key: String, response: HTTPURLResponse?, config: HCache.Configuration) async {
             let nsKey = NSString(string: key)
 
@@ -266,6 +283,8 @@ extension HCache {
 
         /// Returns the stored validators (ETag and Last-Modified) for the given cache key, if available.
         /// Entries whose `Vary` does not match the request headers are ignored.
+        /// - Parameter key: The key.
+        /// - Parameter requestHeaders: The requestHeaders.
         func getValidators(forKey key: String, requestHeaders: [String: String]? = nil) async -> (etag: String?, lastModified: String?) {
             if let entry = memoryCache.object(forKey: NSString(string: key)) {
                 guard entry.matchesVaryOrWildcard(Self.varyKey(for: entry.vary, requestHeaders: requestHeaders)) else { return (nil, nil) }
@@ -282,6 +301,7 @@ extension HCache {
         }
 
         /// Returns the stored ETag for the given cache key, if available.
+        /// - Parameter key: The key.
         func getETag(forKey key: String) async -> String? {
             if let entry = memoryCache.object(forKey: NSString(string: key)) {
                 return entry.etag
@@ -297,6 +317,7 @@ extension HCache {
 
         /// Clears all cached data, waiting until disk cleanup completes.
         func clearAllCache() async {
+            cacheClearToken &+= 1
             memoryCache.removeAllObjects()
 
             let dir = self.cacheDirectory
@@ -310,6 +331,7 @@ extension HCache {
         }
 
         /// Removes specific cached data, waiting until disk cleanup completes.
+        /// - Parameter key: The key.
         func removeCachedData(for key: String) async {
             memoryCache.removeObject(forKey: NSString(string: key))
             await removeDiskData(forKey: key)
@@ -334,6 +356,8 @@ extension HCache {
         /// Resolves the effective expiration time honoring the response cache directives
         /// (`s-maxage` and `max-age` take precedence over `Expires`, which takes precedence
         /// over the configured fallback).
+        /// - Parameter response: The response.
+        /// - Parameter fallbackTime: The fallbackTime.
         func calculateEffectiveExpirationTime(fromResponse response: HTTPURLResponse?, fallbackTime: TimeInterval?) -> TimeInterval? {
             guard let response = response else { return fallbackTime }
 
@@ -353,6 +377,7 @@ extension HCache {
 
         /// Parses a `Cache-Control` header into its directives. Header parsing is case-insensitive
         /// and unknown or malformed directives are ignored.
+        /// - Parameter cacheControl: The cacheControl.
         static func parseCacheControlDirectives(_ cacheControl: String) -> CacheControlDirectives {
             let directives = cacheControl.lowercased().components(separatedBy: ",")
             var result = CacheControlDirectives()
@@ -407,6 +432,7 @@ extension HCache {
         }()
 
         /// Parses an HTTP-date header value (`Expires`, `Last-Modified`, `Date`).
+        /// - Parameter string: The string.
         static func parseHTTPDate(_ string: String) -> Date? {
             for formatter in httpDateFormatters {
                 if let date = formatter.date(from: string) { return date }
@@ -417,6 +443,8 @@ extension HCache {
         /// Resolves the values of the header fields listed in a `Vary` header from the given
         /// request headers, producing a comparable key. Returns `"*"` when the vary header
         /// contains a wildcard, and `nil` when there is no vary.
+        /// - Parameter varyHeader: The varyHeader.
+        /// - Parameter requestHeaders: The requestHeaders.
         static func varyKey(for varyHeader: String?, requestHeaders: [String: String]?) -> String? {
             guard let varyHeader else { return nil }
             let names = varyHeader
@@ -501,6 +529,8 @@ private extension HCache {
     /// Being a separate struct, it does not inherit @HRequestManagerActor isolation.
     struct FileStorage {
         /// Generates the file URL for a cache entry based on its key hash.
+        /// - Parameter key: The key.
+        /// - Parameter directory: The directory.
         static func url(for key: String, in directory: URL) -> URL {
             let hash = key.sha256Hex
             // Using .cache extension to distinguish from legacy files
@@ -508,6 +538,8 @@ private extension HCache {
         }
 
         /// Generates URLs for legacy cache formats (data and metadata files).
+        /// - Parameter key: The key.
+        /// - Parameter directory: The directory.
         static func legacyUrls(for key: String, in directory: URL) -> (URL, URL) {
             let hash = key.sha256Hex
             let dataURL = directory.appendingPathComponent(hash)
@@ -516,6 +548,7 @@ private extension HCache {
         }
 
         /// Cleans up expired cache files from the directory, keeping those with validators.
+        /// - Parameter directory: The directory.
         static func cleanupExpiredFiles(at directory: URL) {
             guard let resourceKeys = try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil) else { return }
 
@@ -551,6 +584,9 @@ private extension HCache {
 
         /// Evicts the oldest entries (by modification date) until the directory size fits the limit.
         /// The file passed in `excluding` counts towards the total size but is never evicted.
+        /// - Parameter directory: The directory.
+        /// - Parameter maxBytes: The maxBytes.
+        /// - Parameter excludedURL: The excludedURL.
         static func enforceCapacity(at directory: URL, maxBytes: Int, excluding excludedURL: URL? = nil) {
             guard let files = try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: [.contentModificationDateKey, .fileSizeKey]) else { return }
 
@@ -613,6 +649,7 @@ private protocol HCacheStaleServing {
     /// The vary header string from the original response.
     var vary: String? { get }
     /// Checks if the provided vary key matches the stored vary key.
+    /// - Parameter currentVaryKey: The currentVaryKey.
     func matchesVary(_ currentVaryKey: String?) -> Bool
 }
 
@@ -688,6 +725,7 @@ private struct DiskEntry: Codable, HCacheEntryInfo, HCacheStaleServing {
 
     /// Vary check used for revalidation: `Vary: *` entries cannot be served directly,
     /// but their validators can still be used in conditional requests.
+    /// - Parameter currentVaryKey: The currentVaryKey.
     func matchesVaryOrWildcard(_ currentVaryKey: String?) -> Bool {
         if varyKey == "*" { return true }
         return varyKey == currentVaryKey

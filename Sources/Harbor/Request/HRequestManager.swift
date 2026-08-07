@@ -475,9 +475,11 @@ extension HRequestManager {
             return .giveUp(.authNeeded)
         }
 
+        // Notify the provider of the failure so it can trigger its refresh mechanism
+        await authProvider.authFailed()
+
         guard let freshHeader = await authProvider.getAuthorizationHeader(),
               freshHeader != usedHeader else {
-            await authProvider.authFailed()
             return .giveUp(.authNeeded)
         }
 
@@ -488,6 +490,7 @@ extension HRequestManager {
 
     /// Sleeps for the given number of seconds. Negative values are treated as zero and the
     /// delay is clamped to `HRetryPolicy.maxDelay` before converting to nanoseconds.
+    /// - Parameter seconds: The seconds.
     static func sleep(seconds: TimeInterval) async {
         let clampedSeconds = min(max(seconds, 0), HRetryPolicy.maxDelay)
         guard clampedSeconds > 0 else { return }
@@ -508,6 +511,8 @@ extension HRequestManager {
     }
 
     /// Logs an error that occurred during request execution if debug logging is enabled.
+    /// - Parameter error: The error.
+    /// - Parameter request: The request.
     static func logError(_ error: HRequestError, request: HRequestBaseRequestProtocol) async {
         if let request = request as? HDebugRequestProtocol {
             await request.logErrorResponse(error: error)
@@ -542,6 +547,7 @@ extension HRequestManager {
     /// never replaced. Otherwise the internally built session is cached and reused across
     /// requests so connections can be pooled; it is rebuilt when the configuration or the
     /// per-request session inputs change.
+    /// - Parameter request: The request.
     static func getURLSession(for request: any HRequestBaseRequestProtocol) -> URLSession {
         if let customURLSession = HConfig.shared.customURLSession {
             return customURLSession

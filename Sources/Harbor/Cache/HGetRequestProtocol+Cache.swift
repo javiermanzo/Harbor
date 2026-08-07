@@ -161,6 +161,8 @@ private extension HGetRequestProtocol {
     /// the lookup proceeds without a header. Pass `resolvingAuthHeader: false` to skip the
     /// provider entirely. The credential is only used for vary-key computation; it is never
     /// logged.
+    /// - Parameter authHeader: The authHeader.
+    /// - Parameter resolvingAuthHeader: The resolvingAuthHeader.
     func effectiveRequestHeaders(authHeader: HAuthorizationHeader?, resolvingAuthHeader: Bool = true) async -> [String: String]? {
         var headers = await HConfig.shared.defaultHeaderParameters ?? [:]
         if let own = headerParameters {
@@ -175,6 +177,8 @@ private extension HGetRequestProtocol {
     /// Returns the given authorization header, or resolves it from the configured auth
     /// provider when the request needs auth and resolution is enabled. Never fails: without
     /// a provider the cache path proceeds without a header.
+    /// - Parameter authHeader: The authHeader.
+    /// - Parameter enabled: The enabled.
     func resolveAuthHeader(_ authHeader: HAuthorizationHeader?, enabled: Bool = true) async -> HAuthorizationHeader? {
         if let authHeader { return authHeader }
         guard enabled, needsAuth else { return nil }

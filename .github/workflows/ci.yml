@@ -113,7 +113,7 @@ jobs:
       uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
     
     # Run Example App Tests (Integration via xcodebuild)
-    # Using iPhone 17 on macos-26 (available on the latest simulator runtime)
+    # Using iPhone 16 on macos-26 (available on the latest simulator runtime)
     - name: Run Example App Tests
       run: |
         xcodebuild test \

@@ -8,14 +8,21 @@
 import Foundation
 import Harbor
 
+/// Internal manager responsible for performing single, notification, and batch JSON-RPC requests.
 @HRequestManagerActor
 enum HJRPCRequestManager: Sendable {
+    /// Shared JSON-RPC configuration instance.
     static var config: HJRPCConfig = HJRPCConfig()
 }
 
 // MARK: - Single Request
 
 extension HJRPCRequestManager {
+    /// Performs a single JSON-RPC request for a given model type.
+    /// - Parameters:
+    ///   - model: The model type to decode from the response.
+    ///   - request: The JSON-RPC request configuration.
+    /// - Returns: An `HJRPCResponse<Model>` containing the result or error.
     static func request<Model: HModel>(model: Model.Type, request: any HJRPCRequestProtocol) async -> HJRPCResponse<Model> {
         guard !config.url.isEmpty else {
             return .error(.urlNeeded)
@@ -64,6 +71,9 @@ extension HJRPCRequestManager {
 // MARK: - Notification
 
 extension HJRPCRequestManager {
+    /// Sends a JSON-RPC notification request (no response expected).
+    /// - Parameter request: The JSON-RPC request to notify.
+    /// - Throws: An `HJRPCRequestError` if the request or URL is invalid or the notification delivery fails.
     static func notify(request: any HJRPCRequestProtocol) async throws {
         guard !config.url.isEmpty else {
             throw HJRPCRequestError.urlNeeded
@@ -92,6 +102,9 @@ extension HJRPCRequestManager {
 // MARK: - Batch Request
 
 extension HJRPCRequestManager {
+    /// Executes a batch of JSON-RPC requests as a single HTTP payload.
+    /// - Parameter requests: The list of JSON-RPC requests to include in the batch.
+    /// - Returns: An array of `HJRPCBatchResponse` objects corresponding to server responses.
     static func batch(requests: [any HJRPCRequestProtocol]) async -> [HJRPCBatchResponse] {
         guard !config.url.isEmpty else {
             return requests.map { .error(id: $0.requestID, error: .urlNeeded) }

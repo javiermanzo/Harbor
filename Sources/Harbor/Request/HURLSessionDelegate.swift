@@ -9,23 +9,38 @@ import Foundation
 import LogBird
 import Security
 
+/// Custom `URLSessionDelegate` handling client certificate (mTLS) authentication and SSL pinning challenges.
 final class HURLSessionDelegate: NSObject, URLSessionDelegate, Sendable {
 
+    /// Result tuple of an authentication challenge resolution.
     typealias HChallengeResult = (disposition: URLSession.AuthChallengeDisposition, credential: URLCredential?)
 
-    /// Logger instance for SSL/TLS related events
+    /// Logger instance for SSL/TLS related events.
     private static let logger = LogBird(subsystem: "com.harbor", category: "ssl")
 
+    /// Client identity configuration for mutual TLS.
     private let mTLSIdentity: HMTLSIdentity?
+    /// Global SSL pinning keys.
     private let sslPinningKeys: [String]?
+    /// Host-scoped SSL pinning keys.
     private let sslPinningKeysByHost: [String: [String]]?
 
+    /// Creates a session delegate with optional mTLS identity and SSL pinning keys.
+    /// - Parameters:
+    ///   - mTLSIdentity: Client identity for mTLS.
+    ///   - sslPinningKeys: Global SSL pinning keys.
+    ///   - sslPinningKeysByHost: Scoped SSL pinning keys mapped by host name.
     init(mTLSIdentity: HMTLSIdentity?, sslPinningKeys: [String]?, sslPinningKeysByHost: [String: [String]]? = nil) {
         self.mTLSIdentity = mTLSIdentity
         self.sslPinningKeys = sslPinningKeys
         self.sslPinningKeysByHost = sslPinningKeysByHost
     }
 
+    /// Handles URLSession authentication challenges for client certificates (mTLS) and server trust (SSL pinning).
+    /// - Parameters:
+    ///   - session: The URLSession issuing the challenge.
+    ///   - challenge: The authentication challenge to respond to.
+    ///   - completionHandler: Completion closure called with disposition and credential.
     func urlSession(_ session: URLSession, didReceive challenge: URLAuthenticationChallenge, completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
         // Handle client certificate authentication (mTLS)
         if challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodClientCertificate {
@@ -53,6 +68,8 @@ final class HURLSessionDelegate: NSObject, URLSessionDelegate, Sendable {
 
     /// Normalizes a host name for pin storage and lookup: DNS names are case-insensitive
     /// and may carry a trailing root-label dot, so both spellings must match the same pins.
+    /// - Parameter host: The raw host name string.
+    /// - Returns: Normalized lowercase host name without trailing dot.
     static func normalizedHost(_ host: String) -> String {
         var normalized = host.lowercased()
         if normalized.hasSuffix(".") {
@@ -61,6 +78,9 @@ final class HURLSessionDelegate: NSObject, URLSessionDelegate, Sendable {
         return normalized
     }
 
+    /// Processes a client certificate challenge using the configured mTLS identity.
+    /// - Parameter challenge: The client certificate authentication challenge.
+    /// - Returns: `HChallengeResult` containing disposition and credential, or `nil` if mTLS is not configured.
     private func processCertificateChallenge(_ challenge: URLAuthenticationChallenge) -> HChallengeResult? {
         guard challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodClientCertificate else {
             return nil
@@ -96,6 +116,10 @@ final class HURLSessionDelegate: NSObject, URLSessionDelegate, Sendable {
     /// `.cancelAuthenticationChallenge` when the trust chain is invalid, otherwise the
     /// outcome of `matchPins(serverTrust:sslPinningKeys:)`. The synchronous evaluation
     /// inside `matchPins` reuses the cached result of the asynchronous one.
+    /// - Parameters:
+    ///   - serverTrust: The server trust object to evaluate.
+    ///   - sslPinningKeys: The list of valid SPKI pins to match against.
+    ///   - completionHandler: Completion closure called with disposition and credential.
     func evaluateAndMatchPins(serverTrust: SecTrust, sslPinningKeys: [String], completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
         let context = TrustEvaluationContext(serverTrust: serverTrust, completionHandler: completionHandler)
 
@@ -127,6 +151,10 @@ final class HURLSessionDelegate: NSObject, URLSessionDelegate, Sendable {
     /// pins. Succeeds only when the trust chain is valid and any certificate in it matches
     /// one of the pins; cancels otherwise. Malformed pins are ignored so they can never
     /// produce accidental matches.
+    /// - Parameters:
+    ///   - serverTrust: The server trust object to evaluate.
+    ///   - sslPinningKeys: The list of valid SPKI pins to match against.
+    /// - Returns: `HChallengeResult` containing disposition and credential.
     func matchPins(serverTrust: SecTrust, sslPinningKeys: [String]) -> HChallengeResult {
         // Pins must never be matched against an untrusted chain.
         var error: CFError?

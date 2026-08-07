@@ -33,6 +33,7 @@ struct PKCS12 {
     /// The extracted client identity.
     let identity: SecIdentity?
 
+    /// Creates a new PKCS12 container with parsed contents.
     private init(label: String?, keyID: Data?, trust: SecTrust?, certChain: [SecCertificate]?, identity: SecIdentity?) {
         self.label = label
         self.keyID = keyID
@@ -45,6 +46,8 @@ struct PKCS12 {
     /// - Parameters:
     ///   - p12Data: The PKCS#12 archive data.
     ///   - password: The password to decrypt the archive.
+    /// - Returns: A parsed `PKCS12` structure containing identity and certificates.
+    /// - Throws: `PKCS12Error.importFailed` if security import fails, or `.malformedContents` if data is corrupt.
     static func parse(p12Data: Data, password: String) throws(PKCS12Error) -> PKCS12 {
         let importPasswordOption: NSDictionary = [kSecImportExportPassphrase as NSString: password]
 
@@ -76,6 +79,10 @@ struct PKCS12 {
     }
 
     /// Extracts a specific value from the array of dictionaries returned by `SecPKCS12Import`.
+    /// - Parameters:
+    ///   - key: The Security dictionary key to look up.
+    ///   - dictionaryArray: Array of imported item dictionaries.
+    /// - Returns: The cast value if found, `nil` otherwise.
     private static func getValue<T>(by key: CFString, dictionaryArray: [[String: AnyObject]]) -> T? {
         for dictionary in dictionaryArray {
             if let value = dictionary[key as String] as? T {

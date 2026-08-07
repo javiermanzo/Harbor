@@ -79,9 +79,11 @@ def format_variation(diff):
         return "0.00% ⚪"
 
 
-def format_line_ranges(lines):
+def format_line_ranges_with_links(lines, repo_slug, head_sha, file_path):
+    """Formats list of uncovered line numbers into GitHub markdown links."""
     if not lines:
         return "-"
+
     ranges = []
     start = lines[0]
     prev = lines[0]
@@ -90,21 +92,22 @@ def format_line_ranges(lines):
         if num == prev + 1:
             prev = num
         else:
-            if start == prev:
-                ranges.append(str(start))
-            else:
-                ranges.append(f"{start}-{prev}")
+            ranges.append((start, prev))
             start = num
             prev = num
+    ranges.append((start, prev))
 
-    if start == prev:
-        ranges.append(str(start))
-    else:
-        ranges.append(f"{start}-{prev}")
+    links = []
+    for s, e in ranges:
+        if s == e:
+            link_text = str(s)
+            url = f"https://github.com/{repo_slug}/blob/{head_sha}/{file_path}#L{s}"
+        else:
+            link_text = f"{s}-{e}"
+            url = f"https://github.com/{repo_slug}/blob/{head_sha}/{file_path}#L{s}-L{e}"
+        links.append(f"[{link_text}]({url})")
 
-    if len(ranges) > 5:
-        return ", ".join(ranges[:5]) + f", ... (+{len(ranges)-5} more)"
-    return ", ".join(ranges)
+    return ", ".join(links)
 
 
 def main():
@@ -112,6 +115,8 @@ def main():
     base_lcov_path = sys.argv[2] if len(sys.argv) > 2 else "./base-coverage/lcov.info"
     output_path = sys.argv[3] if len(sys.argv) > 3 else "./coverage_comment.md"
     base_ref = os.environ.get("GITHUB_BASE_REF", "release/4.0.0")
+    repo_slug = os.environ.get("GITHUB_REPOSITORY", "javiermanzo/Harbor")
+    head_sha = os.environ.get("PR_HEAD_SHA", os.environ.get("GITHUB_SHA", "main"))
 
     pr_cov = parse_lcov(pr_lcov_path)
     base_cov = parse_lcov(base_lcov_path)
@@ -160,7 +165,13 @@ def main():
         else:
             continue
 
-        uncovered_str = format_line_ranges(pr_data["uncovered"])
+        pr_uncovered = set(pr_data["uncovered"])
+        base_uncovered = set(base_data["uncovered"]) if has_base else set()
+
+        # Extract only lines uncovered in PR that were NOT uncovered in base branch
+        pr_affected_uncovered = sorted(list(pr_uncovered - base_uncovered))
+
+        uncovered_str = format_line_ranges_with_links(pr_affected_uncovered, repo_slug, head_sha, f)
         relevant_files_with_changes.append((f, b_pct, p_pct, var_str, uncovered_str))
 
     md.append("<details>")
@@ -168,7 +179,7 @@ def main():
     md.append("")
 
     if relevant_files_with_changes:
-        md.append("| File | Base Branch | PR Branch | Variation | Uncovered Lines |")
+        md.append("| File | Base Branch | PR Branch | Variation | PR Uncovered Lines |")
         md.append("| :--- | :---: | :---: | :---: | :---: |")
         for f, b_pct, p_pct, var_str, unc_str in relevant_files_with_changes:
             b_str = format_percentage(b_pct)

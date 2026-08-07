@@ -44,6 +44,19 @@ jobs:
       with:
         name: coverage-pr
         path: ./lcov.info
+    - name: Generate HTML Coverage Report
+      if: github.event_name == 'pull_request'
+      run: |
+        xcrun llvm-cov show $(swift build --show-bin-path)/HarborPackageTests.xctest/Contents/MacOS/HarborPackageTests \
+          -instr-profile=$(swift build --show-bin-path)/codecov/default.profdata \
+          -format=html \
+          -output-dir=./coverage_html
+    - name: Upload HTML Coverage Report Artifact (PR)
+      if: github.event_name == 'pull_request'
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      with:
+        name: coverage-html-report
+        path: ./coverage_html
     - name: Download Base Coverage
       if: github.event_name == 'pull_request'
       uses: dawidd6/action-download-artifact@09f2f74827fd3a8607589e5ad7f9398816f540fe # v3.1.4

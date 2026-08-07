@@ -27,6 +27,7 @@ protocol HRequestManagerMonitorProtocol: Sendable {
 }
 
 extension HRequestManagerMonitorProtocol {
+    /// Default empty implementation for stopping the network monitor.
     func stop() {}
 }
 
@@ -67,6 +68,7 @@ final class HRequestManagerMonitor: HRequestManagerMonitorProtocol {
     }
 
     /// Network connectivity check using NWPathMonitor.
+    /// - Returns: `true` if connected to network or fallback allowed, `false` otherwise.
     func isConnectedToNetwork() -> Bool {
         start()
 
@@ -83,8 +85,11 @@ final class HRequestManagerMonitor: HRequestManagerMonitorProtocol {
     }
 
     /// Decides whether a request should proceed based on the monitor state.
-    /// Until the monitor delivers its first path update the real status is unknown,
-    /// so connectivity is assumed instead of failing the request spuriously.
+    /// - Parameters:
+    ///   - hasReceivedInitialUpdate: Whether the monitor has delivered its first path update.
+    ///   - pathStatus: Current status of network path.
+    ///   - allowsDebugFallback: Whether debug fallback to assume availability is active.
+    /// - Returns: `true` if request execution is permitted, `false` otherwise.
     static func shouldAllowRequest(hasReceivedInitialUpdate: Bool, pathStatus: NWPath.Status, allowsDebugFallback: Bool) -> Bool {
         guard hasReceivedInitialUpdate else { return true }
 

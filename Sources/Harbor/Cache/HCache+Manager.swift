@@ -66,6 +66,12 @@ extension HCache {
         /// Expired entries are never served. Entries that carry validators (ETag / Last-Modified)
         /// or that must always be revalidated (`Cache-Control: no-cache`) are kept as a source of
         /// validators instead of being deleted; entries without validators are evicted on expiration.
+        /// - Parameters:
+        ///   - key: The cache key string.
+        ///   - type: The model type to decode.
+        ///   - config: The cache configuration containing expiration limits.
+        ///   - requestHeaders: Optional HTTP request headers used for `Vary` validation.
+        /// - Returns: Decoded model if found and valid, `nil` otherwise.
         func getCachedData<T: HModel>(forKey key: String, type: T.Type, config: HCache.Configuration, requestHeaders: [String: String]? = nil) async -> T? {
             let nsKey = NSString(string: key)
 
@@ -110,6 +116,11 @@ extension HCache {
 
         /// Returns the cached body for a key even when the entry is expired, as long as it carries a
         /// validator (ETag / Last-Modified). Used to satisfy a `304 Not Modified` revalidation.
+        /// - Parameters:
+        ///   - key: The cache key string.
+        ///   - type: The model type to decode.
+        ///   - requestHeaders: Optional HTTP request headers used for `Vary` validation.
+        /// - Returns: Decoded model if revalidatable, `nil` otherwise.
         func getRevalidatableCachedData<T: HModel>(forKey key: String, type: T.Type, requestHeaders: [String: String]? = nil) async -> T? {
             let nsKey = NSString(string: key)
 
@@ -131,19 +142,14 @@ extension HCache {
 
         /// Returns an expired entry when its `stale-if-error` window still allows serving it.
         /// Entries marked `must-revalidate` are never served stale.
+        /// - Parameters:
+        ///   - key: The cache key string.
+        ///   - type: The model type to decode.
+        ///   - requestHeaders: Optional HTTP request headers used for `Vary` validation.
+        /// - Returns: Decoded stale model if within `stale-if-error` grace period, `nil` otherwise.
         func getStaleOnErrorData<T: HModel>(forKey key: String, type: T.Type, requestHeaders: [String: String]? = nil) async -> T? {
-            func staleModel<E: HCacheEntryInfo & HCacheStaleServing>(from entry: E, data: Data) -> T? {
-                guard !entry.mustRevalidate,
-                      entry.isExpired(maxAge: nil),
-                      let window = entry.staleIfError,
-                      let freshness = entry.expirationTime,
-                      Date().timeIntervalSince(entry.timestamp) - freshness <= window,
-                      entry.matchesVary(Self.varyKey(for: entry.vary, requestHeaders: requestHeaders)) else { return nil }
-                return try? Self.jsonDecoder.decode(type, from: data)
-            }
-
             if let entry = memoryCache.object(forKey: NSString(string: key)) {
-                return staleModel(from: entry, data: entry.data)
+                return Self.staleModel(from: entry, data: entry.data, type: type, requestHeaders: requestHeaders)
             }
 
             guard let fileData = await readDiskData(forKey: key),
@@ -151,7 +157,29 @@ extension HCache {
                   diskEntry.version == DiskEntry.currentVersion else {
                 return nil
             }
-            return staleModel(from: diskEntry, data: diskEntry.data)
+            return Self.staleModel(from: diskEntry, data: diskEntry.data, type: type, requestHeaders: requestHeaders)
+        }
+
+        /// Helper to decode model if entry satisfies `stale-if-error` conditions.
+        /// - Parameters:
+        ///   - entry: The cache entry info.
+        ///   - data: Raw response payload.
+        ///   - type: The model type to decode.
+        ///   - requestHeaders: Optional HTTP request headers used for `Vary` validation.
+        /// - Returns: Decoded model if valid, `nil` otherwise.
+        private static func staleModel<T: HModel, E: HCacheEntryInfo & HCacheStaleServing>(
+            from entry: E,
+            data: Data,
+            type: T.Type,
+            requestHeaders: [String: String]?
+        ) -> T? {
+            guard !entry.mustRevalidate,
+                  entry.isExpired(maxAge: nil),
+                  let window = entry.staleIfError,
+                  let freshness = entry.expirationTime,
+                  Date().timeIntervalSince(entry.timestamp) - freshness <= window,
+                  entry.matchesVary(Self.varyKey(for: entry.vary, requestHeaders: requestHeaders)) else { return nil }
+            return try? Self.jsonDecoder.decode(type, from: data)
         }
 
         /// Stores data by key (for custom cache type), honoring the response cache directives.

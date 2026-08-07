@@ -6,6 +6,10 @@ on:
   pull_request:
     branches: [ "main", "release/*" ]
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
   pull-requests: write
@@ -15,7 +19,9 @@ jobs:
     runs-on: macos-15
     steps:
     - name: Checkout
-      uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        fetch-depth: 0
     - name: Build
       run: swift build
     - name: Test
@@ -28,13 +34,13 @@ jobs:
         output-file: ./lcov.info
     - name: Upload Coverage Artifact (Base)
       if: github.event_name == 'push'
-      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
       with:
         name: coverage-base
         path: ./lcov.info
     - name: Download Base Coverage
       if: github.event_name == 'pull_request'
-      uses: dawidd6/action-download-artifact@09f2f74827fd3a8607589e5ad7f9398816f540fe # v3.1.4
+      uses: dawidd6/action-download-artifact@b6e2e70617bc3265edd6dab6c906732b2f1ae151 # v21
       continue-on-error: true
       with:
         github_token: ${{ secrets.GITHUB_TOKEN }}
@@ -42,22 +48,69 @@ jobs:
         branch: ${{ github.base_ref }}
         name: coverage-base
         path: ./base-coverage/
-    - name: Report Coverage to PR
-      uses: Nef10/lcov-reporter-action@797ec1c1e78e3a9a7890c1a104d58b9e05fcef76 # v0.6.1
+    - name: Generate HTML Coverage Report
       if: github.event_name == 'pull_request'
+      env:
+        GITHUB_BASE_REF: ${{ github.base_ref }}
+      run: python3 scripts/generate_html_report.py ./lcov.info ./base-coverage/lcov.info ./coverage_html
+    - name: Upload HTML Coverage Report Artifact (PR)
+      if: github.event_name == 'pull_request'
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      with:
+        name: coverage-html-report
+        path: ./coverage_html
+    - name: Generate Coverage Report
+      if: github.event_name == 'pull_request'
+      env:
+        GITHUB_BASE_REF: ${{ github.base_ref }}
+        PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      run: python3 scripts/generate_coverage_report.py ./lcov.info ./base-coverage/lcov.info ./coverage_comment.md
+
+    - name: Post Coverage Comment to PR
+      if: github.event_name == 'pull_request'
+      uses: actions/github-script@d746ffe35508b1917358783b479e04febd2b8f71 # v9.0.0
       with:
         github-token: ${{ secrets.GITHUB_TOKEN }}
-        pr-number: ${{ github.event.pull_request.number }}
-        lcov-file: ./lcov.info
-        lcov-base: ./base-coverage/lcov.info
-        filter-changed-files: true
-        delete-old-comments: true
+        script: |
+          const fs = require('fs');
+          if (!fs.existsSync('./coverage_comment.md')) return;
+          const body = fs.readFileSync('./coverage_comment.md', 'utf8');
+          const issue_number = context.payload.pull_request.number;
+          const owner = context.repo.owner;
+          const repo = context.repo.repo;
+
+          const comments = await github.rest.issues.listComments({
+            owner,
+            repo,
+            issue_number,
+          });
+
+          const botComment = comments.data.find(c =>
+            c.user && c.user.login === 'github-actions[bot]' &&
+            (c.body.includes('Coverage Report') || c.body.includes('Line Coverage Report'))
+          );
+
+          if (botComment) {
+            await github.rest.issues.updateComment({
+              owner,
+              repo,
+              comment_id: botComment.id,
+              body,
+            });
+          } else {
+            await github.rest.issues.createComment({
+              owner,
+              repo,
+              issue_number,
+              body,
+            });
+          }
 
   ios-integration-tests:
     runs-on: macos-26
     steps:
     - name: Checkout
-      uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
     
     # Run Example App Tests (Integration via xcodebuild)
     # Using iPhone 17 on macos-26 (available on the latest simulator runtime)

@@ -38,8 +38,9 @@ enum HSPKI {
         0x01, 0x06, 0x05, 0x2b, 0x81, 0x04, 0x00, 0x22, 0x03, 0x62, 0x00
     ]
 
-    /// Returns the SubjectPublicKeyInfo DER bytes for a certificate's public key,
-    /// or `nil` if the key cannot be extracted or its type/size is unsupported.
+    /// Returns the SubjectPublicKeyInfo DER bytes for a certificate's public key.
+    /// - Parameter certificate: The certificate to extract SPKI bytes from.
+    /// - Returns: SubjectPublicKeyInfo DER bytes, or `nil` if the key cannot be extracted or its type/size is unsupported.
     static func spkiData(for certificate: SecCertificate) -> Data? {
         guard let publicKey = SecCertificateCopyKey(certificate) else {
             return nil
@@ -78,6 +79,7 @@ enum HSPKI {
     }
 
     /// Computes the SSL pin for a certificate: `base64(SHA256(SPKI))`.
+    /// - Parameter certificate: The certificate to generate the pin for.
     /// - Returns: The pin string, or `nil` if the certificate's key type is unsupported.
     static func pin(for certificate: SecCertificate) -> String? {
         guard let spkiData = spkiData(for: certificate) else {
@@ -88,6 +90,8 @@ enum HSPKI {
 
     /// Validates that a pin string is base64 decoding to exactly 32 bytes (SHA-256),
     /// with (44 chars) or without (43 chars) padding.
+    /// - Parameter pin: The base64 pin string to validate.
+    /// - Returns: `true` if the pin is a valid SHA-256 base64 string, `false` otherwise.
     static func isValidPin(_ pin: String) -> Bool {
         var base64 = pin
         let remainder = base64.count % 4
@@ -100,7 +104,9 @@ enum HSPKI {
         return data.count == 32
     }
 
-    /// Normalizes a pin for comparison, making padding optional.
+    /// Normalizes a pin for comparison by stripping trailing `=` padding characters.
+    /// - Parameter pin: The raw pin string.
+    /// - Returns: The normalized pin string without trailing `=` padding.
     static func normalizePin(_ pin: String) -> String {
         pin.trimmingCharacters(in: CharacterSet(charactersIn: "="))
     }

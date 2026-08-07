@@ -106,9 +106,13 @@ struct HConfig: @unchecked Sendable {
     }
 }
 
+/// Thread-safe storage for the default JSON decoder used across Harbor.
 private struct HJSONDecoderStorage {
+    /// Mutex lock protecting access to the shared decoder instance.
     static let lock = NSLock()
+    /// Internal backing storage for the JSON decoder.
     nonisolated(unsafe) static var _decoder = JSONDecoder()
+    /// Accessor for the thread-safe JSON decoder instance.
     static var decoder: JSONDecoder {
         get {
             lock.lock()

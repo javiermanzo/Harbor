@@ -67,7 +67,10 @@ jobs:
             issue_number,
           });
 
-          const botComment = comments.data.find(c => c.user.type === 'Bot' && c.body.includes('📊 Line Coverage Report'));
+          const botComment = comments.data.find(c =>
+            c.user && c.user.login === 'github-actions[bot]' &&
+            (c.body.includes('Coverage Report') || c.body.includes('Line Coverage Report'))
+          );
 
           if (botComment) {
             await github.rest.issues.updateComment({

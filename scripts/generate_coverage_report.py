@@ -80,7 +80,7 @@ def format_variation(diff):
 
 
 def format_line_ranges_with_links(lines, repo_slug, head_sha, file_path):
-    """Formats list of uncovered line numbers into GitHub markdown links."""
+    """Formats list of uncovered line numbers into clickable GitHub markdown links."""
     if not lines:
         return "-"
 
@@ -165,13 +165,8 @@ def main():
         else:
             continue
 
-        pr_uncovered = set(pr_data["uncovered"])
-        base_uncovered = set(base_data["uncovered"]) if has_base else set()
-
-        # Extract only lines uncovered in PR that were NOT uncovered in base branch
-        pr_affected_uncovered = sorted(list(pr_uncovered - base_uncovered))
-
-        uncovered_str = format_line_ranges_with_links(pr_affected_uncovered, repo_slug, head_sha, f)
+        uncovered_lines = sorted(pr_data["uncovered"])
+        uncovered_str = format_line_ranges_with_links(uncovered_lines, repo_slug, head_sha, f)
         relevant_files_with_changes.append((f, b_pct, p_pct, var_str, uncovered_str))
 
     md.append("<details>")
@@ -179,7 +174,7 @@ def main():
     md.append("")
 
     if relevant_files_with_changes:
-        md.append("| File | Base Branch | PR Branch | Variation | PR Uncovered Lines |")
+        md.append("| File | Base Branch | PR Branch | Variation | Uncovered Lines |")
         md.append("| :--- | :---: | :---: | :---: | :---: |")
         for f, b_pct, p_pct, var_str, unc_str in relevant_files_with_changes:
             b_str = format_percentage(b_pct)

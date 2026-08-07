@@ -19,10 +19,10 @@ struct RequestsView: View {
     private static let logger = LogBird(subsystem: "com.harbor.example", category: "RequestsView")
 
     // Auth provider for authenticated requests
-    private let authProvider = TokenAuthProvider()
+    @State private var authProvider = TokenAuthProvider()
 
     // Auth provider for the token-refresh demo (starts with an expired token)
-    private let refreshAuthProvider = RefreshingAuthProvider()
+    @State private var refreshAuthProvider = RefreshingAuthProvider()
 
     private static var isHarborSetup = false
     @State private var isMocksEnabled: Bool = false
@@ -799,7 +799,7 @@ struct RequestsView: View {
     // MARK: - Helpers
 
     /// Runs an async operation toggling the loading overlay.
-    private func performWithLoading(_ operation: @escaping () async -> Void) {
+    private func performWithLoading(_ operation: @escaping @Sendable () async -> Void) {
         isLoading = true
         Task {
             await operation()

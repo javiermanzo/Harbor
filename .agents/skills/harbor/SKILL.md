@@ -106,7 +106,8 @@ await Harbor.register(mock: mock)
 
 ## Example App
 The repository includes an `Example/HarborExample` app showcasing every single feature (GET, POST, Caching, Streaming, JRPC, Auth, Retry, Mocking). When modifying the Example App:
-- Ensure UI state uses `@State` and isolates networking calls using `Task { await ... }`.
+- Ensure UI state uses `@State` (or `@StateObject` for classes) to prevent lifecycle reference leaks across SwiftUI render passes.
+- Isolate networking calls using `Task { await ... }`. If passing closures to a `Task` inside a SwiftUI View, mark the closure as `@Sendable` to correctly detach execution from the view's implicit `@MainActor`.
 - Always verify that global configuration states (like `Harbor.mocksEnabled`) are accessed correctly without triggering Main Actor warnings.
 
 ## CI & Workflow

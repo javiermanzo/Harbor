@@ -134,7 +134,12 @@ extension HJRPCRequestManager {
             requestIDs.append(effectiveID)
         }
 
-        let rawBody = (try? JSONEncoder().encode(elements)) ?? Data()
+        let rawBody: Data
+        do {
+            rawBody = try JSONEncoder().encode(elements)
+        } catch {
+            return requests.map { .error(id: $0.requestID, error: .malformedRequest(reason: "JSON Encoding Error")) }
+        }
 
         let needsAuth = requests.contains { $0.needsAuth }
 

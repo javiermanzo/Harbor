@@ -64,6 +64,36 @@ def get_changed_files(base_ref):
         return []
 
 
+def get_pr_modified_lines(base_ref, file_path):
+    """Retrieves a set of line numbers that were added or modified in the PR for a given file."""
+    try:
+        cmd = ["git", "diff", f"origin/{base_ref}...HEAD", "--", file_path]
+        out = subprocess.check_output(cmd, text=True)
+        modified_lines = set()
+        current_line = 0
+        for line in out.splitlines():
+            if line.startswith("@@ "):
+                parts = line.split(" ")
+                new_info = parts[2]
+                new_info = new_info[1:]
+                if "," in new_info:
+                    start, count = map(int, new_info.split(","))
+                else:
+                    start = int(new_info)
+                    count = 1
+                current_line = start
+            elif line.startswith("+") and not line.startswith("+++"):
+                modified_lines.add(current_line)
+                current_line += 1
+            elif line.startswith("-") and not line.startswith("---"):
+                pass
+            elif line.startswith(" ") or line == "":
+                current_line += 1
+        return modified_lines
+    except Exception:
+        return set()
+
+
 def format_percentage(pct):
     if pct is None:
         return "N/A"
@@ -165,8 +195,12 @@ def main():
         else:
             continue
 
-        uncovered_lines = sorted(pr_data["uncovered"])
-        uncovered_str = format_line_ranges_with_links(uncovered_lines, repo_slug, head_sha, f)
+        uncovered_lines = set(pr_data["uncovered"])
+        modified_lines = get_pr_modified_lines(base_ref, f)
+        # Only include uncovered lines that were touched by this PR
+        pr_uncovered_lines = sorted(list(uncovered_lines.intersection(modified_lines)))
+        
+        uncovered_str = format_line_ranges_with_links(pr_uncovered_lines, repo_slug, head_sha, f)
         relevant_files_with_changes.append((f, b_pct, p_pct, var_str, uncovered_str))
 
     md.append("<details>")

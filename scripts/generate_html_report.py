@@ -64,6 +64,36 @@ def get_changed_files(base_ref):
         return []
 
 
+def get_pr_modified_lines(base_ref, file_path):
+    """Retrieves a set of line numbers that were added or modified in the PR for a given file."""
+    try:
+        cmd = ["git", "diff", f"origin/{base_ref}...HEAD", "--", file_path]
+        out = subprocess.check_output(cmd, text=True)
+        modified_lines = set()
+        current_line = 0
+        for line in out.splitlines():
+            if line.startswith("@@ "):
+                parts = line.split(" ")
+                new_info = parts[2]
+                new_info = new_info[1:]
+                if "," in new_info:
+                    start, count = map(int, new_info.split(","))
+                else:
+                    start = int(new_info)
+                    count = 1
+                current_line = start
+            elif line.startswith("+") and not line.startswith("+++"):
+                modified_lines.add(current_line)
+                current_line += 1
+            elif line.startswith("-") and not line.startswith("---"):
+                pass
+            elif line.startswith(" ") or line == "":
+                current_line += 1
+        return modified_lines
+    except Exception:
+        return set()
+
+
 def read_source_file(file_path):
     """Reads source code lines of a file."""
     if not os.path.exists(file_path):
@@ -110,6 +140,7 @@ def main():
 
         source_lines = read_source_file(f)
         annotated_lines = []
+        modified_lines = get_pr_modified_lines(base_ref, f)
 
         for idx, text in enumerate(source_lines, 1):
             count = p_data["lines"].get(idx, None)
@@ -117,9 +148,10 @@ def main():
                 "number": idx,
                 "text": text.rstrip("\r\n"),
                 "count": count,
+                "is_modified": idx in modified_lines,
             })
 
-        uncovered_count = sum(1 for l in annotated_lines if l["count"] == 0)
+        uncovered_count = sum(1 for l in annotated_lines if l["count"] == 0 and l["is_modified"])
 
         files_data.append({
             "path": f,

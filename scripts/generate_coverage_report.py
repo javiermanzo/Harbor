@@ -96,38 +96,44 @@ def main():
 
     changed_files = get_changed_files(base_ref)
 
-    # Fallback to files present in either coverage map if git diff returns empty
-    if not changed_files:
-        changed_files = sorted(list(set(pr_cov.keys()).union(set(base_cov.keys()))))
+    relevant_files_with_changes = []
 
-    relevant_changed_files = [f for f in changed_files if f in pr_cov or f in base_cov]
+    for f in sorted(changed_files):
+        p_lh, p_lf = pr_cov.get(f, (0, 0))
+        p_pct = (p_lh / p_lf * 100) if p_lf > 0 else None
 
-    if relevant_changed_files:
-        md.append("### 📁 Coverage Report for Changed Files")
-        md.append("")
+        b_lh, b_lf = base_cov.get(f, (0, 0))
+        b_pct = (b_lh / b_lf * 100) if (has_base and b_lf > 0) else None
+
+        if p_pct is not None and b_pct is not None:
+            diff = p_pct - b_pct
+            if abs(diff) <= 0.001:
+                # Skip files without coverage variation!
+                continue
+            var_str = format_variation(diff)
+        elif p_pct is not None and b_pct is None:
+            var_str = f"New File ({format_percentage(p_pct)}) 🟢"
+        elif p_pct is None and b_pct is not None:
+            var_str = "Deleted 🔴"
+        else:
+            continue
+
+        relevant_files_with_changes.append((f, b_pct, p_pct, var_str))
+
+    md.append("<details><summary><b>Coverage Report for Changed Files</b></summary>")
+    md.append("<br/>")
+
+    if relevant_files_with_changes:
         md.append("| File | Base Branch | PR Branch | Variation |")
         md.append("| :--- | :---: | :---: | :---: |")
-
-        for f in sorted(relevant_changed_files):
-            p_lh, p_lf = pr_cov.get(f, (0, 0))
-            p_pct = (p_lh / p_lf * 100) if p_lf > 0 else None
-
-            b_lh, b_lf = base_cov.get(f, (0, 0))
-            b_pct = (b_lh / b_lf * 100) if (has_base and b_lf > 0) else None
-
-            p_str = format_percentage(p_pct)
+        for f, b_pct, p_pct, var_str in relevant_files_with_changes:
             b_str = format_percentage(b_pct)
-
-            if p_pct is not None and b_pct is not None:
-                var_str = format_variation(p_pct - b_pct)
-            elif p_pct is not None and b_pct is None:
-                var_str = f"New File ({format_percentage(p_pct)}) 🟢"
-            elif p_pct is None and b_pct is not None:
-                var_str = "Deleted 🔴"
-            else:
-                var_str = "N/A"
-
+            p_str = format_percentage(p_pct)
             md.append(f"| `{f}` | {b_str} | {p_str} | {var_str} |")
+    else:
+        md.append("No coverage variations in changed files.")
+
+    md.append("</details>")
 
     report_text = "\n".join(md)
 

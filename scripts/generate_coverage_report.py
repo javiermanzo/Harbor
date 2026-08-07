@@ -108,7 +108,7 @@ def main():
         if p_pct is not None and b_pct is not None:
             diff = p_pct - b_pct
             if abs(diff) <= 0.001:
-                # Skip files without coverage variation!
+                # Skip files without coverage variation
                 continue
             var_str = format_variation(diff)
         elif p_pct is not None and b_pct is None:
@@ -120,8 +120,9 @@ def main():
 
         relevant_files_with_changes.append((f, b_pct, p_pct, var_str))
 
-    md.append("<details><summary><b>Coverage Report for Changed Files</b></summary>")
-    md.append("<br/>")
+    md.append("<details>")
+    md.append("<summary>Coverage Report for Changed Files</summary>")
+    md.append("")
 
     if relevant_files_with_changes:
         md.append("| File | Base Branch | PR Branch | Variation |")
@@ -133,6 +134,7 @@ def main():
     else:
         md.append("No coverage variations in changed files.")
 
+    md.append("")
     md.append("</details>")
 
     report_text = "\n".join(md)

@@ -47,6 +47,7 @@ enum HLogger {
 
     /// Applies a sensitive-key update to Harbor's logger, mapping Harbor's
     /// public ``HLoggingSensitiveKeyAction`` to LogBird's action API.
+    /// - Parameter action: The action.
     static func sensitiveKeys(_ action: HLoggingSensitiveKeyAction) {
         switch action {
         case .set(let keys): logger.sensitiveKeys(.set(keys))

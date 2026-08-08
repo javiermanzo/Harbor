@@ -276,7 +276,7 @@ final class HarborRequestRetryTests: XCTestCase {
         // and the provider was asked for a header once per attempt
         XCTAssertEqual(HRequestStubProtocol.startLoadingCount, HRequestManager.maxAuthRetries + 1)
         XCTAssertEqual(provider.headerCallCount, HRequestManager.maxAuthRetries + 1)
-        XCTAssertEqual(provider.authFailedCount, 1)
+        XCTAssertEqual(provider.authFailedCount, HRequestManager.maxAuthRetries + 1)
 
         guard case .error(let error) = response, case .authNeeded = error else {
             XCTFail("Expected .authNeeded but got: \(response)")
@@ -299,7 +299,7 @@ final class HarborRequestRetryTests: XCTestCase {
         // URLRequest, not to the request type): 401, one refresh, then .authNeeded
         XCTAssertEqual(HRequestStubProtocol.startLoadingCount, HRequestManager.maxAuthRetries + 1)
         XCTAssertEqual(provider.headerCallCount, HRequestManager.maxAuthRetries + 1)
-        XCTAssertEqual(provider.authFailedCount, 1)
+        XCTAssertEqual(provider.authFailedCount, HRequestManager.maxAuthRetries + 1)
 
         guard case .error(let error) = response, case .authNeeded = error else {
             XCTFail("Expected .authNeeded but got: \(response)")

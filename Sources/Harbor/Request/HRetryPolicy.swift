@@ -41,6 +41,7 @@ public struct HRetryPolicy: Sendable {
     /// Delay to wait before the given retry, where `retry` is 1 for the first retry.
     /// The result grows as `baseDelay * multiplier^(retry - 1)` plus a random jitter,
     /// and is clamped to `HRetryPolicy.maxDelay`.
+    /// - Parameter retry: The retry.
     public func delay(forRetry retry: Int) -> TimeInterval {
         let exponential = baseDelay * pow(multiplier, Double(max(0, retry - 1)))
         let delay = exponential + TimeInterval.random(in: jitter)

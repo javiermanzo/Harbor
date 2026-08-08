@@ -46,6 +46,7 @@ extension HRequestError {
     private static let bodyPreviewLimit = 500
 
     /// Maps a raw `URLError` to a strongly typed `HRequestError`.
+    /// - Parameter error: The error.
     static func mapURLError(_ error: URLError) -> HRequestError {
         switch error.code {
         case .cancelled:

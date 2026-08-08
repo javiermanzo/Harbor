@@ -50,7 +50,6 @@ final class TokenAuthProvider: HAuthProviderProtocol, @unchecked Sendable {
 /// Custom authentication with token refresh and retry logic
 final class CustomAuthProvider: HAuthProviderProtocol, @unchecked Sendable {
     private var token: String?
-    private var refreshToken: String?
     private var expiresAt: Date?
 
     private let baseURL: String
@@ -82,9 +81,6 @@ final class CustomAuthProvider: HAuthProviderProtocol, @unchecked Sendable {
     }
 
     private func refreshTokenInternal() async throws {
-        guard let refreshToken = refreshToken else {
-            throw AuthError.noRefreshToken
-        }
 
         // Simulate refresh token request
         // In production, this would be an actual network request
@@ -96,13 +92,11 @@ final class CustomAuthProvider: HAuthProviderProtocol, @unchecked Sendable {
     func login(email: String, password: String) async throws {
         // Simulate login
         self.token = "access_token_\(UUID().uuidString)"
-        self.refreshToken = "refresh_token_\(UUID().uuidString)"
         self.expiresAt = Date().addingTimeInterval(3600)
     }
 
     func logout() async {
         self.token = nil
-        self.refreshToken = nil
         self.expiresAt = nil
 
         // Clear auth provider from Harbor

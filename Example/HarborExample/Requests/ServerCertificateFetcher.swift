@@ -10,7 +10,7 @@ import Foundation
 /// Fetches a host's leaf certificate by opening a TLS connection, so a pin can be
 /// computed from the live certificate with `Harbor.computePin(for:)`.
 /// Trust evaluation is left to the default handling; the certificate is only observed.
-final class ServerCertificateFetcher: NSObject, URLSessionDelegate {
+final class ServerCertificateFetcher: NSObject, URLSessionDelegate, @unchecked Sendable {
     /// Returns the leaf certificate presented by the given host.
     /// - Throws: `URLError.badURL` when the host is invalid, or
     ///   `URLError.serverCertificateUntrusted` when no certificate could be read.
@@ -35,7 +35,7 @@ final class ServerCertificateFetcher: NSObject, URLSessionDelegate {
     /// Guards `serverCertificateStorage`, which is written on the session's delegate queue
     /// and read after the data task completes.
     private let lock = NSLock()
-    private var serverCertificateStorage: SecCertificate?
+    nonisolated(unsafe) private var serverCertificateStorage: SecCertificate?
 
     private var serverCertificate: SecCertificate? {
         get {

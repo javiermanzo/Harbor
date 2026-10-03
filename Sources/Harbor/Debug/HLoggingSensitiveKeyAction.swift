@@ -19,7 +19,9 @@ public enum HLoggingSensitiveKeyAction: Sendable {
     case add([String])
     /// Restores LogBird's default sensitive-key set.
     case reset
-    /// Removes all sensitive keys, disabling redaction. Useful when debugging
-    /// and you need to inspect tokens or credentials.
+    /// Removes all configurable sensitive keys, disabling LogBird's key-based
+    /// redaction of log metadata. Harbor's built-in HTTP credential keys still
+    /// apply to headers, query values and bodies; use
+    /// `Harbor.setLogSensitiveHeaders(true)` to inspect tokens or credentials.
     case clear
 }

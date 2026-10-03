@@ -24,7 +24,9 @@ struct RequestsView: View {
     // Auth provider for the token-refresh demo (starts with an expired token)
     @State private var refreshAuthProvider = RefreshingAuthProvider()
 
-    private static var isHarborSetup = false
+    // Survives view re-creation; `RequestsView` is `@MainActor` (SwiftUI `View`), so the
+    // flag is isolated to the main actor as well.
+    @MainActor private static var isHarborSetup = false
     @State private var isMocksEnabled: Bool = false
 
     func setupOnAppear() {
@@ -83,6 +85,7 @@ struct RequestsView: View {
                             // MARK: - POST Requests
                             ExampleSection(title: "POST Requests") {
                                 ExampleButton(title: "POST - Create Resource", icon: "plus.circle") { performPostRequest() }
+                                ExampleButton(title: "POST - Encodable rawBody", icon: "doc.plaintext") { performRawBodyPost() }
                                 ExampleButton(title: "POST - Multipart Upload", icon: "paperclip") { performMultipartPost() }
                             }
 
@@ -286,7 +289,8 @@ struct RequestsView: View {
     func performPostRequest() {
         addResult("=== POST - Create Resource ===")
         performWithLoading {
-            let response = await CreatePostRequest(
+            // The type annotation selects the model-returning `request()` overload.
+            let response: HResponseWithResult<Post> = await CreatePostRequest(
                 title: "My New Post",
                 body: "This is the body of my post",
                 userId: 1
@@ -294,8 +298,27 @@ struct RequestsView: View {
 
             await MainActor.run {
                 switch response {
-                case .success:
-                    addResult("Post created successfully!")
+                case .success(let post):
+                    addResult("Post created successfully! Server assigned id \(post.id)")
+                case .error(let error):
+                    addResult("Error: \(error.localizedDescription)")
+                }
+            }
+        }
+    }
+
+    func performRawBodyPost() {
+        addResult("=== POST - Encodable rawBody ===")
+        performWithLoading {
+            // `rawBody` sends the pre-encoded model as-is with `Content-Type: application/json`.
+            let post = Post(id: 0, userId: 1, title: "Encoded with JSONEncoder", body: "Sent through rawBody")
+            let response: HResponseWithResult<Post> = await CreatePostWithModelRequest(post: post).request()
+
+            await MainActor.run {
+                switch response {
+                case .success(let created):
+                    addResult("Post created from an Encodable model! Server assigned id \(created.id)")
+                    addResult("Title echoed by the server: \(created.title)")
                 case .error(let error):
                     addResult("Error: \(error.localizedDescription)")
                 }
@@ -306,12 +329,15 @@ struct RequestsView: View {
     func performMultipartPost() {
         addResult("=== POST - Multipart ===")
         performWithLoading {
-            let imageData = "fake image data".data(using: .utf8)
+            // Write a placeholder file: multipart file parts are read (streamed) from disk.
+            let imageFileURL = FileManager.default.temporaryDirectory
+                .appendingPathComponent("harbor-example-image.png")
+            let imageWritten = (try? Data("fake image data".utf8).write(to: imageFileURL)) != nil
             let response = await UploadPostRequest(
                 title: "Post with Image",
                 body: "Description",
                 userId: 1,
-                imageData: imageData
+                imageFileURL: imageWritten ? imageFileURL : nil
             ).request()
 
             await MainActor.run {
@@ -330,7 +356,7 @@ struct RequestsView: View {
     func performPutRequest() {
         addResult("=== PUT - Full Update ===")
         performWithLoading {
-            let response = await UpdatePostRequest(
+            let response: HResponseWithResult<Post> = await UpdatePostRequest(
                 postId: 1,
                 title: "Updated Title",
                 body: "Updated body content",
@@ -339,8 +365,8 @@ struct RequestsView: View {
 
             await MainActor.run {
                 switch response {
-                case .success:
-                    addResult("Post updated successfully!")
+                case .success(let post):
+                    addResult("Post updated successfully! New title: \(post.title)")
                 case .error(let error):
                     addResult("Error: \(error.localizedDescription)")
                 }
@@ -351,15 +377,15 @@ struct RequestsView: View {
     func performPatchRequest() {
         addResult("=== PATCH - Partial Update ===")
         performWithLoading {
-            let response = await PatchPostRequest(
+            let response: HResponseWithResult<Post> = await PatchPostRequest(
                 postId: 1,
                 title: "Just the Title"
             ).request()
 
             await MainActor.run {
                 switch response {
-                case .success:
-                    addResult("Post patched successfully!")
+                case .success(let post):
+                    addResult("Post patched successfully! Title: \(post.title) (body kept: \(post.body.count) chars)")
                 case .error(let error):
                     addResult("Error: \(error.localizedDescription)")
                 }
@@ -530,9 +556,11 @@ struct RequestsView: View {
 
     func performAuthenticatedRequest() {
         addResult("=== GET - Authenticated ===")
+        // Read the @State provider on the main actor before handing it to the task.
+        let authProvider = authProvider
+        authProvider.setToken("demo_token_123", expiresIn: 3600)
         performWithLoading {
             // Set auth provider
-            authProvider.setToken("demo_token_123", expiresIn: 3600)
             await Harbor.setAuthProvider(authProvider)
 
             let response = await GetPrivateDataRequest().request()
@@ -550,21 +578,27 @@ struct RequestsView: View {
 
     func performAuthWithRefresh() {
         addResult("=== Auth with Token Refresh ===")
-        // Route auth-demo.local through the local stub server (no network needed).
-        URLProtocol.registerClass(AuthDemoStubProtocol.self)
+        // Read the @State provider on the main actor before handing it to the task.
+        let refreshAuthProvider = refreshAuthProvider
         refreshAuthProvider.reset()
         performWithLoading {
-            // Inject the stub protocol into an ephemeral session so it intercepts requests to the demo host.
+            // Route auth-demo.local through the local stub server (no network needed): the
+            // session's `protocolClasses` inject the stub, so no global registration is required.
             let config = URLSessionConfiguration.ephemeral
             config.protocolClasses = [AuthDemoStubProtocol.self] + (config.protocolClasses ?? [])
-            await Harbor.setCustomURLSession(URLSession(configuration: config))
-            
-            // The provider starts with an expired token that the stub server rejects
-            // with a 401; it then refreshes the token and Harbor retries automatically.
+            // A custom session is used as-is: Harbor's delegate keeps SSL pinning, mTLS and the
+            // cross-origin redirect policy active on it.
+            let delegate = await Harbor.makeURLSessionDelegate()
+            await Harbor.setCustomURLSession(URLSession(configuration: config, delegate: delegate, delegateQueue: nil))
+
+            // The provider starts with an expired token that the stub server rejects with a 401.
+            // Harbor calls `authFailed()` once, the provider refreshes the token, and Harbor
+            // re-sends the request with the new header.
             await Harbor.setAuthProvider(refreshAuthProvider)
 
             let response = await GetSecureDemoDataRequest().request()
-            
+            let refreshCount = refreshAuthProvider.refreshCount
+
             // Restore default Harbor session
             await Harbor.setCustomURLSession(nil)
 
@@ -572,7 +606,7 @@ struct RequestsView: View {
                 switch response {
                 case .success(let data):
                     addResult("Server rejected the expired token with 401")
-                    addResult("Provider refreshed the token; Harbor retried automatically")
+                    addResult("authFailed() refreshed the token \(refreshCount)x; Harbor re-sent the request")
                     addResult("Retry succeeded: \(data.message)")
                 case .error(let error):
                     addResult("Error: \(error.localizedDescription)")
@@ -667,7 +701,8 @@ struct RequestsView: View {
             }
 
             do {
-                let mTLS = HMTLS(p12FileUrl: p12URL) { "notapassword" }
+                // Scope the client identity to the mTLS test host so it is never offered elsewhere.
+                let mTLS = HMTLS(p12FileUrl: p12URL, hosts: ["certauth.cryptomix.com"]) { "notapassword" }
                 try await Harbor.setMTLS(mTLS)
             } catch {
                 let message: String

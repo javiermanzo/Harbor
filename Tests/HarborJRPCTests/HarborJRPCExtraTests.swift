@@ -85,6 +85,8 @@ final class HarborJRPCExtraTests: XCTestCase {
             (.malformedRequest(reason: "test"), .malformedRequest(reason: "test")),
             (.timeout, .timeout),
             (.cannotFindHost, .cannotFindHost),
+            (.cannotConnectToHost, .cannotConnectToHost),
+            (.unknown(urlError), .unknown(urlError)),
             (.cancelled, .cancelled),
             (.certificate, .certificate),
             (.noCachedDataFound, .noCachedDataFound),

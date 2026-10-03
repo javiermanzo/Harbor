@@ -69,9 +69,14 @@ public final class HarborJRPC {
     ///
     /// Notifications included in the batch do not produce a response element.
     /// Servers may reorder or omit responses, so each response is paired with the identifier echoed by the server.
-    /// - Parameter requests: The requests to send in the batch.
-    /// - Returns: One `HJRPCBatchResponse` per response element returned by the server, or one error per request when the batch itself fails.
-    public static func batch(_ requests: [any HJRPCRequestProtocol]) async -> [HJRPCBatchResponse] {
-        await HJRPCRequestManager.batch(requests: requests)
+    /// The requests share one HTTP request: they must target the same endpoint, their headers are
+    /// merged (the first request setting a header wins), and the first non-nil retry policy is used.
+    /// See `HJRPCRequestManager.batch(requests:)` for the full merge rules.
+    /// - Parameter requests: The requests to send in the batch. An empty array returns `[]` without a network call.
+    /// - Returns: One `HJRPCBatchResponse` per response element returned by the server.
+    /// - Throws: An `HJRPCRequestError` when the batch as a whole fails (no endpoint, transport or
+    ///   HTTP error, an invalid response body, or a JSON-RPC error rejecting the whole batch).
+    public static func batch(_ requests: [any HJRPCRequestProtocol]) async throws -> [HJRPCBatchResponse] {
+        try await HJRPCRequestManager.batch(requests: requests)
     }
 }

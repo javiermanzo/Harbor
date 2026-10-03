@@ -93,7 +93,22 @@ final class HarborDebugTests: XCTestCase {
         let curl = await request.generateCurl(urlRequest: urlRequest)
 
         XCTAssertTrue(curl.contains("-X POST"))
+        // A body without sensitive fields is printed byte for byte.
         XCTAssertTrue(curl.contains(#"-d '{"key":"value"}'"#))
+    }
+
+    func testGenerateCurlRedactsSensitiveBodyFields() async {
+        let request = TestDebugRequest(debugType: .request)
+        var urlRequest = URLRequest(url: URL(string: "https://api.example.com/login")!)
+        urlRequest.httpMethod = "POST"
+        urlRequest.httpBody = #"{"username":"johndoe","password":"hunter2","profile":{"refresh_token":"r-123"}}"#.data(using: .utf8)!
+
+        let curl = await request.generateCurl(urlRequest: urlRequest)
+
+        XCTAssertFalse(curl.contains("hunter2"), "password must not leak in the cURL body")
+        XCTAssertFalse(curl.contains("r-123"), "nested refresh_token must not leak in the cURL body")
+        XCTAssertTrue(curl.contains(#""password":"<redacted>""#))
+        XCTAssertTrue(curl.contains(#""username":"johndoe""#), "Non-sensitive fields should still appear")
     }
 
     func testGenerateCurlWithSpecialCharactersInBody() async {
@@ -158,7 +173,7 @@ final class HarborDebugTests: XCTestCase {
         urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
         urlRequest.setValue("Bearer abc123", forHTTPHeaderField: "Authorization")
         urlRequest.setValue("gzip, deflate", forHTTPHeaderField: "Accept-Encoding")
-        let jsonData = "{\"name\":\"John Doe\",\"age\":30}".data(using: .utf8)!
+        let jsonData = "{\"name\":\"John Doe\",\"age\":30,\"client_secret\":\"s3cr3t\"}".data(using: .utf8)!
         urlRequest.httpBody = jsonData
 
         let curl = await request.generateCurl(urlRequest: urlRequest)
@@ -169,7 +184,10 @@ final class HarborDebugTests: XCTestCase {
         XCTAssertTrue(curl.contains("-H \"Authorization: <redacted>\""))
         XCTAssertFalse(curl.contains("Bearer abc123"))
         XCTAssertTrue(curl.contains("-H \"Accept-Encoding: gzip, deflate\""))
-        XCTAssertTrue(curl.contains(#"-d '{"name":"John Doe","age":30}'"#))
+        // The sensitive field is redacted (the body is re-serialized with sorted keys);
+        // non-sensitive fields still appear.
+        XCTAssertTrue(curl.contains(#"-d '{"age":30,"client_secret":"<redacted>","name":"John Doe"}'"#))
+        XCTAssertFalse(curl.contains("s3cr3t"))
         XCTAssertTrue(curl.contains("https://api.example.com/users/123?include=profile"))
     }
 
@@ -293,6 +311,65 @@ final class HarborDebugTests: XCTestCase {
         // Then: cookies from URLSession.shared must not appear in the cURL
         XCTAssertFalse(curl.contains("shared-secret"))
         XCTAssertFalse(curl.contains("-b \""))
+    }
+
+    func testGenerateCurlWithoutCustomSessionOmitsCookiesWhenCookieHandlingIsDisabled() async {
+        // Given: a cookie in the shared storage, no custom session and cookie handling off (the default)
+        let cookie = HTTPCookie(properties: [
+            .domain: "api.example.com",
+            .path: "/",
+            .name: "harbor",
+            .value: "harbor-secret",
+            .secure: "TRUE",
+            .expires: Date().addingTimeInterval(3600)
+        ])!
+        HTTPCookieStorage.shared.setCookie(cookie)
+        addTeardownBlock { HTTPCookieStorage.shared.deleteCookie(cookie) }
+        await Harbor.setCustomURLSession(nil)
+        await Harbor.setHTTPShouldHandleCookies(false)
+
+        let request = TestDebugRequest(debugType: .request)
+        let urlRequest = URLRequest(url: URL(string: "https://api.example.com/test")!)
+
+        // When
+        let curl = await request.generateCurl(urlRequest: urlRequest)
+
+        // Then: Harbor's own sessions do not send cookies, so the cURL carries none
+        XCTAssertFalse(curl.contains("-b \""))
+        XCTAssertFalse(curl.contains("harbor-secret"))
+    }
+
+    func testGenerateCurlWithoutCustomSessionIncludesSharedCookiesWhenCookieHandlingIsEnabled() async {
+        // Given: a cookie in the shared storage, no custom session and cookie handling on
+        let cookie = HTTPCookie(properties: [
+            .domain: "api.example.com",
+            .path: "/",
+            .name: "harbor",
+            .value: "harbor-secret",
+            .secure: "TRUE",
+            .expires: Date().addingTimeInterval(3600)
+        ])!
+        HTTPCookieStorage.shared.setCookie(cookie)
+        addTeardownBlock {
+            HTTPCookieStorage.shared.deleteCookie(cookie)
+            await Harbor.setHTTPShouldHandleCookies(false)
+        }
+        await Harbor.setCustomURLSession(nil)
+        await Harbor.setHTTPShouldHandleCookies(true)
+
+        let request = TestDebugRequest(debugType: .request)
+        let urlRequest = URLRequest(url: URL(string: "https://api.example.com/test")!)
+
+        // When
+        let redacted = await request.generateCurl(urlRequest: urlRequest)
+        await Harbor.setLogSensitiveHeaders(true)
+        let unredacted = await request.generateCurl(urlRequest: urlRequest)
+
+        // Then: the cookies Harbor's session would send (HTTPCookieStorage.shared) are included,
+        // redacted unless sensitive logging is enabled
+        XCTAssertTrue(redacted.contains("-b \"<redacted>\""))
+        XCTAssertFalse(redacted.contains("harbor-secret"))
+        XCTAssertTrue(unredacted.contains("harbor=harbor-secret"))
     }
 
     func testGenerateCurlUsesCurrentSessionAdditionalHeaders() async {

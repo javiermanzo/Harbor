@@ -1,126 +1,198 @@
 # Harbor - Context for Agents
 
-This document provides massive system instructions and full context of the Harbor library for AI agents operating on this repository.
+This document gives AI agents working on this repository the context they need about the Harbor library.
 
 ## Overview
-Harbor is a modern, lightweight, and robust networking library for Swift, built from the ground up to support Swift 6's strict concurrency model. It relies on `async/await` and Actors to provide a thread-safe environment for making REST and JSON-RPC API requests.
+Harbor is a lightweight networking library for Swift, built for Swift 6 strict concurrency (Swift 6 language mode, iOS 15+ / macOS 14+). It relies on `async/await` and a global actor (`@HRequestManagerActor`) to provide a thread-safe environment for REST and JSON-RPC 2.0 requests.
 
 ## Architecture & Concurrency Rules
 
-1. **Protocols, not Classes**: Harbor requires requests to be defined as `struct`s conforming to protocols like `HGetRequestProtocol`, `HPostRequestProtocol`, etc. This keeps networking code immutable, type-safe, and self-contained. 
-2. **Default Implementations**: The protocols already provide defaults for properties like `needsAuth` (false), `retries` (0), `headerParameters` (nil), `cacheType` (nil). Only override what you need.
-3. **Async/Await First**: Everything is `async`. You fetch data via `.request()` and Harbor returns the `Decodable` model directly. If it fails, it `throws`. If you need raw headers and status codes, use `.requestResult()`.
-4. **Actor Isolation**: Global configuration lives in the `Harbor` enum (which is `@HRequestManagerActor` isolated). Configuration is done using `await Harbor.setSomething(...)`. Since this runs on a global actor, always ensure your UI updates happen on `@MainActor` when fetching configurations.
-5. **No Callbacks**: Never use escaping closures or callbacks for requests. Always use `try await`.
+1. **Protocols, not Classes**: Requests are `Sendable` `struct`s conforming to `HGetRequestProtocol`, `HPostRequestProtocol`, `HPutRequestProtocol`, `HPatchRequestProtocol` or `HDeleteRequestProtocol`. Every requirement is get-only (`url`, `headerParameters`, `bodyParameters`, ...), so implement them as `let` constants or computed properties; a computed `bodyParameters` keeps the struct `Sendable` without `@unchecked`.
+2. **Default Implementations**: The protocols provide defaults for `needsAuth` (`false`), `retryPolicy`, `pathParameters`, `headerParameters`, `queryParameters`, `cacheType`, `timeoutInterval` (all `nil`), `bodyType` (`.json`), `multipartBody` and `rawBody` (`nil`). Only `url` (and `bodyParameters` for body requests) must be provided.
+3. **Async/Await First, results not throws**: REST `request()` never throws. GET requests return `HResponseWithResult<Model>` (`.success(Model)` / `.error(HRequestError)`); POST/PUT/PATCH/DELETE return `HResponse` (`.success` / `.error(HRequestError)`). JSON-RPC `request()` is the exception: it is `async throws` and returns the model (`requestResult()` returns `HJRPCResponse<Model>`).
+4. **Actor Isolation**: Global configuration lives in the `Harbor` enum (isolated to `@HRequestManagerActor`). Configure it with `await Harbor.setSomething(...)`. Update UI on `@MainActor` after reading configuration.
+5. **No Callbacks**: Never use escaping closures or callbacks for requests. Always `await`. Cancel a request by cancelling its `Task` (it finishes with `.cancelled`).
 
 ## Core Features & Configuration
 
-### 1. Network & Configurations
+### 1. Requests
 ```swift
-// Global configurations
-await Harbor.setDefaultTimeoutInterval(30)
-await Harbor.setDefaultHeaderParameters(["X-Client-Version": "4.0.0"])
+struct User: Codable, Sendable {
+    let id: Int
+    let name: String
+}
 
-// Custom URLSession (Harbor uses it as-is, isolating request cache states)
-await Harbor.setCustomURLSession(URLSession(configuration: .ephemeral))
-// To restore the default Harbor session, pass nil:
-// await Harbor.setCustomURLSession(nil)
-```
-
-### 2. Advanced Caching
-Harbor features a multi-layer cache (Memory + Disk). It respects HTTP directives (`Cache-Control`, `ETag`, `Vary`) and supports conditional revalidation (304 Not Modified).
-```swift
-let config = HCache.Configuration(
-    expirationTime: .oneHour, 
-    maxObjectSizeInMBs: 10, 
-    memoryCacheCapacityInMBs: 100, 
-    diskCacheCapacityInMBs: 500
-)
-await Harbor.setDefaultCacheType(.custom(config))
-
-// You can override it per request
-struct MyRequest: HGetRequestProtocol {
+struct GetUserRequest: HGetRequestProtocol {
     typealias Model = User
-    let url = "https://api.example.com"
+    let userId: Int
+    let url = "https://api.example.com/users/{id}"
+    var pathParameters: [String: String]? { ["id": String(userId)] }
+}
+
+struct CreateUserRequest: HPostRequestProtocol {
+    let name: String
+    let url = "https://api.example.com/users"
+    var bodyParameters: [String: Any]? { ["name": name] }
+}
+
+func requests() async {
+    switch await GetUserRequest(userId: 1).request() {
+    case .success(let user): print(user.name)
+    case .error(let error): print(error)
+    }
+
+    if case .error(let error) = await CreateUserRequest(name: "Jane").request() {
+        print(error)
+    }
+}
+```
+Path parameters are percent-encoded (`/` → `%2F`, `..` segments rejected); query values are strictly percent-encoded (`+` → `%2B`). A body that cannot be serialized as JSON fails with `.malformedRequest(reason:)`.
+
+### 2. Network & Configuration
+```swift
+func configure() async {
+    await Harbor.setDefaultTimeoutInterval(30)             // per-request idle timeout (default 15s)
+    await Harbor.setDefaultResourceTimeoutInterval(300)    // whole-transfer timeout of Harbor's sessions (default: system)
+    await Harbor.setDefaultHeaderParameters(["X-Client-Version": "4.0.0"])
+
+    // Custom URLSession (used as-is). Pinning, mTLS and redirect credential stripping only
+    // apply if it uses Harbor's delegate, created AFTER configuring pins/mTLS:
+    let delegate = await Harbor.makeURLSessionDelegate()
+    await Harbor.setCustomURLSession(URLSession(configuration: .ephemeral, delegate: delegate, delegateQueue: nil))
+    // Restore the default Harbor sessions:
+    await Harbor.setCustomURLSession(nil)
+}
+```
+Harbor caches up to 4 internally built sessions (one per cache/cookie configuration; past the limit only the least recently used one is dropped) and rebuilds them when timeouts, cookies, mTLS or pinning change; a session still used by an in-flight request is only invalidated once that request finishes. Offline (network path unsatisfied) requests fail with `.noConnection`, except GET requests with a usable cached response (fresh, `stale-if-error` or `URLCache`); for `needsAuth` GETs the lookup uses the credential namespace remembered from the last online request for that URL without calling the provider, and never the un-namespaced entry.
+
+### 3. Caching
+Harbor has a multi-layer cache (memory + disk, LRU) that honors `Cache-Control` (incl. `stale-while-revalidate`, `stale-if-error`), `Expires`, `Age`, `Date`, `ETag`/`Last-Modified` revalidation (304) and `Vary`. Entries of `needsAuth` requests are namespaced by a hash of the credential: call `Harbor.clearAllCache()` on logout.
+```swift
+struct CachedUserRequest: HGetRequestProtocol {
+    typealias Model = User
+    let url = "https://api.example.com/me"
     let cacheType: HCache.CacheType? = .urlCache()
 }
 
-// Fetch cache directly without network
-let cachedUser = await MyRequest().cache()
-await Harbor.clearAllCache() // async!
+func cache() async {
+    let config = HCache.Configuration(
+        expirationTime: .oneHour,
+        maxObjectSizeInMBs: 10,
+        memoryCacheCapacityInMBs: 100,
+        diskCacheCapacityInMBs: 500
+    )
+    await Harbor.setDefaultCacheType(.custom(config))
+
+    // Read the cache without network (stale entries are not returned; with .urlCache a
+    // response without freshness headers counts as servable)
+    let cachedUser = await CachedUserRequest().cache()
+    print(cachedUser?.name ?? "-")
+    await Harbor.clearAllCache() // async
+}
 ```
 
-### 3. Security (mTLS, SSL Pinning, Redaction)
+### 4. Security (mTLS, SSL Pinning, Redaction)
 ```swift
-// mTLS uses an async throwing password provider to avoid retaining strings in memory
-let mTLS = HMTLS(p12FileUrl: certURL) { "myPassword" }
-try await Harbor.setMTLS(mTLS)
+func security(certURL: URL) async throws {
+    // mTLS: async password provider (not retained); scope the identity to its hosts.
+    let mTLS = HMTLS(p12FileUrl: certURL, hosts: ["api.example.com"]) { "myPassword" }
+    try await Harbor.setMTLS(mTLS)
 
-// SSL Pinning uses base64(SHA256(SPKI)) hashes.
-// Old raw key bytes are no longer valid in v4! Generate with:
-// openssl pkey -pubin -outform der | openssl dgst -sha256 -binary | openssl base64
-await Harbor.setSSLPinningKeys(["base64(SHA256(SPKI))_hash"], forHosts: ["api.example.com"])
+    // SSL pinning uses base64(SHA256(SPKI)) hashes (RSA any size, EC P-256/P-384/P-521):
+    // openssl pkey -pubin -outform der | openssl dgst -sha256 -binary | openssl base64
+    await Harbor.setSSLPinningKeys(["base64(SHA256(SPKI))_hash"], forHosts: ["api.example.com"])
 
-// Redact sensitive data from Debug logs (cURL generation, etc)
-await Harbor.setLogSensitiveHeaders(["Authorization", "Cookie"])
+    // Logs redact sensitive headers, query values, body fields and cURL by default.
+    await Harbor.loggingSensitiveKeys(.add(["signature"]))
+    await Harbor.setLogSensitiveHeaders(false) // true prints unredacted values (local debugging only)
+}
 ```
+Pin mismatches, mTLS rejections and certificate-specific `URLError`s surface as `HRequestError.certificate` (never retried); a generic `URLError.secureConnectionFailed` is `.networkFailure` and retryable as transient. Cross-origin redirects drop `Authorization`, `Cookie`, `Proxy-Authorization` and the auth provider's header.
 
-### 4. Authentication & Retry
+### 5. Authentication & Retry
 ```swift
-class MyAuthProvider: HAuthProviderProtocol {
+actor MyAuthProvider: HAuthProviderProtocol {
     func getAuthorizationHeader() async -> HAuthorizationHeader? {
         // returning nil means "send without auth header"
-        return HAuthorizationHeader(key: "Authorization", value: "Bearer token")
+        HAuthorizationHeader(key: "Authorization", value: "Bearer token")
     }
-    func authFailed() async { /* refresh flow */ }
+    func authFailed() async { /* refresh the token here; Harbor re-sends once if it changed */ }
 }
-await Harbor.setAuthProvider(MyAuthProvider())
-```
 
-### 5. JSON-RPC (HarborJRPC)
-Harbor natively supports Ethereum-style JSON-RPC 2.0 requests.
+struct FeedRequest: HGetRequestProtocol {
+    typealias Model = [String]
+    let url = "https://api.example.com/feed"
+    let needsAuth = true
+    let retryPolicy: HRetryPolicy? = HRetryPolicy(maxRetries: 3)
+}
+
+func auth() async {
+    await Harbor.setAuthProvider(MyAuthProvider())
+}
+```
+- On a 401, Harbor asks for the current header: if it already differs from the rejected one (a refresh finished meanwhile), the request is re-sent with it without calling `authFailed()`. Otherwise `authFailed()` is called exactly once per request (coalesced across concurrent 401s with the same header) and the request is re-sent once if the provider returns a new header. If that is not possible, or the re-sent request is rejected again, the request fails with `.authNeeded`, with `authFailed()` called exactly once.
+- `HRetryPolicy` retries `retryableStatusCodes` (default 408, 425, 429, 500, 502, 503, 504) and transient `URLError`s, with exponential backoff + jitter; `Retry-After` is honored up to 60 s (a longer value is not waited for: the request returns `.api(429/503)` immediately). Non-`URLError` failures, cancellation and `.certificate` errors are never retried. POST/PATCH are only retried for pre-connection failures unless `retryNonIdempotentRequests: true`.
+
+### 6. JSON-RPC (HarborJRPC)
 ```swift
-try await HarborJRPC.configure(url: "https://rpc.example.com", jrpcVersion: "2.0")
+import HarborJRPC
 
 struct BlockRequest: HJRPCRequestProtocol {
     typealias Model = String
-    let method = "eth_blockNumber"
-    // Parameters use the HJRPCParams enum in v4:
-    let parameters: HJRPCParams? = .positioned(["latest"])
+    let method = "eth_blockNumber"            // takes no params: `parameters` stays nil
+    // JSON-RPC calls are POSTs: read-only calls opt in to retries after timeouts/5xx.
+    let retryPolicy: HRetryPolicy? = HRetryPolicy(maxRetries: 2, retryNonIdempotentRequests: true)
 }
-// request() now throws in v4
-let block = try await BlockRequest().request()
+
+struct BalanceRequest: HJRPCRequestProtocol {
+    typealias Model = String
+    let address: String
+    let method = "eth_getBalance"
+    var parameters: HJRPCParams? { .positioned([address, "latest"]) }   // or .named([...])
+}
+
+func jrpc() async throws {
+    await HarborJRPC.configure(url: URL(string: "https://rpc.example.com")!, jrpcVersion: "2.0")
+    let block = try await BlockRequest().request()               // throws HJRPCRequestError
+    let responses = try await HarborJRPC.batch([BlockRequest(), BalanceRequest(address: "0x0")]) // async throws; [] for an empty batch
+    print(block, responses.count)
+}
 ```
+JSON-RPC error objects returned with a 4xx/5xx status surface as `.jrpcError` (see `HJRPCError.httpStatusCode`). `endpoint: URL?` overrides the configured URL per request. Big integers decode as `HJSONValue.decimal` (exact on iOS 18 / macOS 15+; earlier OS versions may round them through `Double`). Non-finite parameters (NaN) throw `.codable`.
 
-### 6. Streaming & Multipart
-- **Streaming**: Call `.requestStream(source: .cacheAndRemote)` to get an `AsyncThrowingStream` that yields elements and origin (`.cache` or `.remote`) chunk by chunk.
-- **Multipart**: Set `bodyType = .multipart` and use `HFormValue(data: fileName: mimeType:)` inside `bodyParameters`. To send raw data, use `rawBody`.
+### 7. Streaming & Multipart
+- **Streaming**: `requestStream(source:)` returns an `AsyncThrowingStream<(response: Model, origin: HOriginType), Error>` that yields at most one cached element and one remote element (`.cacheOnly`, `.remoteOnly`, `.cacheAndRemote`).
+- **Multipart**: implement `multipartBody: [String: HFormValue]?` with `.text(String)` and `.file(url:mimeType:fileName:)`; file parts are streamed from a temporary file. To send raw data, use `rawBody`.
 
-### 7. Mocking & Testing
-Mocks operate at the `URLProtocol` level, intercepting actual network traffic.
+### 8. Mocking & Testing
+Mocks short-circuit inside Harbor's request pipeline (`HRequestManager`), per attempt, so status handling, retries, auth and decoding still run. They do not use `URLProtocol`.
 ```swift
-await Harbor.setMocksEnabled(true)
-let mock = HMock(request: GetUserRequest.self, result: .success(User(id: 1)), delay: 1.5)
-await Harbor.register(mock: mock)
+func mocks() async {
+    await Harbor.setMocksEnabled(true)
+    let mock = HMock(request: GetUserRequest.self, statusCode: 200, jsonResponse: #"{"id": 1, "name": "Jane"}"#, delay: 1.5)
+    await Harbor.register(mock: mock)
+}
 ```
+Use `HMockSequence` / `Harbor.registerMockSequence(_:)` to script several responses, and `Harbor.mockCallCount(for:)` to assert calls. The test suite intercepts real traffic with `URLProtocol` stubs through an internal hook (`Harbor.setProtocolClasses`, `@testable import`). Real-service tests only run with `HARBOR_RUN_NETWORK_TESTS=1`.
 
 ## Example App
-The repository includes an `Example/HarborExample` app showcasing every single feature (GET, POST, Caching, Streaming, JRPC, Auth, Retry, Mocking). When modifying the Example App:
+The repository includes an `Example/HarborExample` app showcasing every feature (GET, POST incl. `rawBody` and multipart, Caching, Streaming, JRPC, Auth with token refresh, Retry, mTLS, SSL pinning, Mocking). It is built in Swift 6 language mode (`SWIFT_VERSION = 6.0`, `SWIFT_STRICT_CONCURRENCY = complete`). When modifying the Example App:
 - Ensure UI state uses `@State` (or `@StateObject` for classes) to prevent lifecycle reference leaks across SwiftUI render passes.
-- Isolate networking calls using `Task { await ... }`. If passing closures to a `Task` inside a SwiftUI View, mark the closure as `@Sendable` to correctly detach execution from the view's implicit `@MainActor`.
+- Isolate networking calls using `Task { await ... }`. If passing closures to a `Task` inside a SwiftUI View, mark the closure as `@Sendable` to correctly detach execution from the view's implicit `@MainActor`, and read `@State` values on the main actor before handing them to the closure.
 - Always verify that global configuration states (like `Harbor.mocksEnabled`) are accessed correctly without triggering Main Actor warnings.
+- A custom `URLSession` (e.g. with stub `URLProtocol`s in `protocolClasses`) must be created with `delegate: await Harbor.makeURLSessionDelegate()` so pinning, mTLS and the redirect policy stay active.
 
 ## CI & Workflow
 - Commits must follow Conventional Commits (e.g., `feat:`, `fix:`, `docs:`, `chore:`).
-- When adding features, ensure they comply with Swift 6 Strict Concurrency.
-- Always run `swift test` and `xcodebuild test` in the Example App to ensure no regressions. The CI handles Unit Tests via GitHub Actions.
+- When adding features, ensure they comply with Swift 6 strict concurrency. The library must build without warnings: CI builds the package and fails on any compiler `warning:` emitted for files under this repository's `Sources/` (warnings from dependencies are ignored).
+- Always run `swift test` and `xcodebuild test` in the Example App to ensure no regressions. CI (`.github/workflows/ci.yml`) runs unit tests with coverage and the Example App tests; `lint.yml` runs SwiftLint `--strict`; `network-tests.yml` (manual/weekly) runs the real-service tests.
 
 ## Internal Deep-Dive Documentation
 Harbor contains further internal documentation files mapping out specific systems. If you need deep implementation details on specific areas, you can locate them inside `.agents/skills/harbor/`:
-- `architecture.md`: In-depth breakdown of request flow and Actor lifecycle.
-- `cache.md`: Deep dive into L1/L2 cache storage mechanisms and ETags.
-- `security.md`: How `URLSessionDelegate` handles trust evaluation.
-- `testing.md`: How `HMocker` intercepts requests via `URLProtocol`.
+- `architecture.md`: Request flow and actor lifecycle.
+- `cache.md`: L1/L2 cache storage, freshness and ETags.
+- `security.md`: How `HURLSessionDelegate` handles trust evaluation, mTLS and redirects.
+- `testing.md`: Mocks (`HMock`, `HMockSequence`) and the test suite's `URLProtocol` stubs.
 - `protocols.md`: Comprehensive list of all Harbor protocols.
 
 If migrating a codebase from Harbor v3 to v4, always consult `.agents/skills/harbor-migration-v3-to-v4/SKILL.md`.

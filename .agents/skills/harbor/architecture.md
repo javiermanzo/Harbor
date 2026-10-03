@@ -1,472 +1,102 @@
-# Harbor Architecture and Design Patterns
+# Harbor Architecture
 
-This document details the architectural patterns and design principles used in Harbor.
+How a request moves through Harbor, and where each concern lives in `Sources/`.
 
-## Architectural Patterns
+## Modules
 
-Harbor is built around Swift protocols, enabling flexibility and extensibility without inheritance overhead.
+| Module | Purpose | Key files |
+|---|---|---|
+| `Harbor` | REST requests, cache, auth, retry, security, mocks, logging | `Harbor.swift`, `Request/`, `Cache/`, `Config/`, `Debug/`, `Mock/`, `Auth/`, `Utils/` |
+| `HarborJRPC` | JSON-RPC 2.0 on top of Harbor | `HarborJRPC.swift`, `Request/`, `Config/` |
 
-#### Protocol Hierarchy
+Harbor depends on [LogBird](https://github.com/javiermanzo/LogBird) (`from: "2.1.0"`) for logging, behind the internal `HLogger` facade.
 
-```
-HRequestBaseRequestProtocol
-├── HRequestWithResultProtocol<Model>
-│   ├── HGetRequestProtocol
-│   ├── HPostRequestProtocol
-│   ├── HPutRequestProtocol
-│   ├── HPatchRequestProtocol
-│   └── HDeleteRequestProtocol
-└── HRequestWithEmptyResponseProtocol
-    ├── HGetRequestProtocol
-    ├── HPostRequestProtocol
-    ├── HPutRequestProtocol
-    ├── HPatchRequestProtocol
+## Protocol hierarchy
+
+```text
+HRequestBaseRequestProtocol            url, httpMethod, needsAuth, retryPolicy,
+│                                      pathParameters, headerParameters, timeoutInterval
+├── HRequestWithResultProtocol         associatedtype Model: HModel; parseData; request() -> HResponseWithResult<Model>
+│   └── HGetRequestProtocol            queryParameters, cacheType, cache(), requestStream(source:)
+└── HRequestWithEmptyResponseProtocol  request() -> HResponse
+    ├── HRequestWithBodyProtocol       bodyType, bodyParameters, multipartBody, rawBody
+    │   ├── HPostRequestProtocol
+    │   ├── HPutRequestProtocol
+    │   └── HPatchRequestProtocol
     └── HDeleteRequestProtocol
+
+HDebugRequestProtocol                  debugType (opt-in logging, combine with any request)
+HAuthProviderProtocol                  getAuthorizationHeader(), authFailed()
+HJRPCRequestProtocol (HarborJRPC)      method, parameters, request() async throws -> Model
 ```
 
-**Key Benefits:**
-- **Default implementations** via protocol extensions reduce boilerplate
-- **Type safety** with associated types ensures compile-time correctness
-- **Composability** allows mixing protocol conformances
-- **Testability** through protocol-based mocking
+`HModel` is `Codable & Sendable`. All requirements are get-only, and protocol extensions supply the defaults (see `protocols.md`).
 
-#### Protocol Extensions Pattern
+## Concurrency model
 
-Harbor provides default implementations for common functionality:
+- `@globalActor public actor HRequestManagerActor` serializes all of Harbor's mutable state.
+- `public enum Harbor` (the configuration API) and the internal `HRequestManager`, `HConfig` (`HConfig.shared`), `HMocker` and `HarborJRPC` are isolated to that actor. That's why every `Harbor.setX(...)` call needs `await` from outside the actor.
+- Response decoding (`parseData(data:model:)`) runs off the actor, in a `nonisolated` function, so concurrent requests don't serialize their decoding.
+- The cache manager (`HCache.Manager.shared`) keeps memory and index state on the actor and does disk I/O on a concurrent queue (writes and deletes under a barrier).
+- Requests, models, policies and errors are `Sendable`. A request can be a struct with computed `bodyParameters`, so no `@unchecked Sendable` is needed.
 
-```swift
-// Base protocol defines the contract
-protocol HRequestBaseRequestProtocol {
-    var url: String { get }
-    var headerParameters: [String: String]? { get set }
-    // ... more properties
-}
+## Request flow (`HRequestManager`)
 
-// Extension provides default implementations
-extension HRequestBaseRequestProtocol {
-    var headerParameters: [String: String]? { get { nil } set { } }
-    var needsAuth: Bool { return false }
-    var cacheType: HCache.CacheType? { return nil }
-}
+```text
+request()
+ ├─ mocks enabled && mock registered for type(of: request)?
+ │    └─ run the attempt loop with mock attempts (mock resolved on every attempt,
+ │       so an HMockSequence advances across retries and 401 re-attempts)
+ ├─ offline (NWPathMonitor path is .unsatisfied)?
+ │    └─ GET: serve a fresh custom-cache entry / URLCache response / stale-if-error entry,
+ │       else fail with .noConnection (needsAuth: the credential namespace remembered from
+ │       the last online request for that URL is used; the provider is only asked when
+ │       nothing is remembered, and the un-namespaced entry is never served)
+ ├─ needsAuth? → authProvider.getAuthorizationHeader()  (no provider → .authProviderNeeded)
+ └─ attempt loop (runAttempts)
+      ├─ HURLBuilder.prepareRequest: URL + path/query encoding, timeout, cookies, body,
+      │  default headers → request headers → auth header, conditional validators (custom cache)
+      ├─ URLSession data/upload task with a per-task HTaskContext delegate
+      ├─ 2xx  → decode off-actor, store in cache (GET) → .success
+      ├─ 304  → serve + refresh the cached entry; if no cached body and Harbor injected the
+      │         validators: re-send once without them (caller-set validators: .api(304))
+      ├─ 401  → provider already rotated the header? retry with it without authFailed();
+      │         else authFailed() (once per request, coalesced across concurrent requests)
+      │         → retry once if the provider returns a different header, else .authNeeded.
+      │         A request that ends in .authNeeded after a 401 has always triggered authFailed()
+      ├─ retryable status / URLError and attempts left → wait (Retry-After or backoff) → next attempt
+      ├─ 5xx (GET, retries exhausted) → stale-if-error entry if available
+      └─ otherwise → .error(HRequestError)
 ```
 
-This means you only need to implement what differs from the defaults.
+Notes:
 
-### 2. Actor-Based Concurrency
+- Worst-case attempts per request: `1 + retryPolicy.maxRetries + 1` (one extra attempt for an auth refresh).
+- If Harbor's delegate rejects the TLS handshake (pin mismatch, untrusted chain, mTLS rejection) or the system reports a certificate-specific `URLError`, the error surfaces as `.certificate`. It is never retried and never masked by cached content. A generic `URLError.secureConnectionFailed` is `.networkFailure` instead and counts as a transient failure for retries.
+- Cancelling the calling task ends the loop with `.cancelled`, including during a backoff sleep.
+- Debug output is produced only for requests that conform to `HDebugRequestProtocol`, and only while logging is enabled.
 
-Harbor embraces Swift's modern concurrency model with actors for thread-safe state management.
+## Connectivity
 
-#### Global Actor for Request Management
+`HRequestManagerMonitor` wraps `NWPathMonitor` and starts lazily. Only a definitive `.unsatisfied` path blocks a request. `.requiresConnection` and "no update received yet" let the request through. In DEBUG/simulator builds requests are always allowed unless `Harbor.setAssumeNetworkAvailableInDebug(false)` is set. `Harbor.stopNetworkMonitor()` resets it.
 
-**Location**: `Sources/Harbor/Request/HRequestManager.swift`
+## URLSession management
 
-```swift
-@globalActor
-actor HRequestManagerActor {
-    static let shared = HRequestManagerActor()
-}
+- With `Harbor.setCustomURLSession(_:)` set, that session is used as-is for every request. Harbor's pinning, mTLS and redirect policy apply only if its delegate is `Harbor.makeURLSessionDelegate()` (or forwards to one).
+- Otherwise Harbor builds sessions with `HURLSessionDelegate` and caches up to **4** of them, keyed by cache configuration and cookie handling. When the limit is reached, only the least recently used session is dropped; it is invalidated once no in-flight attempt holds it, and rebuilt on demand. Changing timeouts, mTLS, pins or cookie handling retires all of them the same way.
+- The per-request timeout (`timeoutInterval` or the default) is set on each `URLRequest`, so it also applies to custom sessions. `setDefaultResourceTimeoutInterval(_:)` applies only to Harbor-built sessions.
+- Requests with a `.custom` or `.disabled` cache type use sessions isolated from `URLCache.shared`.
 
-@HRequestManagerActor
-final class HRequestManager {
-    static var config = HConfig()
-    // All access to config is automatically serialized
-}
-```
+## JSON-RPC adapter
 
-**Benefits:**
-- **Data race prevention**: Compiler enforces serial access to shared state
-- **Simplified concurrency**: No manual locks or dispatch queues
-- **Async/await integration**: Natural asynchronous programming model
+`HJRPCRequestProtocol` requests are wrapped in an internal `HPostRequestProtocol & HRequestWithResultProtocol` struct whose `rawBody` is the encoded JSON-RPC envelope (`jsonrpc`, `method`, `id`, `params`). They go through the same pipeline: auth, retry, logging (when the JSON-RPC request conforms to `HDebugRequestProtocol`) and transport security. Batches use another internal wrapper. See `examples/jrpc.md`.
 
-#### Sendable Conformance
+## Related files
 
-Harbor marks types as `Sendable` to ensure safe concurrent access:
-
-```swift
-// Immutable structs are inherently Sendable
-struct HResponse: Sendable {
-    let statusCode: Int
-    let data: Data?
-}
-
-// Mutable classes require @unchecked Sendable with careful design
-final class MyRequest: HPostRequestProtocol, @unchecked Sendable {
-    // Must ensure thread-safe access patterns
-}
-```
-
-### 3. Singleton Pattern
-
-Harbor uses singletons for globally shared resources.
-
-#### Request Manager Configuration
-
-```swift
-@HRequestManagerActor
-final class HRequestManager {
-    static var config = HConfig()  // Global configuration
-}
-```
-
-**Access Pattern:**
-```swift
-await Harbor.setAuthProvider(provider)
-// Internally calls: HRequestManager.config.authProvider = provider
-```
-
-#### Cache Manager
-
-```swift
-@HRequestManagerActor
-final class Manager {
-    static let shared = Manager()
-    private let memoryCache = NSCache<NSString, CacheEntry>()
-    // ... disk cache implementation
-}
-```
-
-**Why Singletons Here:**
-- **Shared state**: Cache and configuration are application-wide
-- **Resource efficiency**: Single NSCache instance, one disk cache
-- **Coordination**: Centralized management of network resources
-
-### 4. Strategy Pattern
-
-Harbor uses the Strategy pattern for pluggable behaviors.
-
-#### Authentication Strategy
-
-**Location**: `Sources/Harbor/Auth/HAuthProviderProtocol.swift`
-
-```swift
-protocol HAuthProviderProtocol: Sendable {
-    func getAuthorizationHeader() async -> HAuthorizationHeader
-    func authFailed() async
-}
-
-// Consumers can inject any authentication strategy
-await Harbor.setAuthProvider(OAuth2Provider())
-// or
-await Harbor.setAuthProvider(APIKeyProvider())
-```
-
-#### Cache Strategy
-
-**Location**: `Sources/Harbor/Cache/HCacheType.swift`
-
-```swift
-enum CacheType {
-    case urlCache(urlCache: URLCache, requestCachePolicy: NSURLRequest.CachePolicy)
-    case custom(Configuration)
-    case disabled
-}
-
-// Per-request cache strategy
-struct GetUserRequest: HGetRequestProtocol {
-    let cacheType: HCache.CacheType? = .custom(HCache.Configuration(expirationTime: .oneHour))
-}
-```
-
-#### Request Source Strategy
-
-**Location**: `Sources/Harbor/Request/HRequestProtocol.swift`
-
-```swift
-enum HRequestSource {
-    case cacheOnly
-    case remoteOnly
-    case cacheAndRemote
-}
-
-// Stream with different data source strategies
-for try await (data, source) in request.requestStream(source: .cacheAndRemote) {
-    // First emission from cache, second from network
-}
-```
-
-### 5. Adapter Pattern
-
-Harbor uses adapters to integrate different protocols and APIs.
-
-#### JSON-RPC Adapter
-
-**Location**: `Sources/HarborJRPC/Request/HJRPCRequestProtocol.swift`
-
-JSON-RPC requests are adapted to Harbor's REST protocol system:
-
-```swift
-// User defines JSON-RPC request
-struct EthBlockNumber: HJRPCRequestProtocol {
-    typealias Model = String
-    let method: String = "eth_blockNumber"
-}
-
-// Internally wrapped as a POST request with a JSON-RPC 2.0 body
-struct HJRPCRequestWrapper<RawModel: HModel>: HPostRequestProtocol {
-    let jsonBody: [String: HJSONValue]
-    // ["jsonrpc": "2.0", "method": ..., "id": ..., "params": ...]
-}
-```
-
-This adapter allows JSON-RPC requests to use Harbor's infrastructure transparently.
-
-## Component Architecture
-
-### Core Components Diagram
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                        Harbor API                           │
-│                   (Static methods)                          │
-└─────────────────────┬───────────────────────────────────────┘
-                      │
-                      ▼
-┌─────────────────────────────────────────────────────────────┐
-│                   HRequestManager                           │
-│              (@HRequestManagerActor)                        │
-│  ┌─────────────────────────────────────────────────────┐   │
-│  │                    HConfig                          │   │
-│  │  • authProvider: HAuthProviderProtocol?            │   │
-│  │  • defaultHeaders: [String: String]                │   │
-│  │  • mtls: HmTLS?                                    │   │
-│  │  • sslPinningKeys: [String]                        │   │
-│  │  • cacheType: HCache.CacheType        │   │
-│  └─────────────────────────────────────────────────────┘   │
-└──────┬────────────────┬──────────────────┬──────────────────┘
-       │                │                  │
-       ▼                ▼                  ▼
-┌──────────────┐  ┌──────────────┐  ┌──────────────┐
-│   HCache     │  │ HURLSession  │  │   HMocker    │
-│   Manager    │  │   Delegate   │  │              │
-│              │  │              │  │              │
-│ • NSCache    │  │ • SSL Pin    │  │ • Mock       │
-│ • FileSystem │  │ • mTLS       │  │   Registry   │
-└──────────────┘  └──────────────┘  └──────────────┘
-```
-
-### Request Flow
-
-```
-User Code
-    │
-    ├─ Conforms to HGetRequestProtocol/HPostRequestProtocol/etc.
-    │
-    ▼
-Request.request()
-    │
-    ├─ Check HMocker for registered mock (DEBUG mode)
-    │  └─ If found, return mock response immediately
-    │
-    ├─ Check cache (if cacheType is set)
-    │  └─ If valid cache found, return cached response
-    │
-    ├─ Build URLRequest
-    │  ├─ Merge default headers + request headers
-    │  ├─ Add auth headers (if needsAuth = true)
-    │  ├─ Set HTTP method
-    │  └─ Add body parameters
-    │
-    ├─ Execute URLSession.data(for:delegate:)
-    │  └─ Use custom URLSessionDelegate for SSL/mTLS
-    │
-    ├─ Process response
-    │  ├─ Check status code
-    │  ├─ Handle 401 (auth refresh + retry)
-    │  └─ Decode JSON to Model type
-    │
-    ├─ Store in cache (if cacheType is set)
-    │
-    └─ Return HResponse or HResponseWithResult<Model>
-```
-
-### Streaming Flow
-
-```
-Request.requestStream(source: .cacheAndRemote)
-    │
-    ├─ Create AsyncThrowingStream<(Model, HOriginType), Error>
-    │
-    ├─ If source includes .cache
-    │  ├─ Check cache
-    │  └─ Yield (cachedData, .cache) if found
-    │
-    ├─ If source includes .remote
-    │  ├─ Execute network request
-    │  ├─ Yield (remoteData, .remote) when received
-    │  └─ Update cache with remote data
-    │
-    └─ Complete stream
-```
-
-## Module Organization
-
-### Harbor (Core Module)
-
-**Purpose**: REST HTTP requests with full feature set
-
-**Submodules:**
-- `Auth/`: Authentication provider protocol
-- `Cache/`: Two-level cache system
-- `Config/`: Global configuration management
-- `Debug/`: Debug logging and cURL generation
-- `Mock/`: Mock system for testing
-- `Request/`: Core request processing, protocols, manager
-- `Utils/`: URL builder, PKCS12 parser, SHA256 utilities
-
-### HarborJRPC (Extension Module)
-
-**Purpose**: JSON-RPC 2.0 support built on Harbor
-
-**Components:**
-- `Config/`: JSON-RPC specific configuration
-- `Request/`: JSON-RPC protocol and wrapper adapter
-
-**Separation Rationale:**
-- Optional for users who don't need JSON-RPC
-- Cleaner dependency graph
-- Separate versioning if needed
-
-## Thread Safety Model
-
-### Actor Isolation
-
-All shared mutable state is protected by actors:
-
-```swift
-// Configuration access is serialized
-await Harbor.setAuthProvider(provider)  // Suspends until safe to modify
-
-// Cache access is serialized
-await cache.store(data, for: key)       // Suspends until safe to write
-
-// No data races possible
-```
-
-### Sendable Requirements
-
-```swift
-// Models must be Sendable to cross actor boundaries
-struct User: Codable, Sendable {
-    let id: Int
-    let name: String
-}
-
-// Requests can be structs (implicitly Sendable)
-struct GetUserRequest: HGetRequestProtocol {
-    typealias Model = User
-    // ...
-}
-```
-
-### Concurrency Guarantees
-
-1. **Configuration changes** are atomic and visible to all subsequent requests
-2. **Cache operations** are serialized and consistent
-3. **Concurrent requests** are safe and don't interfere with each other
-4. **Mock registration** is thread-safe for test isolation
-
-## Design Principles
-
-### 1. Progressive Disclosure
-
-Simple cases are simple, complexity is opt-in:
-
-```swift
-// Minimal implementation
-struct SimpleRequest: HGetRequestProtocol {
-    typealias Model = User
-    let url = "https://api.example.com/user"
-}
-
-// Full-featured implementation
-struct AdvancedRequest: HPostRequestProtocol {
-    typealias Model = User
-    let url = "https://api.example.com/user"
-    var bodyParameters: [String: Any]? {
-        ["name": "John"]
-    }
-    var headerParameters: [String: String]? { get { ["X-Custom": "Value"] } set { } }
-    let needsAuth = true
-    var retries: Int? { get { 3 } set { } }
-    let cacheType: HCache.CacheType? = .custom(HCache.Configuration(expirationTime: .oneHour))
-}
-```
-
-### 2. Composition Over Inheritance
-
-Protocols and extensions enable behavior composition:
-
-```swift
-// Mix protocols for additional capabilities
-struct MyRequest: HGetRequestProtocol, HDebugRequestProtocol {
-    // Gets request execution from HGetRequestProtocol
-    // Gets debug logging from HDebugRequestProtocol
-}
-```
-
-### 3. Type Safety
-
-Generic associated types prevent runtime type errors:
-
-```swift
-protocol HRequestWithResultProtocol {
-    associatedtype Model: Decodable, Sendable
-    // Compiler ensures response type matches Model
-}
-```
-
-### 4. Fail-Safe Defaults
-
-Sensible defaults minimize configuration:
-
-```swift
-// These all have defaults:
-var headerParameters: [String: String]? { get { nil } set { } }
-var needsAuth: Bool { false }
-var retries: Int? { nil }
-var timeoutInterval: TimeInterval? { nil }  // Uses global config (default 15s)
-```
-
-### 5. Explicit Over Implicit
-
-Important behaviors require explicit opt-in:
-
-```swift
-// Must explicitly enable auth
-let needsAuth: Bool = true
-
-// Must explicitly configure cache
-let cacheType = HCache.CacheType.custom(HCache.Configuration(expirationTime: .oneHour))
-```
-
-## Performance Considerations
-
-### Cache Performance
-
-- **Memory cache (L1)**: NSCache-backed, avoids a network round-trip on hits
-- **Disk cache (L2)**: Persistent storage, faster than network for large payloads
-- **Cache key**: SHA256 of URL + parameters for uniqueness
-
-### Concurrency Performance
-
-- **Actor isolation**: Minimal overhead for configuration access
-- **Parallel requests**: Full concurrency, no artificial serialization
-- **Async/await**: Efficient suspend/resume without thread blocking
-
-### Memory Management
-
-- **NSCache**: Automatic eviction under memory pressure
-- **Disk cache**: Configurable size limits per object
-- **Request lifecycle**: Short-lived, minimal retained state
-
-## Related Files
-
-**Architecture Implementation:**
-- `Sources/Harbor/Request/HRequestProtocol.swift` - Protocol definitions
-- `Sources/Harbor/Request/HRequestManager.swift` - Core processing logic
-- `Sources/Harbor/Config/HConfig.swift` - Configuration management
-- `Sources/HarborJRPC/Request/HJRPCRequestProtocol.swift` - JRPC protocol and adapter example
-
-**Pattern Examples:**
-- `Example/HarborExample/Requests/` - Various request implementations
-- `Tests/HarborTests/` - Pattern usage in tests
+- `Sources/Harbor/Request/HRequestManager.swift`: attempt loop, auth refresh, session cache.
+- `Sources/Harbor/Request/HRequestProtocol.swift`: protocols, defaults, streaming.
+- `Sources/Harbor/Request/HRetryPolicy.swift`: retry classification.
+- `Sources/Harbor/Utils/HURLBuilder.swift`: URL, header and body construction.
+- `Sources/Harbor/Request/HURLSessionDelegate.swift`: pinning, mTLS, redirects.
+- `Sources/Harbor/Config/HConfig.swift`: global state.
+- `Sources/HarborJRPC/Request/HJRPCRequestManager.swift`: JSON-RPC execution and batches.

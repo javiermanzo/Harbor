@@ -71,17 +71,13 @@ struct GetPaginatedPostsRequest: HGetRequestProtocol {
     }
 }
 
-/// GET posts for a specific user
-struct GetUserPostsRequest: HGetRequestProtocol {
-    typealias Model = [Post]
-    let userId: Int
-    var url: String { "\(JSONPlaceholderAPI.baseURL)/users/\(userId)/posts" }
-}
-
 // MARK: - POST Requests
 
-/// Simple POST request - creating a new post (using class to avoid ambiguity)
-final class CreatePostRequest: HPostRequestProtocol, @unchecked Sendable {
+/// Simple POST request - creating a new post.
+/// `bodyParameters` is a get-only requirement, so a computed property keeps the request a
+/// plain `Sendable` struct. Adopting `HRequestWithResultProtocol` as well decodes the created
+/// post from the response body (`let response: HResponseWithResult<Post> = await ...request()`).
+struct CreatePostRequest: HPostRequestProtocol, HRequestWithResultProtocol {
     typealias Model = Post
     let url: String = "\(JSONPlaceholderAPI.baseURL)/posts"
 
@@ -89,65 +85,34 @@ final class CreatePostRequest: HPostRequestProtocol, @unchecked Sendable {
     let body: String
     let userId: Int
 
-    var headerParameters: [String: String]?
-    var needsAuth: Bool = false
-    var retries: Int?
-    var pathParameters: [String: String]?
-
     var bodyParameters: [String: Any]? {
-        get {
-            [
-                "title": title,
-                "body": body,
-                "userId": userId
-            ]
-        }
-        set { }
-    }
-
-    var bodyType: HRequestDataType { .json }
-
-    init(title: String, body: String, userId: Int) {
-        self.title = title
-        self.body = body
-        self.userId = userId
+        [
+            "title": title,
+            "body": body,
+            "userId": userId
+        ]
     }
 }
 
-/// POST with Codable model (using class)
-final class CreatePostWithModelRequest: HPostRequestProtocol, @unchecked Sendable {
+/// POST with a Codable model encoded as the JSON body (`rawBody`), decoding the created post.
+struct CreatePostWithModelRequest: HPostRequestProtocol, HRequestWithResultProtocol {
     typealias Model = Post
     let url: String = "\(JSONPlaceholderAPI.baseURL)/posts"
 
     let post: Post
 
-    var headerParameters: [String: String]?
-    var needsAuth: Bool = false
-    var retries: Int?
-    var pathParameters: [String: String]?
-
-    var bodyParameters: [String: Any]? {
-        get {
-            guard let data = try? JSONEncoder().encode(post),
-                  let dict = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-                return nil
-            }
-            return dict
-        }
-        set { }
+    /// Sent as-is with `Content-Type: application/json`.
+    var rawBody: Data? {
+        try? JSONEncoder().encode(post)
     }
 
-    var bodyType: HRequestDataType { .json }
-
-    init(post: Post) {
-        self.post = post
-    }
+    var bodyParameters: [String: Any]? { nil }
 }
 
 // MARK: - PUT Requests (Full Update)
 
-/// PUT request - update entire post (using class)
-final class UpdatePostRequest: HPutRequestProtocol, @unchecked Sendable {
+/// PUT request - update entire post, decoding the updated post from the response.
+struct UpdatePostRequest: HPutRequestProtocol, HRequestWithResultProtocol {
     typealias Model = Post
     let postId: Int
     var url: String { "\(JSONPlaceholderAPI.baseURL)/posts/\(postId)" }
@@ -156,89 +121,38 @@ final class UpdatePostRequest: HPutRequestProtocol, @unchecked Sendable {
     let body: String
     let userId: Int
 
-    var headerParameters: [String: String]?
-    var needsAuth: Bool = false
-    var retries: Int?
-    var pathParameters: [String: String]?
-
     var bodyParameters: [String: Any]? {
-        get {
-            [
-                "id": postId,
-                "title": title,
-                "body": body,
-                "userId": userId
-            ]
-        }
-        set { }
-    }
-
-    var bodyType: HRequestDataType { .json }
-
-    init(postId: Int, title: String, body: String, userId: Int) {
-        self.postId = postId
-        self.title = title
-        self.body = body
-        self.userId = userId
+        [
+            "id": postId,
+            "title": title,
+            "body": body,
+            "userId": userId
+        ]
     }
 }
 
 // MARK: - PATCH Requests (Partial Update)
 
-/// PATCH request - update only specific fields (using class)
-final class PatchPostRequest: HPatchRequestProtocol, @unchecked Sendable {
+/// PATCH request - update only specific fields, decoding the merged post from the response.
+struct PatchPostRequest: HPatchRequestProtocol, HRequestWithResultProtocol {
     typealias Model = Post
     let postId: Int
     var url: String { "\(JSONPlaceholderAPI.baseURL)/posts/\(postId)" }
 
     let title: String?
 
-    var headerParameters: [String: String]?
-    var needsAuth: Bool = false
-    var retries: Int?
-    var pathParameters: [String: String]?
-
     var bodyParameters: [String: Any]? {
-        get {
-            var params: [String: Any] = [:]
-            if let title = title {
-                params["title"] = title
-            }
-            return params.isEmpty ? nil : params
-        }
-        set { }
-    }
-
-    var bodyType: HRequestDataType { .json }
-
-    init(postId: Int, title: String?) {
-        self.postId = postId
-        self.title = title
+        guard let title else { return nil }
+        return ["title": title]
     }
 }
 
 // MARK: - DELETE Requests
 
 /// DELETE request - delete a post
-struct DeletePostRequest: HDeleteRequestProtocol, HRequestWithEmptyResponseProtocol {
+struct DeletePostRequest: HDeleteRequestProtocol {
     let postId: Int
     var url: String { "\(JSONPlaceholderAPI.baseURL)/posts/\(postId)" }
-}
-
-/// DELETE with response (using class)
-final class DeletePostWithResponseRequest: HDeleteRequestProtocol, @unchecked Sendable {
-    typealias Model = CreateResponse
-    let postId: Int
-    var url: String { "\(JSONPlaceholderAPI.baseURL)/posts/\(postId)" }
-
-    var headerParameters: [String: String]?
-    var needsAuth: Bool = false
-    var retries: Int?
-    var pathParameters: [String: String]?
-
-    init(postId: Int) {
-        self.postId = postId
-    }
 }
 
 // MARK: - Requests with Authentication
@@ -269,16 +183,11 @@ struct GetDataWithHeadersRequest: HGetRequestProtocol {
     typealias Model = [User]
     let url: String = "\(JSONPlaceholderAPI.baseURL)/users"
 
-    var headerParameters: [String: String]? {
-        get {
-            [
-                "X-API-Version": "2.0",
-                "X-Client-Platform": "iOS",
-                "Accept-Language": "en-US"
-            ]
-        }
-        set { }
-    }
+    let headerParameters: [String: String]? = [
+        "X-API-Version": "2.0",
+        "X-Client-Platform": "iOS",
+        "Accept-Language": "en-US"
+    ]
 }
 
 // MARK: - Requests with Retry
@@ -288,11 +197,9 @@ struct GetUnreliableDataRequest: HGetRequestProtocol {
     typealias Model = [User]
     let url: String = "\(JSONPlaceholderAPI.baseURL)/users"
 
-    // Retry up to 3 times on failure
-    var retries: Int? {
-        get { 3 }
-        set { }
-    }
+    // Retry up to 3 times on transient failures (408/425/429/500/502/503/504 and transient
+    // network errors) with exponential backoff; `Retry-After` is honored on 429/503 up to 60 s.
+    let retryPolicy: HRetryPolicy? = HRetryPolicy(maxRetries: 3, baseDelay: 0.5)
 }
 
 // MARK: - Debug Requests
@@ -302,47 +209,33 @@ struct DebugGetUsersRequest: HGetRequestProtocol, HDebugRequestProtocol {
     typealias Model = [User]
     let url: String = "\(JSONPlaceholderAPI.baseURL)/users"
 
-    var debugType: HDebugRequestType = .requestAndResponse
+    let debugType: HDebugRequestType = .requestAndResponse
 }
 
 // MARK: - Multipart Requests
 
-/// Multipart POST request - upload with file (using class)
-final class UploadPostRequest: HPostRequestProtocol, @unchecked Sendable {
-    typealias Model = CreateResponse
+/// Multipart POST request - text fields plus a file part.
+/// `multipartBody` takes typed `HFormValue`s and takes precedence over `bodyParameters`;
+/// file parts are streamed from disk.
+struct UploadPostRequest: HPostRequestProtocol {
     let url: String = "\(JSONPlaceholderAPI.baseURL)/posts"
 
     let title: String
     let body: String
     let userId: Int
-    let imageData: Data?
+    let imageFileURL: URL?
 
-    var headerParameters: [String: String]?
-    var needsAuth: Bool = false
-    var retries: Int?
-    var pathParameters: [String: String]?
+    var bodyParameters: [String: Any]? { nil }
 
-    var bodyParameters: [String: Any]? {
-        get {
-            var params: [String: Any] = [
-                "title": title,
-                "body": body,
-                "userId": userId
-            ]
-            if let imageData = imageData {
-                params["image"] = imageData
-            }
-            return params
+    var multipartBody: [String: HFormValue]? {
+        var fields: [String: HFormValue] = [
+            "title": .text(title),
+            "body": .text(body),
+            "userId": .text(String(userId))
+        ]
+        if let imageFileURL {
+            fields["image"] = .file(url: imageFileURL, mimeType: "image/png", fileName: "image.png")
         }
-        set { }
-    }
-
-    var bodyType: HRequestDataType { .multipart }
-
-    init(title: String, body: String, userId: Int, imageData: Data?) {
-        self.title = title
-        self.body = body
-        self.userId = userId
-        self.imageData = imageData
+        return fields
     }
 }

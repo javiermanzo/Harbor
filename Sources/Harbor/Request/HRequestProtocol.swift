@@ -49,13 +49,15 @@ public protocol HRequestBaseRequestProtocol: Sendable {
     var httpMethod: HHttpMethod { get }
     /// Whether this request requires authentication. Default: `false`.
     var needsAuth: Bool { get }
-    /// Optional retry policy (backoff and jitter) for failed requests. Default: `nil`.
-    /// When `nil`, no retries are performed.
+    /// Optional retry policy for transient failures (retryable status codes and network
+    /// errors, with backoff, jitter and `Retry-After` support). Default: `nil`.
+    /// When `nil`, no retries are performed. See `HRetryPolicy` for what is retried.
     var retryPolicy: HRetryPolicy? { get }
     /// Path parameters to be substituted in the URL. Default: `nil`.
     var pathParameters: [String: String]? { get }
     /// Additional HTTP headers to include in the request. Default: `nil`.
-    var headerParameters: [String: String]? { get set }
+    /// A get-only requirement: implement it as a `let`/`var` stored property or a computed one.
+    var headerParameters: [String: String]? { get }
     /// Timeout interval for this request. Default: `nil` (uses global config).
     var timeoutInterval: TimeInterval? { get }
 }
@@ -69,7 +71,7 @@ public extension HRequestBaseRequestProtocol {
     /// Default: `nil`.
     var pathParameters: [String: String]? { nil }
     /// Default: `nil`.
-    var headerParameters: [String: String]? { get { nil } set { } }
+    var headerParameters: [String: String]? { nil }
     /// Default: `nil`.
     var timeoutInterval: TimeInterval? { nil }
 }
@@ -100,7 +102,7 @@ public protocol HRequestWithResultProtocol: HRequestBaseRequestProtocol {
     ///   - model: The model type to decode.
     /// - Returns: The decoded model instance.
     /// - Throws: Decoding error if data cannot be parsed.
-    func parseData<T: Codable> (data: Data, model: T.Type) throws -> T
+    func parseData<T: Codable>(data: Data, model: T.Type) throws -> T
     /// Executes the request and returns a typed response.
     func request() async -> HResponseWithResult<Model>
 }
@@ -118,7 +120,7 @@ public extension HRequestWithResultProtocol {
     ///   - model: The model type to decode.
     /// - Returns: The decoded model instance.
     /// - Throws: Decoding error if data cannot be parsed.
-    func parseData<T: Codable> (data: Data, model: T.Type) throws -> T {
+    func parseData<T: Codable>(data: Data, model: T.Type) throws -> T {
         let decoder = HConfig.jsonDecoder
         return try decoder.decode(T.self, from: data)
     }
@@ -129,12 +131,15 @@ public extension HRequestWithResultProtocol {
 public protocol HRequestWithBodyProtocol: HRequestWithEmptyResponseProtocol {
     /// The format of the request body data. Default: `.json`.
     var bodyType: HRequestDataType { get }
-    /// Parameters to include in the request body.
-    var bodyParameters: [String: Any]? { get set }
+    /// Parameters to include in the request body. A get-only requirement: a computed property
+    /// keeps a `Sendable` conformer free of `@unchecked Sendable`, which a stored
+    /// `[String: Any]` would require.
+    var bodyParameters: [String: Any]? { get }
     /// Typed multipart form values. When set, a multipart body is built from these values
     /// (text fields and files) instead of `bodyParameters`. Default: `nil`.
     var multipartBody: [String: HFormValue]? { get }
-    /// Raw HTTP body data. When set, it is sent as-is instead of `bodyParameters` (Content-Type application/json).
+    /// Raw HTTP body data. When set, it is sent as-is instead of `multipartBody` and
+    /// `bodyParameters` (Content-Type `application/json`).
     var rawBody: Data? { get }
 }
 

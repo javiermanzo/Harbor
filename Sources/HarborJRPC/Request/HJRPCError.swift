@@ -16,16 +16,28 @@ public struct HJRPCError: HModel {
     public let message: String
     /// Additional information about the error, as defined by the server.
     public let data: HJSONValue?
+    /// The HTTP status code of the response that carried the error, when it was not a 2xx
+    /// (e.g. a server answering `500` with a JSON-RPC error body). `nil` for errors delivered
+    /// in a 2xx response. Not part of the JSON-RPC error object, so it is never encoded.
+    public internal(set) var httpStatusCode: Int?
+
+    private enum CodingKeys: String, CodingKey {
+        case code
+        case message
+        case data
+    }
 
     /// Creates a new JSON-RPC error.
     /// - Parameters:
     ///   - code: The error code.
     ///   - message: The error message.
     ///   - data: Additional information about the error.
-    public init(code: Int, message: String, data: HJSONValue? = nil) {
+    ///   - httpStatusCode: The non-2xx HTTP status code of the response that carried the error.
+    public init(code: Int, message: String, data: HJSONValue? = nil, httpStatusCode: Int? = nil) {
         self.code = code
         self.message = message
         self.data = data
+        self.httpStatusCode = httpStatusCode
     }
 }
 

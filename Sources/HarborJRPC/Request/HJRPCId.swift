@@ -10,6 +10,8 @@ import Foundation
 /// A JSON-RPC request identifier.
 ///
 /// The JSON-RPC 2.0 specification allows the `id` member to be a string, a number or `null`.
+/// Numeric identifiers must be integers that fit in `Int`; decoding a fractional or
+/// out-of-range number (e.g. `1.5` or `1e30`) throws a `DecodingError`.
 public enum HJRPCId: Sendable, Equatable {
     /// A string identifier.
     case string(String)
@@ -34,12 +36,15 @@ extension HJRPCId: Codable {
             self = .string(value)
         } else if let value = try? container.decode(Int.self) {
             self = .number(value)
-        } else if let value = try? container.decode(Double.self), value.rounded() == value {
-            self = .number(Int(value))
+        } else if let value = try? container.decode(Double.self), let integer = Int(exactly: value) {
+            // An integral number written with a fraction or exponent (e.g. `1.0`). Numbers that
+            // are fractional or outside `Int`'s range (e.g. `1e30`) are rejected below instead of
+            // trapping in `Int(_:)`.
+            self = .number(integer)
         } else if container.decodeNil() {
             self = .null
         } else {
-            throw DecodingError.dataCorruptedError(in: container, debugDescription: "The id is not a valid JSON-RPC identifier.")
+            throw DecodingError.dataCorruptedError(in: container, debugDescription: "The id is not a valid JSON-RPC identifier: it must be a string, null or an integer that fits in Int.")
         }
     }
 

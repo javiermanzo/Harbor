@@ -38,11 +38,11 @@ final class HarborRealServiceTests: XCTestCase {
         }
     }
 
-    /// Request con custom cache de larga duración para pruebas de ETag.
+    /// Request with a long-lived custom cache for ETag tests.
     struct GetTestResourceCustomCacheETag: HGetRequestProtocol {
         typealias Model = TestResource
         let url = "https://pokeapi.co/api/v2/pokemon/ditto"
-        // Expiration larga para que no expire durante el test
+        // Long expiration so the entry does not expire during the test
         let cacheType: HCache.CacheType? = .custom(HCache.Configuration(expirationTime: 3600))
     }
 
@@ -56,7 +56,13 @@ final class HarborRealServiceTests: XCTestCase {
         LocalStubURLProtocol.registerStub(for: url, data: data, response: response)
 
         let url2 = URL(string: "https://pokeapi.co/api/v2/pokemon/mew")!
-        let response2 = HTTPURLResponse(url: url2, statusCode: 200, httpVersion: nil, headerFields: ["ETag": "\"mocked-etag-mew\""])!
+        // URLCache entries are only served by cache() while fresh, so this stub carries
+        // explicit freshness information.
+        let response2 = HTTPURLResponse(url: url2, statusCode: 200, httpVersion: nil, headerFields: [
+            "ETag": "\"mocked-etag-mew\"",
+            "Cache-Control": "max-age=3600",
+            "Date": Self.httpDate(Date())
+        ])!
         LocalStubURLProtocol.registerStub(for: url2, data: data, response: response2)
 
         await Harbor.setProtocolClasses([LocalStubURLProtocol.self])
@@ -64,6 +70,15 @@ final class HarborRealServiceTests: XCTestCase {
         await Harbor.clearAllCache()
         await Harbor.setMocksOnlyInDebug(false)
         await Harbor.setDefaultCacheType(.disabled)
+    }
+
+    /// Formats a date as an IMF-fixdate HTTP header value.
+    private static func httpDate(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        formatter.dateFormat = "EEE, dd MMM yyyy HH:mm:ss 'GMT'"
+        return formatter.string(from: date)
     }
 
     override func tearDown() async throws {
@@ -240,7 +255,7 @@ final class HarborRealServiceTests: XCTestCase {
 
     // MARK: - ETag / 304 Not Modified Tests
 
-    /// 1. Verifica que la GitHub API devuelve un header ETag en la primera respuesta.
+    /// 1. Verifies that the real service returns an ETag header in the first response.
     func testETagHeaderIsReceivedFromRealService() async throws {
         let url = URL(string: "https://pokeapi.co/api/v2/pokemon/ditto")!
         var urlRequest = URLRequest(url: url)
@@ -254,16 +269,16 @@ final class HarborRealServiceTests: XCTestCase {
         let etag = httpResponse.value(forHTTPHeaderField: "ETag")
             ?? httpResponse.value(forHTTPHeaderField: "Etag")
             ?? httpResponse.value(forHTTPHeaderField: "etag")
-        XCTAssertNotNil(etag, "La GitHub API debe devolver un header ETag")
-        XCTAssertFalse(etag?.isEmpty ?? true, "El ETag no debe estar vacío")
+        XCTAssertNotNil(etag, "The service must return an ETag header")
+        XCTAssertFalse(etag?.isEmpty ?? true, "The ETag must not be empty")
     }
 
-    /// 2. Verifica que el servidor responde 304 Not Modified cuando se envía el ETag
-    ///    recibido mediante el header If-None-Match.
+    /// 2. Verifies that the server answers 304 Not Modified when the received ETag
+    ///    is sent back through the If-None-Match header.
     func testETag304NotModifiedWithRealService() async throws {
         let url = URL(string: "https://pokeapi.co/api/v2/pokemon/ditto")!
 
-        // Primera request — obtener ETag
+        // First request: obtain the ETag
         var firstRequest = URLRequest(url: url)
         firstRequest.cachePolicy = .reloadIgnoringLocalCacheData
 
@@ -274,9 +289,9 @@ final class HarborRealServiceTests: XCTestCase {
         let etag = firstHTTP.value(forHTTPHeaderField: "ETag")
             ?? firstHTTP.value(forHTTPHeaderField: "Etag")
             ?? firstHTTP.value(forHTTPHeaderField: "etag")
-        let unwrappedETag = try XCTUnwrap(etag, "La primera respuesta debe contener un ETag")
+        let unwrappedETag = try XCTUnwrap(etag, "The first response must contain an ETag")
 
-        // Segunda request — enviar If-None-Match con el ETag obtenido
+        // Second request: send If-None-Match with the ETag we received
         var secondRequest = URLRequest(url: url)
         secondRequest.cachePolicy = .reloadIgnoringLocalCacheData
         secondRequest.setValue(unwrappedETag, forHTTPHeaderField: "If-None-Match")
@@ -284,18 +299,18 @@ final class HarborRealServiceTests: XCTestCase {
         let (secondData, secondResponse) = try await URLSession.shared.data(for: secondRequest)
         let secondHTTP = try XCTUnwrap(secondResponse as? HTTPURLResponse)
 
-        // El servidor debe responder 304 Not Modified
-        XCTAssertEqual(secondHTTP.statusCode, 304, "El servidor debe responder 304 cuando el ETag no cambió")
-        XCTAssertTrue(secondData.isEmpty, "Un 304 no debe tener body")
+        // The server must answer 304 Not Modified
+        XCTAssertEqual(secondHTTP.statusCode, 304, "The server must answer 304 when the ETag has not changed")
+        XCTAssertTrue(secondData.isEmpty, "A 304 must not carry a body")
     }
 
-    /// 3. Verifica que Harbor, usando URLCache con .useProtocolCachePolicy, maneja el 304
-    ///    de forma transparente: la segunda request debe devolver datos correctamente.
+    /// 3. Verifies that Harbor, using URLCache with .useProtocolCachePolicy, handles the 304
+    ///    transparently: the second request must still return data.
     func testETagCacheHitWithRealService() async throws {
         let urlCache = URLCache(memoryCapacity: 10 * 1024 * 1024, diskCapacity: 50 * 1024 * 1024)
         let request = GetTestResourceETag(urlCache: urlCache)
 
-        // Primera request — llena el cache con la respuesta y el ETag
+        // First request: fills the cache with the response and its ETag
         let firstResponse = await request.request()
         switch firstResponse {
         case .success(let user):
@@ -306,23 +321,23 @@ final class HarborRealServiceTests: XCTestCase {
 
         await waitForCachedResponse(of: request, in: urlCache)
 
-        // Segunda request — URLSession envía If-None-Match automáticamente.
-        // El servidor responde 304 y URLCache devuelve el cuerpo cacheado de forma transparente.
+        // Second request: URLSession sends If-None-Match automatically.
+        // The server answers 304 and URLCache returns the cached body transparently.
         let secondResponse = await request.request()
         switch secondResponse {
         case .success(let user):
-            XCTAssertEqual(user.name, "ditto", "La segunda request (304 manejado por URLCache) debe devolver los mismos datos")
+            XCTAssertEqual(user.name, "ditto", "The second request (304 handled by URLCache) must return the same data")
         case .error(let err):
             XCTFail("Second request (expected transparent 304 cache hit) failed: \(err)")
         }
     }
 
-    /// 4. Verifica que requestStream funciona correctamente con URLCache y ETag.
+    /// 4. Verifies that requestStream works with URLCache and ETag.
     func testETagURLCacheRequestStream() async throws {
         let urlCache = URLCache(memoryCapacity: 10 * 1024 * 1024, diskCapacity: 50 * 1024 * 1024)
         let request = GetTestResourceETag(urlCache: urlCache)
 
-        // Primera request — llena el cache
+        // First request: fills the cache
         let _ = await request.request()
         await waitForCachedResponse(of: request, in: urlCache)
 
@@ -336,12 +351,12 @@ final class HarborRealServiceTests: XCTestCase {
             XCTFail("Stream failed: \(error)")
         }
 
-        XCTAssertEqual(resultsCount, 1, "remoteOnly stream debe devolver exactamente un resultado")
+        XCTAssertEqual(resultsCount, 1, "A remoteOnly stream must yield exactly one result")
     }
 
     // MARK: - ETag with Custom Cache Tests
 
-    /// Verifica que Harbor guarda el ETag de la respuesta cuando se usa custom cache.
+    /// Verifies that Harbor stores the response ETag when using the custom cache.
     func testCustomCacheStoresETag() async throws {
         let request = GetTestResourceCustomCacheETag()
 
@@ -353,18 +368,18 @@ final class HarborRealServiceTests: XCTestCase {
             XCTFail("Request failed: \(err)")
         }
 
-        // El ETag debe haberse guardado en el custom cache
+        // The ETag must have been stored in the custom cache
         let storedETag = await request.cachedETag()
-        XCTAssertNotNil(storedETag, "El custom cache debe guardar el ETag recibido del servidor")
-        XCTAssertFalse(storedETag?.isEmpty ?? true, "El ETag guardado no debe estar vacío")
+        XCTAssertNotNil(storedETag, "The custom cache must store the ETag received from the server")
+        XCTAssertFalse(storedETag?.isEmpty ?? true, "The stored ETag must not be empty")
     }
 
-    /// Verifica que Harbor envía If-None-Match en la segunda request y maneja el 304 correctamente:
-    /// el servidor responde 304 y Harbor devuelve los datos del custom cache de forma transparente.
+    /// Verifies that Harbor sends If-None-Match on the second request and handles the 304:
+    /// the server answers 304 and Harbor returns the custom-cache data transparently.
     func testCustomCacheETag304HandledTransparently() async throws {
         let request = GetTestResourceCustomCacheETag()
 
-        // Primera request — llena el cache y guarda el ETag
+        // First request: fills the cache and stores the ETag
         let firstResponse = await request.request()
         switch firstResponse {
         case .success(let user):
@@ -373,16 +388,16 @@ final class HarborRealServiceTests: XCTestCase {
             XCTFail("First request failed: \(err)")
         }
 
-        // Verificar que el ETag fue guardado
+        // Verify that the ETag was stored
         let storedETag = await request.cachedETag()
-        XCTAssertNotNil(storedETag, "Debe haber un ETag guardado antes de la segunda request")
+        XCTAssertNotNil(storedETag, "An ETag must be stored before the second request")
 
-        // Segunda request — Harbor adjunta If-None-Match automáticamente.
-        // El servidor responde 304 y Harbor retorna los datos del custom cache.
+        // Second request: Harbor attaches If-None-Match automatically.
+        // The server answers 304 and Harbor returns the custom-cache data.
         let secondResponse = await request.request()
         switch secondResponse {
         case .success(let user):
-            XCTAssertEqual(user.name, "ditto", "La segunda request (304 + custom cache) debe devolver los mismos datos")
+            XCTAssertEqual(user.name, "ditto", "The second request (304 + custom cache) must return the same data")
         case .error(let err):
             XCTFail("Second request (expected 304 handled by custom cache) failed: \(err)")
         }

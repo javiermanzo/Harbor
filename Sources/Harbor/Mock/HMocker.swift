@@ -22,7 +22,7 @@ enum HMocker {
     }
 
     /// Registers a single mock response. Any existing mock or sequence for the same request type is removed.
-    /// - Parameter mock: The mock.
+    /// - Parameter mock: The response to answer requests of `mock.request` with.
     static func register(mock: HMock) {
         let id = key(for: mock.request)
         mocks[id] = mock
@@ -31,8 +31,9 @@ enum HMocker {
     }
 
     /// Registers a scripted sequence of responses. Each resolution advances the sequence;
-    /// after the last response is consumed it repeats indefinitely.
-    /// - Parameter sequence: The sequence.
+    /// after the last response is consumed it repeats indefinitely. A sequence with no
+    /// responses is ignored.
+    /// - Parameter sequence: The responses to play back for requests of `sequence.request`.
     static func registerMockSequence(_ sequence: HMockSequence) {
         guard !sequence.responses.isEmpty else { return }
         let id = key(for: sequence.request)
@@ -42,7 +43,7 @@ enum HMocker {
     }
 
     /// Removes any registered mock or sequence for the given request type.
-    /// - Parameter mock: The mock.
+    /// - Parameter mock: The mock whose request type stops being mocked.
     static func remove(mock: HMock) {
         let id = key(for: mock.request)
         mocks.removeValue(forKey: id)
@@ -59,7 +60,7 @@ enum HMocker {
     }
 
     /// Resolves the mock for the given request instance, advancing any registered sequence.
-    /// - Parameter request: The request.
+    /// - Parameter request: The request instance whose type selects the mock.
     static func mock(request: HRequestBaseRequestProtocol) -> HMock? {
         let id = ObjectIdentifier(type(of: request))
 
@@ -85,13 +86,13 @@ enum HMocker {
     }
 
     /// Number of times the given request type has been resolved through a mock.
-    /// - Parameter requestType: The requestType.
+    /// - Parameter requestType: The request type whose mock resolutions are counted.
     static func callCount(for requestType: HRequestBaseRequestProtocol.Type) -> Int {
         callCounts[key(for: requestType)] ?? 0
     }
 
     /// Whether a mock (single or sequenced) is currently registered for the request type.
-    /// - Parameter requestType: The requestType.
+    /// - Parameter requestType: The request type to look up.
     static func isRegistered(_ requestType: HRequestBaseRequestProtocol.Type) -> Bool {
         let id = key(for: requestType)
         return mocks[id] != nil || sequences[id] != nil

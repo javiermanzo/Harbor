@@ -17,7 +17,7 @@ let package = Package(
     ],
 
     dependencies: [
-        .package(url: "https://github.com/javiermanzo/LogBird", exact: "2.1.0"),
+        .package(url: "https://github.com/javiermanzo/LogBird", from: "2.1.0"),
     ],
     targets: [
         // Targets are the basic building blocks of a package. A target can define a module or a test suite.
@@ -39,5 +39,5 @@ let package = Package(
             name: "HarborJRPCTests",
             dependencies: ["HarborJRPC"]),
     ],
-    swiftLanguageModes: [.version("6"), .v5]
+    swiftLanguageModes: [.v6]
 )

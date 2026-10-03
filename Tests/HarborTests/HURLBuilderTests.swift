@@ -80,4 +80,131 @@ final class HURLBuilderTests: XCTestCase {
             XCTFail("Expected malformedRequest but got: \(error)")
         }
     }
+
+    // MARK: - Timeout
+
+    func testBuiltRequestCarriesThePerRequestTimeout() async throws {
+        // Given a request overriding the timeout
+        let request = TimeoutGetRequest(timeoutInterval: 42)
+
+        // When
+        let urlRequest = try await HURLBuilder.buildUrlRequest(request: request)
+
+        // Then the timeout is on the URLRequest, so it also holds for custom sessions
+        XCTAssertEqual(urlRequest.timeoutInterval, 42, accuracy: 0.001)
+    }
+
+    func testBuiltRequestFallsBackToTheDefaultTimeout() async throws {
+        // Given a default timeout and a request without an override
+        Harbor.setDefaultTimeoutInterval(27)
+        defer { Harbor.setDefaultTimeoutInterval(15) }
+
+        // When
+        let urlRequest = try await HURLBuilder.buildUrlRequest(request: TimeoutGetRequest(timeoutInterval: nil))
+
+        // Then
+        XCTAssertEqual(urlRequest.timeoutInterval, 27, accuracy: 0.001)
+    }
+}
+
+// MARK: - F18: Encoding And Validators
+
+extension HURLBuilderTests {
+
+    func testPlusInQueryValueIsPercentEncoded() async throws {
+        let url = try HURLBuilder.compositeURL(url: "https://api.example.com/search", queryParameters: ["q": "a+b c"])
+
+        XCTAssertEqual(url.absoluteString, "https://api.example.com/search?q=a%2Bb%20c")
+        // A form decoder (where '+' means space) recovers the original value.
+        let components = try XCTUnwrap(URLComponents(url: url, resolvingAgainstBaseURL: false))
+        XCTAssertEqual(components.queryItems?.first?.value, "a+b c")
+    }
+
+    func testQueryDelimitersInNamesAndValuesAreEncoded() async throws {
+        let url = try HURLBuilder.compositeURL(url: "https://api.example.com/search",
+                                               queryParameters: ["filter": "a&b=c#d", "k&=": "v"])
+
+        let components = try XCTUnwrap(URLComponents(url: url, resolvingAgainstBaseURL: false))
+        let items = try XCTUnwrap(components.queryItems)
+        XCTAssertEqual(items.count, 2, "Delimiters must not split items: \(url)")
+        XCTAssertTrue(items.contains(URLQueryItem(name: "filter", value: "a&b=c#d")))
+        XCTAssertTrue(items.contains(URLQueryItem(name: "k&=", value: "v")))
+        XCTAssertNil(components.fragment)
+    }
+
+    func testBaseURLQueryIsKeptAsWritten() async throws {
+        let url = try HURLBuilder.compositeURL(url: "https://api.example.com/x?sig=a%2Bb", queryParameters: ["page": "1"])
+
+        XCTAssertEqual(url.absoluteString, "https://api.example.com/x?page=1&sig=a%2Bb")
+    }
+
+    func testDuplicateQueryNamesKeepTheirOrder() async throws {
+        let url = try HURLBuilder.compositeURL(url: "https://api.example.com/x?tag=b&tag=a", queryParameters: ["page": "1"])
+
+        XCTAssertEqual(url.absoluteString, "https://api.example.com/x?page=1&tag=b&tag=a")
+    }
+
+    func testSlashInPathParameterIsEncoded() async throws {
+        let url = try HURLBuilder.compositeURL(url: "https://api.example.com/files/{name}/meta", pathParameters: ["name": "a/b"])
+
+        // `pathComponents` decodes `%2F` on older Foundation versions, so assert on the encoded string only.
+        XCTAssertEqual(url.absoluteString, "https://api.example.com/files/a%2Fb/meta")
+    }
+
+    func testTraversalGuardStillRejectsEncodedSlashTraversal() async {
+        XCTAssertThrowsError(try HURLBuilder.compositeURL(url: "https://api.example.com/files/{name}", pathParameters: ["name": "../etc"]))
+    }
+
+    func testCallerProvidedValidatorsAreNotOverridden() async throws {
+        // Given validators stored for the URL
+        let request = ValidatorGetRequest(headerParameters: ["If-None-Match": "\"caller\""])
+        let url = try XCTUnwrap(URL(string: request.url))
+        let key = HCache.Manager.cacheKey(for: url, authHeader: nil)
+        let response = try XCTUnwrap(HTTPURLResponse(url: url, statusCode: 200, httpVersion: "HTTP/1.1",
+                                                     headerFields: ["ETag": "\"stored\"", "Last-Modified": "Wed, 21 Oct 2015 07:28:00 GMT"]))
+        await HCache.Manager.shared.storeData(Data("{\"quote\":\"q\"}".utf8), forKey: key, config: HCache.Configuration(), response: response)
+        addTeardownBlock { await HCache.Manager.shared.clearAllCache() }
+
+        // When the caller sets its own If-None-Match
+        let urlRequest = try await HURLBuilder.buildUrlRequest(request: request)
+
+        // Then it is kept and no stored validator is mixed in
+        XCTAssertEqual(urlRequest.value(forHTTPHeaderField: "If-None-Match"), "\"caller\"")
+        XCTAssertNil(urlRequest.value(forHTTPHeaderField: "If-Modified-Since"))
+
+        // And without caller validators the stored ones are injected
+        let injected = try await HURLBuilder.buildUrlRequest(request: ValidatorGetRequest(headerParameters: nil))
+        XCTAssertEqual(injected.value(forHTTPHeaderField: "If-None-Match"), "\"stored\"")
+        XCTAssertEqual(injected.value(forHTTPHeaderField: "If-Modified-Since"), "Wed, 21 Oct 2015 07:28:00 GMT")
+    }
+
+    func testCallerProvidedIfModifiedSinceIsNotOverridden() async throws {
+        let request = ValidatorGetRequest(url: "https://api.example.com/validators-ims", headerParameters: ["If-Modified-Since": "Thu, 01 Jan 2015 00:00:00 GMT"])
+        let url = try XCTUnwrap(URL(string: request.url))
+        let response = try XCTUnwrap(HTTPURLResponse(url: url, statusCode: 200, httpVersion: "HTTP/1.1",
+                                                     headerFields: ["ETag": "\"stored\"", "Last-Modified": "Wed, 21 Oct 2015 07:28:00 GMT"]))
+        await HCache.Manager.shared.storeData(Data("{\"quote\":\"q\"}".utf8), forKey: HCache.Manager.cacheKey(for: url, authHeader: nil),
+                                              config: HCache.Configuration(), response: response)
+        addTeardownBlock { await HCache.Manager.shared.clearAllCache() }
+
+        let urlRequest = try await HURLBuilder.buildUrlRequest(request: request)
+
+        XCTAssertEqual(urlRequest.value(forHTTPHeaderField: "If-Modified-Since"), "Thu, 01 Jan 2015 00:00:00 GMT")
+        XCTAssertNil(urlRequest.value(forHTTPHeaderField: "If-None-Match"))
+    }
+}
+
+/// GET request using the custom cache, with optional caller headers.
+private struct ValidatorGetRequest: HGetRequestProtocol {
+    typealias Model = MockModel
+    var url = "https://api.example.com/validators"
+    var headerParameters: [String: String]?
+    var cacheType: HCache.CacheType? = .custom(HCache.Configuration())
+}
+
+/// GET request with an optional per-request timeout.
+private struct TimeoutGetRequest: HGetRequestProtocol {
+    typealias Model = MockModel
+    let url = "https://api.example.com/timeout"
+    var timeoutInterval: TimeInterval?
 }

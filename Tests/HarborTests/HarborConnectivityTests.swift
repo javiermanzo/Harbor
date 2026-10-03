@@ -53,13 +53,14 @@ final class HarborConnectivityTests: XCTestCase {
         XCTAssertTrue(allowed)
     }
 
-    func testShouldBlockRequestWhenRequiresConnectionInRelease() async {
-        // .requiresConnection keeps the previous behavior: treated as offline in Release.
+    func testShouldAllowRequestWhenRequiresConnectionInRelease() async {
+        // .requiresConnection means a connection can be established on demand (VPN on demand,
+        // cellular waking up); the request itself triggers it, so it must not be blocked.
         let allowed = HRequestManagerMonitor.shouldAllowRequest(hasReceivedInitialUpdate: true,
                                                          pathStatus: .requiresConnection,
                                                          allowsDebugFallback: false)
 
-        XCTAssertFalse(allowed)
+        XCTAssertTrue(allowed)
     }
 
     // MARK: - Integration
@@ -101,6 +102,139 @@ final class HarborConnectivityTests: XCTestCase {
             return
         }
     }
+}
+
+// MARK: - Offline Cache Fallback
+
+@HRequestManagerActor
+final class HarborOfflineCacheFallbackTests: XCTestCase {
+
+    override func setUp() async throws {
+        Harbor.removeAllMocks()
+        Harbor.setAuthProvider(nil)
+        HConfig.shared.customURLSession = nil
+        await Harbor.clearAllCache()
+    }
+
+    override func tearDown() async throws {
+        HRequestManager.connectivityMonitor = HRequestManagerMonitor()
+        Harbor.setProtocolClasses(nil)
+        HConfig.shared.customURLSession = nil
+        await Harbor.clearAllCache()
+    }
+
+    func testFreshCustomCacheEntryIsServedWhenMonitorReportsOffline() async throws {
+        // Given a still-fresh custom-cache entry (no stale-if-error) and an offline monitor
+        let request = OfflineGetRequest(url: "https://example.com/offline-fresh", cacheType: .custom(HCache.Configuration(expirationTime: .oneHour)))
+        try await storeCustomEntry(#"{"quote":"fresh"}"#, for: request, cacheControl: "max-age=3600")
+        HRequestManager.connectivityMonitor = FakeConnectivityMonitor(connected: false)
+
+        // When
+        let response = await request.request()
+
+        // Then the fresh entry is served instead of failing with .noConnection
+        guard case .success(let model) = response else {
+            return XCTFail("Expected the cached body but got: \(response)")
+        }
+        XCTAssertEqual(model.quote, "fresh")
+    }
+
+    func testURLCacheResponseIsServedWhenMonitorReportsOffline() async throws {
+        // Given a response stored in the request's URLCache and an offline monitor
+        let urlCache = URLCache(memoryCapacity: 1024 * 1024, diskCapacity: 0)
+        let request = OfflineGetRequest(url: "https://example.com/offline-url-cache", cacheType: .urlCache(urlCache: urlCache))
+        try await storeURLCacheResponse(#"{"quote":"url-cache"}"#, for: request, in: urlCache)
+        HRequestManager.connectivityMonitor = FakeConnectivityMonitor(connected: false)
+
+        // When
+        let response = await request.request()
+
+        // Then
+        guard case .success(let model) = response else {
+            return XCTFail("Expected the URLCache body but got: \(response)")
+        }
+        XCTAssertEqual(model.quote, "url-cache")
+    }
+
+    func testURLCacheIgnoringLocalDataIsNotServedOffline() async throws {
+        // Given a stored response but a policy that ignores local data
+        let urlCache = URLCache(memoryCapacity: 1024 * 1024, diskCapacity: 0)
+        let request = OfflineGetRequest(url: "https://example.com/offline-reload", cacheType: .urlCache(urlCache: urlCache, requestCachePolicy: .reloadIgnoringLocalCacheData))
+        try await storeURLCacheResponse(#"{"quote":"url-cache"}"#, for: request, in: urlCache)
+        HRequestManager.connectivityMonitor = FakeConnectivityMonitor(connected: false)
+
+        // When
+        let response = await request.request()
+
+        // Then
+        guard case .error(.noConnection) = response else {
+            return XCTFail("Expected .noConnection but got: \(response)")
+        }
+    }
+
+    func testFreshCustomCacheEntryIsServedOnNotConnectedURLError() async throws {
+        // Given the monitor reports online but the transport fails with no connectivity
+        let request = OfflineGetRequest(url: "https://example.com/transport-offline", cacheType: .custom(HCache.Configuration(expirationTime: .oneHour)))
+        try await storeCustomEntry(#"{"quote":"fresh"}"#, for: request, cacheControl: "max-age=3600")
+        HRequestManager.connectivityMonitor = FakeConnectivityMonitor(connected: true)
+        Harbor.setProtocolClasses([NotConnectedStubProtocol.self])
+
+        // When
+        let response = await request.request()
+
+        // Then
+        guard case .success(let model) = response else {
+            return XCTFail("Expected the cached body but got: \(response)")
+        }
+        XCTAssertEqual(model.quote, "fresh")
+    }
+
+    func testNotConnectedURLErrorWithoutCacheFailsWithNoConnection() async throws {
+        // Given no cached entry and a transport without connectivity
+        let request = OfflineGetRequest(url: "https://example.com/transport-offline-miss", cacheType: .custom(HCache.Configuration(expirationTime: .oneHour)))
+        HRequestManager.connectivityMonitor = FakeConnectivityMonitor(connected: true)
+        Harbor.setProtocolClasses([NotConnectedStubProtocol.self])
+
+        // When
+        let response = await request.request()
+
+        // Then
+        guard case .error(.noConnection) = response else {
+            return XCTFail("Expected .noConnection but got: \(response)")
+        }
+    }
+
+    // MARK: - Helpers
+
+    private func storeCustomEntry(_ body: String, for request: OfflineGetRequest, cacheControl: String) async throws {
+        let url = try XCTUnwrap(URL(string: request.url))
+        let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: "HTTP/1.1", headerFields: ["Cache-Control": cacheControl])
+        await request.saveCache(Data(body.utf8), response: response)
+    }
+
+    private func storeURLCacheResponse(_ body: String, for request: OfflineGetRequest, in urlCache: URLCache) async throws {
+        let urlRequest = try await HURLBuilder.buildUrlRequest(request: request)
+        let url = try XCTUnwrap(urlRequest.url)
+        let response = try XCTUnwrap(HTTPURLResponse(url: url, statusCode: 200, httpVersion: "HTTP/1.1", headerFields: ["Cache-Control": "max-age=60"]))
+        urlCache.storeCachedResponse(CachedURLResponse(response: response, data: Data(body.utf8)), for: urlRequest)
+    }
+}
+
+/// GET request with an explicit cache type, used by the offline fallback tests.
+private struct OfflineGetRequest: HGetRequestProtocol {
+    typealias Model = MockModel
+    var url: String
+    var cacheType: HCache.CacheType?
+}
+
+/// URLProtocol stub failing every request with `URLError.notConnectedToInternet`.
+private final class NotConnectedStubProtocol: URLProtocol {
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {
+        client?.urlProtocol(self, didFailWithError: URLError(.notConnectedToInternet))
+    }
+    override func stopLoading() {}
 }
 
 /// Fake connectivity monitor for tests: reports a fixed connectivity state.

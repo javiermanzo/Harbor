@@ -44,11 +44,13 @@ final class HarborDiskCacheTests: XCTestCase {
 
         XCTAssertTrue(FileManager.default.fileExists(atPath: fileURL.path), "Single cache file should exist on disk")
 
-        // 4. Verify Content (It's a DiskEntry wrapper now)
+        // 4. Verify Content: magic + length-prefixed metadata header + raw body bytes
         let fileData = try Data(contentsOf: fileURL)
-        let diskEntry = try JSONDecoder().decode(TestDiskEntry.self, from: fileData)
-
-        XCTAssertEqual(diskEntry.data, testData, "Saved data inside wrapper should match original")
+        XCTAssertEqual(fileData.prefix(4), Data("HRBC".utf8), "Entry files should start with the format signature")
+        let (metadata, body) = try XCTUnwrap(HCache.DiskCodec.decode(fileData))
+        XCTAssertEqual(body, testData, "Saved body should match the original")
+        XCTAssertEqual(metadata.version, HCache.EntryMetadata.currentVersion)
+        XCTAssertTrue(fileData.suffix(testData.count) == testData, "The body should be stored raw, not base64 encoded")
     }
 
     func testLazyLoadingFromDisk() async throws {
@@ -65,11 +67,9 @@ final class HarborDiskCacheTests: XCTestCase {
         let cacheDir = HCache.Manager.shared.cacheDirectory
         let fileURL = cacheDir.appendingPathComponent(hash).appendingPathExtension("cache")
 
-        // Create DiskEntry manually
-        let entry = TestDiskEntry(data: testData, timestamp: Date(), expirationTime: .oneHour)
-        let encodedEntry = try JSONEncoder().encode(entry)
-
-        try encodedEntry.write(to: fileURL)
+        // Create the entry file manually
+        let metadata = HCache.EntryMetadata(timestamp: Date(), expirationTime: .oneHour)
+        try HCache.DiskCodec.encode(metadata, body: testData).write(to: fileURL)
 
         // 2. Try to get data (should hit disk)
         let cached: TestDiskModel? = await HCache.Manager.shared.getCachedData(forKey: key, type: TestDiskModel.self, config: config)
@@ -135,46 +135,125 @@ final class HarborDiskCacheTests: XCTestCase {
 
     // MARK: - Disk Capacity Tests
 
-    func testDiskCapacityEvictsOldestEntries() async {
-        // Entries are stored JSON-encoded (base64 data), so each 600 KB payload takes ~800 KB on disk
+    func testDiskCapacityEvictsLeastRecentlyUsedEntries() async {
+        // Bodies are stored raw, so each 900 KB payload takes ~900 KB on disk:
+        // three fit the 3 MB capacity, a fourth does not.
         let config = HCache.Configuration(diskCacheCapacityInMBs: 3)
-        let entryData = Data(count: 600 * 1024)
+        let entryData = try! JSONEncoder().encode(String(repeating: "a", count: 900 * 1024))
 
         let keys = [
-            "https://disk.test/lru-oldest",
-            "https://disk.test/lru-middle",
-            "https://disk.test/lru-newest"
+            "https://disk.test/lru-first",
+            "https://disk.test/lru-second",
+            "https://disk.test/lru-third"
         ]
-
-        // ~2.4 MB fits the 3 MB capacity, so nothing is evicted yet
         for key in keys {
             await HCache.Manager.shared.storeData(entryData, forKey: key, config: config, response: nil)
         }
-        await HCache.Manager.shared.waitForPendingDiskOperations()
 
-        // Pin deterministic modification dates instead of relying on write-order mtimes
-        let cacheDir = HCache.Manager.shared.cacheDirectory
-        let fileURLs = keys.map { cacheDir.appendingPathComponent($0.sha256Hex).appendingPathExtension("cache") }
-        let sentinelDates = [
-            Date().addingTimeInterval(-3600),
-            Date().addingTimeInterval(-1800),
-            Date().addingTimeInterval(-60)
-        ]
-        for (fileURL, date) in zip(fileURLs, sentinelDates) {
-            try? FileManager.default.setAttributes([.modificationDate: date], ofItemAtPath: fileURL.path)
-        }
+        // Reading the oldest entry makes it the most recently used one
+        let read: String? = await HCache.Manager.shared.getCachedData(forKey: keys[0], type: String.self, config: config)
+        XCTAssertNotNil(read)
 
         // The extra entry pushes the directory over the 3 MB capacity
         let extraKey = "https://disk.test/lru-extra"
         await HCache.Manager.shared.storeData(entryData, forKey: extraKey, config: config, response: nil)
         await HCache.Manager.shared.waitForPendingDiskOperations()
 
-        let extraURL = cacheDir.appendingPathComponent(extraKey.sha256Hex).appendingPathExtension("cache")
+        XCTAssertTrue(fileExists(for: keys[0]), "A recently read entry should be kept (LRU, not FIFO)")
+        XCTAssertFalse(fileExists(for: keys[1]), "The least recently used entry should be evicted")
+        XCTAssertTrue(fileExists(for: keys[2]), "More recent entries should be kept")
+        XCTAssertTrue(fileExists(for: extraKey), "The entry that triggered the eviction should never be evicted itself")
+    }
 
-        XCTAssertFalse(FileManager.default.fileExists(atPath: fileURLs[0].path), "Oldest entry should be evicted to fit the disk capacity")
-        XCTAssertTrue(FileManager.default.fileExists(atPath: fileURLs[1].path), "Middle entry should be kept")
-        XCTAssertTrue(FileManager.default.fileExists(atPath: fileURLs[2].path), "Newest entry should be kept")
-        XCTAssertTrue(FileManager.default.fileExists(atPath: extraURL.path), "The entry that triggered the eviction should never be evicted itself")
+    func testDiskCapacityIsEnforcedAcrossManyWrites() async throws {
+        // Given a 1 MB capacity and 300 KB entries
+        let config = HCache.Configuration(diskCacheCapacityInMBs: 1)
+        let entryData = Data(count: 300 * 1024)
+
+        // When many entries are written
+        for index in 0 ..< 10 {
+            await HCache.Manager.shared.storeData(entryData, forKey: "https://disk.test/capacity-\(index)", config: config, response: nil)
+        }
+        await HCache.Manager.shared.waitForPendingDiskOperations()
+
+        // Then the directory never exceeds the capacity and the index matches the files on disk
+        let files = try FileManager.default.contentsOfDirectory(at: HCache.Manager.shared.cacheDirectory, includingPropertiesForKeys: [.fileSizeKey])
+        let total = try files.reduce(0) { $0 + (try $1.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0) }
+        XCTAssertLessThanOrEqual(total, config.diskCacheCapacityInBytes)
+        XCTAssertEqual(files.count, 3)
+        XCTAssertEqual(HCache.Manager.shared.diskIndexTotalSize, total)
+        XCTAssertTrue(fileExists(for: "https://disk.test/capacity-9"), "The newest entry should be kept")
+        XCTAssertFalse(fileExists(for: "https://disk.test/capacity-0"), "The oldest entry should be evicted")
+    }
+
+    // MARK: - Format Tests
+
+    func testOldVersionFileIsDiscardedOnRead() async throws {
+        // Given a file in the previous (v1, JSON + base64) format
+        let key = "https://disk.test/old-version"
+        let fileURL = fileURL(for: key)
+        let legacyEntry = TestDiskEntry(data: try JSONEncoder().encode("old"), timestamp: Date(), expirationTime: .oneHour)
+        try JSONEncoder().encode(legacyEntry).write(to: fileURL)
+
+        // When it is read
+        let cached: String? = await HCache.Manager.shared.getCachedData(forKey: key, type: String.self, config: HCache.Configuration())
+
+        // Then it is a miss and the file is deleted
+        XCTAssertNil(cached)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fileURL.path), "Files in an outdated format should be discarded")
+    }
+
+    func testFileWithAnotherMetadataVersionIsRejected() async throws {
+        var metadata = HCache.EntryMetadata(timestamp: Date(), expirationTime: .oneHour)
+        metadata.version = HCache.EntryMetadata.currentVersion + 1
+        let fileData = try HCache.DiskCodec.encode(metadata, body: Data("{}".utf8))
+
+        XCTAssertNil(HCache.DiskCodec.decode(fileData))
+    }
+
+    func testStartupCleanupDiscardsOutdatedAndExpiredFilesOnly() async throws {
+        // Given an outdated file, an expired entry without validators, an expired entry with
+        // a validator and a fresh entry
+        let outdatedKey = "https://disk.test/startup-outdated"
+        try JSONEncoder().encode(TestDiskEntry(data: Data(), timestamp: Date(), expirationTime: nil)).write(to: fileURL(for: outdatedKey))
+
+        let expiredKey = "https://disk.test/startup-expired"
+        let expired = HCache.EntryMetadata(timestamp: Date().addingTimeInterval(-120), expirationTime: 60)
+        try HCache.DiskCodec.encode(expired, body: Data()).write(to: fileURL(for: expiredKey))
+
+        let revalidatableKey = "https://disk.test/startup-revalidatable"
+        var revalidatable = expired
+        revalidatable.etag = "\"v1\""
+        try HCache.DiskCodec.encode(revalidatable, body: Data()).write(to: fileURL(for: revalidatableKey))
+
+        let freshKey = "https://disk.test/startup-fresh"
+        try HCache.DiskCodec.encode(HCache.EntryMetadata(timestamp: Date(), expirationTime: 60), body: Data()).write(to: fileURL(for: freshKey))
+
+        // When the startup cleanup runs
+        await HCache.Manager.shared.runStartupCleanup()
+
+        // Then
+        XCTAssertFalse(fileExists(for: outdatedKey))
+        XCTAssertFalse(fileExists(for: expiredKey))
+        XCTAssertTrue(fileExists(for: revalidatableKey), "Expired entries with validators can still be revalidated")
+        XCTAssertTrue(fileExists(for: freshKey))
+    }
+
+    func testValidatorsAreReadFromTheMetadataHeaderOnly() async throws {
+        // Given an entry file whose body is truncated garbage but whose header is intact
+        let key = "https://disk.test/header-only"
+        var metadata = HCache.EntryMetadata(timestamp: Date(), expirationTime: .oneHour)
+        metadata.etag = "\"header-etag\""
+        var fileData = try HCache.DiskCodec.encode(metadata, body: Data())
+        fileData.append(Data(repeating: 0xFF, count: 16))
+        try fileData.write(to: fileURL(for: key))
+
+        // When only the validators are requested, the header alone answers
+        let etag = await HCache.Manager.shared.getETag(forKey: key)
+        let validators = await HCache.Manager.shared.getValidators(forKey: key)
+
+        XCTAssertEqual(etag, "\"header-etag\"")
+        XCTAssertEqual(validators.etag, "\"header-etag\"")
     }
 
     // MARK: - Concurrent Access Tests
@@ -253,6 +332,17 @@ final class HarborDiskCacheTests: XCTestCase {
 }
 
 // MARK: - Helpers
+
+private extension HarborDiskCacheTests {
+    func fileURL(for key: String) -> URL {
+        HCache.Manager.shared.cacheDirectory.appendingPathComponent(key.sha256Hex).appendingPathExtension("cache")
+    }
+
+    func fileExists(for key: String) -> Bool {
+        FileManager.default.fileExists(atPath: fileURL(for: key).path)
+    }
+
+}
 
 // Mirror of internal DiskEntry for testing
 

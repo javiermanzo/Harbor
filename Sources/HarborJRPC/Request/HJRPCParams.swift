@@ -23,23 +23,23 @@ public enum HJRPCParams: Sendable {
 extension HJRPCParams {
     /// The parameters encoded as an `HJSONValue`.
     ///
-    /// Each value is encoded with `JSONEncoder` and converted to `HJSONValue`.
-    /// A value that fails to encode is represented as `.null` in its slot.
-    var jsonValue: HJSONValue {
+    /// Each value is encoded with `JSONEncoder` and decoded back as an `HJSONValue`, so
+    /// integers keep their exact digits (including `UInt64` values above `Int.max`) on iOS 18 /
+    /// macOS 15 and later. On earlier OS versions the system `JSONDecoder` decodes such
+    /// integers through `Double`, so they may be rounded (see `HJSONValue.decimal`).
+    /// - Throws: The `EncodingError` raised for a value JSON cannot represent (e.g. `Double.nan`
+    ///   or `Double.infinity`), instead of silently sending `null` in its slot.
+    func jsonValue() throws -> HJSONValue {
         switch self {
         case .named(let parameters):
-            return .object(parameters.mapValues { HJRPCParams.encodeToJSONValue($0) })
+            return .object(try parameters.mapValues { try HJRPCParams.encodeToJSONValue($0) })
         case .positioned(let parameters):
-            return .array(parameters.map { HJRPCParams.encodeToJSONValue($0) })
+            return .array(try parameters.map { try HJRPCParams.encodeToJSONValue($0) })
         }
     }
 
-    private static func encodeToJSONValue(_ value: any Encodable & Sendable) -> HJSONValue {
-        guard let data = try? JSONEncoder().encode(value),
-              let object = try? JSONSerialization.jsonObject(with: data, options: [.allowFragments]),
-              let jsonValue = HJSONValue(anyValue: object) else {
-            return .null
-        }
-        return jsonValue
+    private static func encodeToJSONValue(_ value: any Encodable & Sendable) throws -> HJSONValue {
+        let data = try JSONEncoder().encode(value)
+        return try JSONDecoder().decode(HJSONValue.self, from: data)
     }
 }

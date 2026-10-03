@@ -36,8 +36,10 @@ public enum HJRPCRequestError: Error, Sendable {
     case malformedRequest(reason: String? = nil)
     /// Request timed out.
     case timeout
-    /// Cannot find the specified host.
+    /// The host name could not be resolved.
     case cannotFindHost
+    /// The host was resolved but a connection to it could not be established.
+    case cannotConnectToHost
     /// SSL/TLS certificate validation failed.
     case certificate
     /// Request was cancelled.
@@ -46,11 +48,13 @@ public enum HJRPCRequestError: Error, Sendable {
     case noCachedDataFound
     /// A network error that does not map to a more specific case. Wraps the original `URLError`.
     case networkFailure(URLError)
+    /// An unexpected error that is not a `URLError`. Wraps the original error.
+    case unknown(Error)
 }
 
 extension HJRPCRequestError {
     /// Maps an `HRequestError` to an `HJRPCRequestError`.
-    /// - Parameter hRequestError: The hRequestError.
+    /// - Parameter hRequestError: The transport error reported by Harbor for the underlying HTTP request.
     static func getError(hRequestError: HRequestError) -> HJRPCRequestError {
         switch hRequestError {
         case .api(let statusCode, let data):
@@ -73,6 +77,8 @@ extension HJRPCRequestError {
             return .timeout
         case .cannotFindHost:
             return .cannotFindHost
+        case .cannotConnectToHost:
+            return .cannotConnectToHost
         case .cancelled:
             return .cancelled
         case .certificate:
@@ -81,6 +87,8 @@ extension HJRPCRequestError {
             return .noCachedDataFound
         case .networkFailure(let error):
             return .networkFailure(error)
+        case .unknown(let error):
+            return .unknown(error)
         }
     }
 }
@@ -120,6 +128,8 @@ extension HJRPCRequestError: LocalizedError {
             return "The request timed out."
         case .cannotFindHost:
             return "Cannot find the specified host."
+        case .cannotConnectToHost:
+            return "Cannot connect to the specified host."
         case .certificate:
             return "The SSL/TLS certificate validation failed."
         case .cancelled:
@@ -128,6 +138,8 @@ extension HJRPCRequestError: LocalizedError {
             return "No cached data found for a cache-only request."
         case .networkFailure(let error):
             return "Network request failed (\(error.code.rawValue)): \(error.localizedDescription)"
+        case .unknown(let error):
+            return "Unexpected error: \(String(describing: error))"
         }
     }
 }

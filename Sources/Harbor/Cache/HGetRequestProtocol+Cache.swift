@@ -10,9 +10,22 @@ import Foundation
 public extension HGetRequestProtocol {
 
     /// Retrieves cached data for this request using the associated Model type.
-    /// Works with both custom cache and URLCache types.
+    /// Works with both custom cache and URLCache types, and decodes the cached body with
+    /// `parseData(data:model:)` like the network flow does.
+    ///
+    /// For `.custom`, only entries that are still fresh (or within their
+    /// `stale-while-revalidate` window) are returned. For `.urlCache`, the stored 2xx response
+    /// is returned unless its headers mark it as explicitly stale (see
+    /// `HCache.Manager.isFresh(urlCacheResponse:now:)`): `Cache-Control: no-cache` /
+    /// `no-store`, an elapsed explicit lifetime (`max-age`, `s-maxage`, `Expires`) or an
+    /// elapsed `Last-Modified` heuristic. A response without freshness information is served
+    /// as stored. The check is skipped when the cache policy explicitly prefers cached data
+    /// (`.returnCacheDataElseLoad`, `.returnCacheDataDontLoad`).
+    ///
+    /// For requests that need auth, entries are namespaced by the credential they were
+    /// stored with: an entry stored for one credential is never returned for another.
     /// - Parameter authHeader: The authorization header sent with the request, so
-    ///   `Vary: Authorization` entries are keyed by the credential they were stored with.
+    ///   credential-keyed entries are looked up under the credential they were stored with.
     ///   When nil and the request needs auth, the header is resolved from the configured
     ///   auth provider.
     /// - Returns: The cached model if found and valid, `nil` otherwise.
@@ -21,16 +34,20 @@ public extension HGetRequestProtocol {
 
         switch effectiveCacheType {
         case .custom(let config):
-            guard let cacheKey = await cacheKey() else { return nil }
-            return await HCache.Manager.shared.getCachedData(forKey: cacheKey, type: Model.self, config: config, requestHeaders: await effectiveRequestHeaders(authHeader: authHeader))
+            guard let lookup = await cacheLookup(authHeader: authHeader) else { return nil }
+            return await HCache.Manager.shared.getCachedData(forKey: lookup.key, config: config, requestHeaders: lookup.requestHeaders, decode: cacheDecoder())
 
-        case .urlCache(let urlCache, _):
-            guard let urlRequest = await urlRequest() else { return nil }
+        case .urlCache(let urlCache, let requestPolicy):
+            guard let urlRequest = await urlRequest(),
+                  let cached = urlCache.cachedResponse(for: urlRequest),
+                  let httpResponse = cached.response as? HTTPURLResponse,
+                  (200 ... 299).contains(httpResponse.statusCode) else { return nil }
 
-            if let cached = urlCache.cachedResponse(for: urlRequest) {
-                return try? JSONDecoder().decode(Model.self, from: cached.data)
+            let prefersCachedData = requestPolicy == .returnCacheDataElseLoad || requestPolicy == .returnCacheDataDontLoad
+            if !prefersCachedData {
+                guard await HCache.Manager.isFresh(urlCacheResponse: httpResponse) else { return nil }
             }
-            return nil
+            return decodeURLCacheBody(cached.data, in: urlCache, for: urlRequest)
 
         case .disabled:
             return nil
@@ -42,24 +59,24 @@ public extension HGetRequestProtocol {
     /// - Parameters:
     ///   - data: The response data to cache.
     ///   - response: The HTTP response containing cache headers (optional).
-    ///   - authHeader: The authorization header sent with the request, so
-    ///     `Vary: Authorization` entries are keyed by the credential they were stored with.
-    ///     When nil and the request needs auth, the header is resolved from the configured
-    ///     auth provider.
+    ///   - authHeader: The authorization header sent with the request, so the entry is
+    ///     stored under that credential. When nil and the request needs auth, the header is
+    ///     resolved from the configured auth provider.
     func saveCache(_ data: Data, response: HTTPURLResponse?, authHeader: HAuthorizationHeader? = nil) async {
         if case .custom(let config) = await effectiveCacheType(),
-           let cacheKey = await cacheKey() {
-            await HCache.Manager.shared.storeData(data, forKey: cacheKey, config: config, response: response, requestHeaders: await effectiveRequestHeaders(authHeader: authHeader))
+           let lookup = await cacheLookup(authHeader: authHeader) {
+            await HCache.Manager.shared.storeData(data, forKey: lookup.key, config: config, response: response, requestHeaders: lookup.requestHeaders)
         }
     }
 
     /// Returns the stored ETag for this request, if available.
-    /// Works with both custom cache and URLCache types.
+    /// Works with both custom cache and URLCache types. For requests that need auth, the
+    /// credential is resolved from the configured auth provider.
     func cachedETag() async -> String? {
         switch await effectiveCacheType() {
         case .custom:
-            guard let key = await cacheKey() else { return nil }
-            return await HCache.Manager.shared.getETag(forKey: key)
+            guard let lookup = await cacheLookup(authHeader: nil) else { return nil }
+            return await HCache.Manager.shared.getETag(forKey: lookup.key)
 
         case .urlCache(let urlCache, _):
             guard let urlRequest = await urlRequest(),
@@ -73,10 +90,10 @@ public extension HGetRequestProtocol {
     }
 
     /// Clears cached data for this specific request.
-    /// Works with both URLCache and custom cache types.
+    /// Works with both URLCache and custom cache types. For requests that need auth, the
+    /// entry of the credential currently issued by the auth provider is removed, together
+    /// with any entry stored without credentials.
     func clearCache() async {
-        guard let cacheKey = await cacheKey() else { return }
-
         switch await effectiveCacheType() {
         case .urlCache(let urlCache, _):
             // Remove from URLCache
@@ -85,7 +102,11 @@ public extension HGetRequestProtocol {
 
         case .custom:
             // Remove from custom cache
-            await HCache.Manager.shared.removeCachedData(for: cacheKey)
+            guard let url = compositeURL() else { return }
+            await HCache.Manager.shared.removeCachedData(for: HCache.Manager.cacheKey(for: url, authHeader: nil))
+            if needsAuth, let lookup = await cacheLookup(authHeader: nil) {
+                await HCache.Manager.shared.removeCachedData(for: lookup.key)
+            }
 
         case .disabled:
             break
@@ -94,19 +115,26 @@ public extension HGetRequestProtocol {
 
     /// Returns the cached body to satisfy a `304 Not Modified` response and refreshes the
     /// stored entry (timestamp, expiration and validators) from the revalidation headers.
-    /// - Parameter authHeader: The authorization header sent with the request (see `cache(authHeader:)`).
+    /// When `parseData(data:model:)` cannot decode the cached body, `nil` is returned (the
+    /// entry is kept, as another request type may share the URL), so the caller can fetch the
+    /// full representation.
+    /// - Parameters:
+    ///   - response: The 304 response whose headers refresh the stored entry (new validators,
+    ///     `Cache-Control`, `Expires`). Headers it omits keep the stored values.
+    ///   - authHeader: The authorization header sent with the request (see `cache(authHeader:)`).
+    /// - Returns: The cached model, or `nil` when no revalidatable entry exists or it cannot be decoded.
     func revalidatedCache(response: HTTPURLResponse?, authHeader: HAuthorizationHeader? = nil) async -> Model? {
         switch await effectiveCacheType() {
         case .custom(let config):
-            guard let cacheKey = await cacheKey(),
-                  let model = await HCache.Manager.shared.getRevalidatableCachedData(forKey: cacheKey, type: Model.self, requestHeaders: await effectiveRequestHeaders(authHeader: authHeader)) else { return nil }
-            await HCache.Manager.shared.refreshEntry(forKey: cacheKey, response: response, config: config)
+            guard let lookup = await cacheLookup(authHeader: authHeader),
+                  let model = await HCache.Manager.shared.getRevalidatableCachedData(forKey: lookup.key, requestHeaders: lookup.requestHeaders, decode: cacheDecoder()) else { return nil }
+            await HCache.Manager.shared.refreshEntry(forKey: lookup.key, response: response, config: config)
             return model
 
         case .urlCache(let urlCache, _):
             guard let urlRequest = await urlRequest(),
                   let cached = urlCache.cachedResponse(for: urlRequest) else { return nil }
-            return try? JSONDecoder().decode(Model.self, from: cached.data)
+            return decodeURLCacheBody(cached.data, in: urlCache, for: urlRequest)
 
         case .disabled:
             return nil
@@ -118,19 +146,51 @@ public extension HGetRequestProtocol {
     /// - Parameter authHeader: The authorization header sent with the request (see `cache(authHeader:)`).
     func staleCacheOnError(authHeader: HAuthorizationHeader? = nil) async -> Model? {
         guard case .custom = await effectiveCacheType(),
-              let cacheKey = await cacheKey() else { return nil }
-        return await HCache.Manager.shared.getStaleOnErrorData(forKey: cacheKey, type: Model.self, requestHeaders: await effectiveRequestHeaders(authHeader: authHeader))
+              let lookup = await cacheLookup(authHeader: authHeader) else { return nil }
+        return await HCache.Manager.shared.getStaleOnErrorData(forKey: lookup.key, requestHeaders: lookup.requestHeaders, decode: cacheDecoder())
     }
 }
 
 extension HGetRequestProtocol {
-    /// Returns an expired cached body while its `stale-if-error` window still allows serving it,
-    /// keyed only by the headers already present on the request: the auth provider is not
-    /// consulted. Only works with custom cache type.
-    func staleCacheOnErrorSkippingAuthResolution() async -> Model? {
-        guard case .custom = await effectiveCacheType(),
-              let cacheKey = await cacheKey() else { return nil }
-        return await HCache.Manager.shared.getStaleOnErrorData(forKey: cacheKey, type: Model.self, requestHeaders: await effectiveRequestHeaders(authHeader: nil, resolvingAuthHeader: false))
+    /// Returns a cached body that can stand in for the network while offline:
+    /// - `.custom`: a still-fresh entry or, failing that, an expired one whose
+    ///   `stale-if-error` window still allows serving it. The stale lookup runs first because
+    ///   the fresh lookup evicts expired entries without validators, which would delete a
+    ///   stale-servable entry before it could be returned; the two lookups never overlap.
+    /// - `.urlCache`: the stored 2xx response, unless the request's cache policy ignores
+    ///   local data (`.reloadIgnoringLocalCacheData`, `.reloadIgnoringLocalAndRemoteCacheData`).
+    /// - `.disabled`: nothing.
+    /// - Parameters:
+    ///   - authHeader: The authorization header sent with the request (see `cache(authHeader:)`).
+    ///   - resolvingAuthHeader: Whether a missing header is resolved from the auth provider.
+    func offlineCache(authHeader: HAuthorizationHeader?, resolvingAuthHeader: Bool) async -> Model? {
+        switch await effectiveCacheType() {
+        case .custom(let config):
+            guard let lookup = await cacheLookup(authHeader: authHeader, resolvingAuthHeader: resolvingAuthHeader) else { return nil }
+            if let stale = await HCache.Manager.shared.getStaleOnErrorData(forKey: lookup.key, requestHeaders: lookup.requestHeaders, decode: cacheDecoder()) {
+                return stale
+            }
+            return await HCache.Manager.shared.getCachedData(forKey: lookup.key, config: config, requestHeaders: lookup.requestHeaders, decode: cacheDecoder())
+
+        case .urlCache(let urlCache, let requestPolicy):
+            guard requestPolicy != .reloadIgnoringLocalCacheData,
+                  requestPolicy != .reloadIgnoringLocalAndRemoteCacheData,
+                  let urlRequest = await urlRequest(),
+                  let cached = urlCache.cachedResponse(for: urlRequest),
+                  let httpResponse = cached.response as? HTTPURLResponse,
+                  (200 ... 299).contains(httpResponse.statusCode) else { return nil }
+            return decodeURLCacheBody(cached.data, in: urlCache, for: urlRequest)
+
+        case .disabled:
+            return nil
+        }
+    }
+
+    /// The plain (credential-less) cache key of this request: its composite URL. Used by
+    /// `HRequestManager` to remember the credential an authenticated request succeeded with.
+    /// - Returns: The key, or nil if the URL cannot be built.
+    func cacheNamespaceKey() -> String? {
+        compositeURL().map { HCache.Manager.cacheKey(for: $0, authHeader: nil) }
     }
 }
 
@@ -139,7 +199,7 @@ private extension HGetRequestProtocol {
     /// Resolves the effective cache type for this request.
     /// Uses the request-specific cache type if set, otherwise falls back to the global default.
     /// - Returns: The effective `HCache.CacheType` to use for this request.
-    func effectiveCacheType() async ->  HCache.CacheType {
+    func effectiveCacheType() async -> HCache.CacheType {
         if let requestCacheType = self.cacheType {
            return requestCacheType
         } else {
@@ -153,45 +213,70 @@ private extension HGetRequestProtocol {
         try? await HURLBuilder.buildUrlRequest(request: self)
     }
 
-    /// Resolves the headers that will effectively be sent with this request: the global default
-    /// headers merged with the request-specific ones and the authorization header. Used to
-    /// evaluate `Vary` consistently with what is actually sent on the wire. When `authHeader`
-    /// is nil and the request needs auth, the header is resolved from the configured auth
-    /// provider so the vary-key matches the one the network flow stores; without a provider
-    /// the lookup proceeds without a header. Pass `resolvingAuthHeader: false` to skip the
-    /// provider entirely. The credential is only used for vary-key computation; it is never
-    /// logged.
-    /// - Parameter authHeader: The authHeader.
-    /// - Parameter resolvingAuthHeader: The resolvingAuthHeader.
-    func effectiveRequestHeaders(authHeader: HAuthorizationHeader?, resolvingAuthHeader: Bool = true) async -> [String: String]? {
+    /// Decodes cached bodies exactly like the network flow: through `parseData(data:model:)`.
+    func cacheDecoder() -> @Sendable (Data) throws -> Model {
+        return { data in try self.parseData(data: data, model: Model.self) }
+    }
+
+    /// Decodes a `URLCache` body with `parseData(data:model:)`, removing the stored response
+    /// when it cannot be decoded anymore.
+    func decodeURLCacheBody(_ data: Data, in urlCache: URLCache, for urlRequest: URLRequest) -> Model? {
+        do {
+            return try parseData(data: data, model: Model.self)
+        } catch {
+            urlCache.removeCachedResponse(for: urlRequest)
+            return nil
+        }
+    }
+
+    /// Resolves the custom-cache key and the headers that will effectively be sent with this
+    /// request: the global default headers merged with the request-specific ones and the
+    /// authorization header. The headers evaluate `Vary` consistently with what is actually
+    /// sent on the wire.
+    ///
+    /// When `authHeader` is nil and the request needs auth, the header is resolved from the
+    /// configured auth provider (once) so the key matches the one the network flow uses;
+    /// without a provider the lookup proceeds without a header. Pass
+    /// `resolvingAuthHeader: false` to skip the provider entirely. For requests that need
+    /// auth, the key is namespaced by a SHA-256 digest of the credential (see
+    /// `HCache.Manager.cacheKey(for:authHeader:)`). The credential is never logged nor stored.
+    /// - Parameters:
+    ///   - authHeader: The authorization header sent with the request, or `nil` to resolve it.
+    ///   - resolvingAuthHeader: Whether a `nil` header is resolved from the auth provider.
+    /// - Returns: The cache key and request headers, or nil if the URL cannot be built.
+    func cacheLookup(authHeader: HAuthorizationHeader?, resolvingAuthHeader: Bool = true) async -> (key: String, requestHeaders: [String: String]?)? {
+        guard let url = compositeURL() else { return nil }
+
+        let resolvedAuthHeader = await resolveAuthHeader(authHeader, enabled: resolvingAuthHeader)
+
         var headers = await HConfig.shared.defaultHeaderParameters ?? [:]
         if let own = headerParameters {
             headers.merge(own) { _, new in new }
         }
-        if let authHeader = await resolveAuthHeader(authHeader, enabled: resolvingAuthHeader) {
-            headers[authHeader.key] = authHeader.value
+        if let resolvedAuthHeader {
+            headers[resolvedAuthHeader.key] = resolvedAuthHeader.value
         }
-        return headers.isEmpty ? nil : headers
+
+        let key = HCache.Manager.cacheKey(for: url, authHeader: needsAuth ? resolvedAuthHeader : nil)
+        return (key, headers.isEmpty ? nil : headers)
     }
 
     /// Returns the given authorization header, or resolves it from the configured auth
     /// provider when the request needs auth and resolution is enabled. Never fails: without
     /// a provider the cache path proceeds without a header.
-    /// - Parameter authHeader: The authHeader.
-    /// - Parameter enabled: The enabled.
+    /// - Parameters:
+    ///   - authHeader: The already known authorization header, returned as-is when non-nil.
+    ///   - enabled: Whether the auth provider may be consulted for a `nil` header.
+    /// - Returns: The header to key the cache lookup with, or `nil` for none.
     func resolveAuthHeader(_ authHeader: HAuthorizationHeader?, enabled: Bool = true) async -> HAuthorizationHeader? {
         if let authHeader { return authHeader }
         guard enabled, needsAuth else { return nil }
         return await HConfig.shared.authProvider?.getAuthorizationHeader()
     }
 
-    /// Generates a cache key for this request based on the complete URL.
-    /// - Returns: The cache key string, or nil if the URL cannot be built.
-    func cacheKey() async -> String? {
-        let compositeURL: URL? = try? HURLBuilder.compositeURL(url: url,
-                                                          pathParameters: pathParameters,
-                                                          queryParameters: queryParameters)
-
-        return compositeURL?.absoluteString
+    /// The complete request URL (path and query parameters applied), the base of the cache key.
+    /// - Returns: The URL, or nil if it cannot be built.
+    func compositeURL() -> URL? {
+        try? HURLBuilder.compositeURL(url: url, pathParameters: pathParameters, queryParameters: queryParameters)
     }
 }

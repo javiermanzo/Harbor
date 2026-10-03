@@ -68,7 +68,7 @@ final class HRequestManagerMonitor: HRequestManagerMonitorProtocol {
     }
 
     /// Network connectivity check using NWPathMonitor.
-    /// - Returns: `true` if connected to network or fallback allowed, `false` otherwise.
+    /// - Returns: `false` only when the path is `.unsatisfied` (and no debug fallback applies), `true` otherwise.
     func isConnectedToNetwork() -> Bool {
         start()
 
@@ -93,7 +93,10 @@ final class HRequestManagerMonitor: HRequestManagerMonitorProtocol {
     static func shouldAllowRequest(hasReceivedInitialUpdate: Bool, pathStatus: NWPath.Status, allowsDebugFallback: Bool) -> Bool {
         guard hasReceivedInitialUpdate else { return true }
 
-        if pathStatus == .satisfied {
+        // Only a definitive `.unsatisfied` blocks: `.requiresConnection` means a connection
+        // can be brought up on demand (e.g. VPN on demand, cellular waking up), which the
+        // request itself triggers.
+        if pathStatus != .unsatisfied {
             return true
         }
 

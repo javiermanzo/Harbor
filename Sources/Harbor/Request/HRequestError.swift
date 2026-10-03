@@ -14,7 +14,8 @@ public enum HRequestError: Error, Sendable {
     case api(statusCode: Int, data: Data)
     /// Invalid HTTP response received.
     case invalidHttpResponse
-    /// The request is invalid or malformed.
+    /// Not produced by Harbor's REST pipeline (kept for source compatibility and for
+    /// `HJRPCRequestError` mapping); see `.malformedRequest(reason:)`.
     case invalidRequest
     /// Authentication provider is required but not set.
     case authProviderNeeded
@@ -28,16 +29,21 @@ public enum HRequestError: Error, Sendable {
     case malformedRequest(reason: String? = nil)
     /// Request timed out.
     case timeout
-    /// Cannot find the specified host or connection failed.
+    /// The host name could not be resolved.
     case cannotFindHost
+    /// The host was resolved but a connection to it could not be established.
+    case cannotConnectToHost
     /// Request was cancelled.
     case cancelled
-    /// SSL/TLS certificate validation failed.
+    /// The TLS handshake failed: SSL pinning rejected the server, its certificate chain is
+    /// invalid, or the client certificate was missing or rejected.
     case certificate
     /// No cached data found for cache-only request.
     case noCachedDataFound
     /// A network error that does not map to a more specific case. Wraps the original `URLError`.
     case networkFailure(URLError)
+    /// An unexpected error that is not a `URLError`. Wraps the original error.
+    case unknown(Error)
 }
 
 // MARK: - URLError Mapping
@@ -46,16 +52,29 @@ extension HRequestError {
     private static let bodyPreviewLimit = 500
 
     /// Maps a raw `URLError` to a strongly typed `HRequestError`.
-    /// - Parameter error: The error.
+    ///
+    /// Only certificate-specific codes map to `.certificate` (an untrusted, expired, not yet
+    /// valid or unknown-root server certificate; a missing or rejected client certificate).
+    /// `.secureConnectionFailed` is a generic TLS failure (a dropped handshake, a protocol
+    /// mismatch, a middlebox reset) and is reported as `.networkFailure`, so it can be retried
+    /// like a lost connection.
+    /// - Parameter error: The `URLError` thrown by `URLSession`.
     static func mapURLError(_ error: URLError) -> HRequestError {
         switch error.code {
         case .cancelled:
             return .cancelled
         case .badURL:
             return .malformedRequest(reason: "Invalid URL: \(error.localizedDescription)")
-        case .cannotConnectToHost, .cannotFindHost, .dnsLookupFailed:
+        case .cannotFindHost, .dnsLookupFailed:
             return .cannotFindHost
-        case .serverCertificateUntrusted:
+        case .cannotConnectToHost:
+            return .cannotConnectToHost
+        case .serverCertificateHasBadDate,
+             .serverCertificateUntrusted,
+             .serverCertificateHasUnknownRoot,
+             .serverCertificateNotYetValid,
+             .clientCertificateRejected,
+             .clientCertificateRequired:
             return .certificate
         case .timedOut:
             return .timeout
@@ -76,11 +95,10 @@ extension HRequestError: LocalizedError {
         case .api(let statusCode, let data):
             var description = "API error with status code: \(statusCode)"
             guard !data.isEmpty else { return description }
-            if let body = String(data: data, encoding: .utf8) {
-                description += ", body: \(body.prefix(Self.bodyPreviewLimit))"
-            } else {
-                description += ", body: \(data.count) bytes of non-UTF-8 data"
-            }
+            // Same redaction policy as debug logs: sensitive JSON fields (e.g. `access_token`)
+            // and form fields are redacted before the preview is cut, and a JSON-like body
+            // that cannot be parsed is omitted rather than printed raw.
+            description += ", body: \(HRedactionPolicy.current.bodyPreview(data, limit: Self.bodyPreviewLimit))"
             return description
         case .invalidHttpResponse:
             return "Invalid HTTP response received"
@@ -99,7 +117,9 @@ extension HRequestError: LocalizedError {
         case .timeout:
             return "Request timed out"
         case .cannotFindHost:
-            return "Cannot find host or connection failed"
+            return "Cannot find host"
+        case .cannotConnectToHost:
+            return "Cannot connect to host"
         case .cancelled:
             return "Request was cancelled"
         case .certificate:
@@ -108,6 +128,53 @@ extension HRequestError: LocalizedError {
             return "No cached data found"
         case .networkFailure(let error):
             return "Network request failed (\(error.code.rawValue)): \(error.localizedDescription)"
+        case .unknown(let error):
+            return "Unexpected error: \(String(describing: error))"
         }
+    }
+}
+
+// MARK: - Equatable
+extension HRequestError: Equatable {
+    /// Two errors are equal when they are the same case with equal payloads. Wrapped errors
+    /// that are not `Equatable` (`codable`, `unknown`) are compared by their type, bridged
+    /// domain and code, and description; `networkFailure` compares the `URLError` codes.
+    public static func == (lhs: HRequestError, rhs: HRequestError) -> Bool {
+        switch (lhs, rhs) {
+        case let (.api(lhsStatus, lhsData), .api(rhsStatus, rhsData)):
+            return lhsStatus == rhsStatus && lhsData == rhsData
+        case (.invalidHttpResponse, .invalidHttpResponse),
+             (.invalidRequest, .invalidRequest),
+             (.authProviderNeeded, .authProviderNeeded),
+             (.authNeeded, .authNeeded),
+             (.noConnection, .noConnection),
+             (.timeout, .timeout),
+             (.cannotFindHost, .cannotFindHost),
+             (.cannotConnectToHost, .cannotConnectToHost),
+             (.cancelled, .cancelled),
+             (.certificate, .certificate),
+             (.noCachedDataFound, .noCachedDataFound):
+            return true
+        case let (.codable(lhsModel, lhsError), .codable(rhsModel, rhsError)):
+            return lhsModel == rhsModel && isSameError(lhsError, rhsError)
+        case let (.malformedRequest(lhsReason), .malformedRequest(rhsReason)):
+            return lhsReason == rhsReason
+        case let (.networkFailure(lhsError), .networkFailure(rhsError)):
+            return lhsError.code == rhsError.code
+        case let (.unknown(lhsError), .unknown(rhsError)):
+            return isSameError(lhsError, rhsError)
+        default:
+            return false
+        }
+    }
+
+    /// Compares two arbitrary errors by dynamic type, bridged `NSError` domain and code, and description.
+    private static func isSameError(_ lhs: Error, _ rhs: Error) -> Bool {
+        let lhsNSError = lhs as NSError
+        let rhsNSError = rhs as NSError
+        return ObjectIdentifier(type(of: lhs)) == ObjectIdentifier(type(of: rhs))
+            && lhsNSError.domain == rhsNSError.domain
+            && lhsNSError.code == rhsNSError.code
+            && String(describing: lhs) == String(describing: rhs)
     }
 }

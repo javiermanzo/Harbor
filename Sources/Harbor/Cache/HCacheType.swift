@@ -22,7 +22,7 @@ public extension HCache {
         /// No caching - always fetch fresh data from network.
         case disabled
 
-        /// Whether caching is enabled for this type.
+        /// Whether caching is enabled for this type. Used by tests.
         var isCachingEnabled: Bool {
             switch self {
             case .urlCache, .custom:
@@ -34,6 +34,7 @@ public extension HCache {
 
         // MARK: - Equatable
 
+        /// `.urlCache` cases compare the cache by identity and the policy by value.
         public static func == (lhs: CacheType, rhs: CacheType) -> Bool {
             switch (lhs, rhs) {
             case (.urlCache(let lCache, let lPolicy), .urlCache(let rCache, let rPolicy)):

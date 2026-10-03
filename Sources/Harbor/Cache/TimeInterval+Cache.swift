@@ -8,7 +8,7 @@
 import Foundation
 
 public extension TimeInterval {
-    /// No expiration time (uses default from cache manager).
+    /// Never expires on its own: entries only expire through response headers (max-age / Expires).
     static var noExpiration: TimeInterval? { nil }
 
     /// One minute cache expiration.

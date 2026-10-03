@@ -1,819 +1,328 @@
 # Harbor JSON-RPC Examples
 
-Complete guide to using Harbor's JSON-RPC 2.0 support.
-
-## Overview
-
-HarborJRPC is a separate module that provides JSON-RPC 2.0 support built on top of Harbor's REST functionality.
-
-**Location**: `Sources/HarborJRPC/`
-
-## Basic Setup
-
-### Configure JSON-RPC Endpoint
+`HarborJRPC` sends JSON-RPC 2.0 calls (single, notification, batch) through Harbor's pipeline: auth provider, retry policy, transport security, logging and custom session. Every call is an HTTP `POST`.
 
 ```swift
-// Set the JSON-RPC endpoint once at app startup
-await HarborJRPC.setURL(URL(string: "https://ethereum.publicnode.com")!)
-
-// Or from a string, which throws if the URL is invalid
-try await HarborJRPC.setURL("https://ethereum.publicnode.com")
-
-// Or configure URL and protocol version in a single call
-await HarborJRPC.configure(url: URL(string: "https://ethereum.publicnode.com")!, jrpcVersion: "2.0")
+import HarborJRPC
 ```
 
-Network-level settings (timeout, auth provider, mTLS, mocks, logging) are configured through `Harbor`'s API, the same way as for REST requests.
-
-### Simple JSON-RPC Request
+## Setup
 
 ```swift
-struct GetBlockNumberRequest: HJRPCRequestProtocol {
-    typealias Model = String
-    let method: String = "eth_blockNumber"
-}
+func configureRPC() async throws {
+    // URL overload: non-throwing
+    await HarborJRPC.configure(url: URL(string: "https://rpc.example.com")!, jrpcVersion: "2.0")
 
-// Execute
-let response = await GetBlockNumberRequest().requestResult()
-switch response {
-case .success(let blockNumber):
-    print("Block number: \(blockNumber)")
-case .error(let error):
-    print("Error: \(error.localizedDescription)")
+    // Or separately; the String overload throws HJRPCConfigurationError.invalidURL
+    try await HarborJRPC.setURL("https://rpc.example.com")
+    await HarborJRPC.setJRPCVersion("2.0")
+
+    // Network settings (timeouts, auth, pinning, mTLS, logging) come from Harbor
+    await Harbor.setDefaultTimeoutInterval(20)
 }
 ```
 
-Or with the throwing variant:
+For single calls (`request()` / `requestResult()`), the `jsonrpc` member of the response must equal the configured version, otherwise the call fails with `.invalidResponse`; notifications and batches don't check it. A request can target another endpoint without changing the global URL through `endpoint: URL?`.
 
-```swift
-do {
-    let blockNumber = try await GetBlockNumberRequest().request()
-    print("Block number: \(blockNumber)")
-} catch {
-    print("Error: \(error.localizedDescription)")
-}
-```
-
-## JSON-RPC Request Protocol
-
-### Protocol Definition
-
-```swift
-protocol HJRPCRequestProtocol: Sendable {
-    associatedtype Model: HModel  // Codable & Sendable
-
-    var method: String { get }
-    var needsAuth: Bool { get }              // default: false
-    var retries: Int? { get }                // default: nil
-    var headers: [String: String]? { get }   // default: nil
-    var parameters: HJRPCParams? { get }     // default: nil
-    var isNotification: Bool { get }         // default: false
-    var requestID: HJRPCId? { get }          // default: nil (UUID-based id is generated)
-
-    func requestResult() async -> HJRPCResponse<Model>
-    func request() async throws -> Model
-    func notify() async throws
-}
-```
-
-### Required Properties
-
-- `method`: The JSON-RPC method name
-
-### Optional Properties (with defaults)
-
-- `parameters`: Typed parameters, `.named([String: Encodable & Sendable])` (encoded as a JSON object) or `.positioned([Encodable & Sendable])` (encoded as a JSON array)
-- `requestID`: A custom `HJRPCId` (`.string`, `.number` or `.null`). When `nil`, a UUID-based string identifier is generated
-- `isNotification`: Notifications carry no `id` and the server does not respond to them
-- `needsAuth`, `retries`, `headers`: Same semantics as Harbor REST requests
-
-## Response Types
-
-### HJRPCResponse
-
-```swift
-enum HJRPCResponse<Model: Sendable> {
-    case success(Model)
-    case error(HJRPCRequestError)
-}
-```
-
-### HJRPCRequestError
-
-Server errors arrive as `HJRPCRequestError.jrpcError`, wrapping an `HJRPCError`:
-
-```swift
-struct HJRPCError {
-    let code: Int
-    let message: String
-    let data: HJSONValue?       // optional extra info returned by the server
-
-    var standardCode: HJRPCStandardCode?  // matching standard code, if any
-    var isStandard: Bool                  // code is defined by the JSON-RPC spec
-    var isServerError: Bool               // code is in -32099...-32000
-}
-```
-
-Other relevant cases include `.urlNeeded` (endpoint not configured), `.invalidResponse` (malformed JSON-RPC response), `.idMismatch` (response id does not match the request id) and the network-level cases mirrored from `HRequestError`. `HJRPCRequestError` conforms to `LocalizedError`.
-
-### Standard JSON-RPC Error Codes
-
-| Code | `HJRPCStandardCode` | Meaning |
-|------|---------|---------|
-| -32700 | `.parseError` | Invalid JSON |
-| -32600 | `.invalidRequest` | JSON-RPC structure invalid |
-| -32601 | `.methodNotFound` | Method doesn't exist |
-| -32602 | `.invalidParams` | Invalid method parameters |
-| -32603 | `.internalError` | Server internal error |
-
-## Ethereum JSON-RPC Examples
-
-### Get Block Number
-
-```swift
-struct GetBlockNumberRequest: HJRPCRequestProtocol {
-    typealias Model = String
-    let method: String = "eth_blockNumber"
-}
-
-// Usage
-let response = await GetBlockNumberRequest().requestResult()
-switch response {
-case .success(let blockNumber):
-    // blockNumber is a hex string like "0x1234567"
-    print("Current block: \(blockNumber)")
-case .error(let error):
-    print("Error: \(error.localizedDescription)")
-}
-```
-
-### Get Balance
+## The protocol
 
 ```swift
 struct GetBalanceRequest: HJRPCRequestProtocol {
-    typealias Model = String
-    let method: String = "eth_getBalance"
-    let parameters: HJRPCParams?
+    typealias Model = String                       // decoded from `result`
+    let method = "eth_getBalance"
+    let parameters: HJRPCParams?                   // .positioned([...]) or .named([...])
 
     init(address: String, block: String = "latest") {
-        self.parameters = .positioned([address, block])
+        parameters = .positioned([address, block])
     }
-}
-
-// Usage
-let response = await GetBalanceRequest(
-    address: "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb"
-).requestResult()
-
-switch response {
-case .success(let balance):
-    // balance is a hex string representing wei
-    print("Balance: \(balance)")
-case .error(let error):
-    print("Error: \(error.localizedDescription)")
 }
 ```
 
-### Get Transaction by Hash
+| Requirement | Default |
+|---|---|
+| `Model: HModel`, `method: String` | required |
+| `parameters: HJRPCParams?` | `nil` (no `params` member) |
+| `needsAuth: Bool` | `false` |
+| `retryPolicy: HRetryPolicy?` | `nil` |
+| `headers: [String: String]?` | `nil` |
+| `isNotification: Bool` | `false` |
+| `requestID: HJRPCId?` | `nil`: a UUID string id is generated |
+| `endpoint: URL?` | `nil`: the configured URL |
+
+Parameters accept any `Encodable & Sendable` value, including nested structs and big integers. Values JSON can't represent (`Double.nan`, `.infinity`) make the call fail with `.codable` instead of sending `null`.
+
+## Calling
 
 ```swift
-struct GetTransactionRequest: HJRPCRequestProtocol {
-    typealias Model = Transaction
-    let method: String = "eth_getTransactionByHash"
-    let parameters: HJRPCParams?
-
-    init(hash: String) {
-        self.parameters = .positioned([hash])
+func balance() async {
+    // Throwing form
+    do {
+        let wei = try await GetBalanceRequest(address: "0xabc").request()
+        print(wei)
+    } catch let error as HJRPCRequestError {
+        print(error.localizedDescription)
+    } catch {
+        print(error)
     }
+
+    // Non-throwing form
+    switch await GetBalanceRequest(address: "0xabc").requestResult() {
+    case .success(let wei):
+        print(wei)
+    case .error(let error):
+        print(error)
+    }
+}
+```
+
+## Ethereum examples
+
+```swift
+struct BlockNumberRequest: HJRPCRequestProtocol {
+    typealias Model = String
+    let method = "eth_blockNumber"
 }
 
 struct Transaction: Codable, Sendable {
     let hash: String
     let from: String
-    let to: String
+    let to: String?
     let value: String
-    let gas: String
-    let gasPrice: String
-    let nonce: String
-    let blockNumber: String?
-    let blockHash: String?
 }
 
-// Usage
-let response = await GetTransactionRequest(
-    hash: "0x1234567890abcdef..."
-).requestResult()
-
-switch response {
-case .success(let transaction):
-    print("From: \(transaction.from)")
-    print("To: \(transaction.to)")
-    print("Value: \(transaction.value)")
-case .error(let error):
-    print("Error: \(error.localizedDescription)")
-}
-```
-
-### Call Contract Method
-
-```swift
-struct CallContractRequest: HJRPCRequestProtocol {
-    typealias Model = String
-    let method: String = "eth_call"
+struct TransactionByHashRequest: HJRPCRequestProtocol {
+    typealias Model = Transaction?                 // `result: null` decodes as nil
+    let method = "eth_getTransactionByHash"
     let parameters: HJRPCParams?
 
-    init(to: String, data: String, block: String = "latest") {
-        self.parameters = .positioned([
-            ["to": to, "data": data],
-            block
-        ])
+    init(hash: String) {
+        parameters = .positioned([hash])
     }
 }
 
-// Usage - Call a contract's read-only method
-let response = await CallContractRequest(
-    to: "0x1234567890abcdef...",  // Contract address
-    data: "0x70a08231..."           // Encoded function call
-).requestResult()
-```
+struct CallParameters: Encodable, Sendable {
+    let to: String
+    let data: String
+}
 
-### Send Transaction
-
-```swift
-struct SendTransactionRequest: HJRPCRequestProtocol {
+struct EthCallRequest: HJRPCRequestProtocol {
     typealias Model = String
-    let method: String = "eth_sendRawTransaction"
+    let method = "eth_call"
     let parameters: HJRPCParams?
+    // eth_call is read-only: allow retries after timeouts / retryable statuses even though it is a POST
+    let retryPolicy: HRetryPolicy? = HRetryPolicy(maxRetries: 3, retryNonIdempotentRequests: true)
+
+    init(to: String, data: String) {
+        parameters = .positioned([CallParameters(to: to, data: data), "latest"])
+    }
+}
+
+struct SendRawTransactionRequest: HJRPCRequestProtocol {
+    typealias Model = String
+    let method = "eth_sendRawTransaction"
+    let parameters: HJRPCParams?
+    // A write: keep the default (retried only when the request never reached the server)
+    let retryPolicy: HRetryPolicy? = HRetryPolicy(maxRetries: 2)
 
     init(signedTransaction: String) {
-        self.parameters = .positioned([signedTransaction])
+        parameters = .positioned([signedTransaction])
     }
 }
 
-// Usage
-let response = await SendTransactionRequest(
-    signedTransaction: "0xf86c..."  // Signed transaction hex
-).requestResult()
-
-switch response {
-case .success(let txHash):
-    print("Transaction hash: \(txHash)")
-case .error(let error):
-    print("Failed to send: \(error.localizedDescription)")
-}
-```
-
-## Bitcoin JSON-RPC Examples
-
-### Configure Bitcoin RPC
-
-```swift
-// Bitcoin Core RPC endpoint
-await HarborJRPC.setURL(URL(string: "http://localhost:8332")!)
-
-// You may need authentication headers
-await Harbor.setDefaultHeaderParameters([
-    "Authorization": "Basic \(base64Credentials)"
-])
-```
-
-### Get Block Count
-
-```swift
-struct GetBlockCountRequest: HJRPCRequestProtocol {
-    typealias Model = Int
-    let method: String = "getblockcount"
-}
-
-let response = await GetBlockCountRequest().requestResult()
-```
-
-### Get Block Hash
-
-```swift
-struct GetBlockHashRequest: HJRPCRequestProtocol {
+struct PolygonBlockNumberRequest: HJRPCRequestProtocol {
     typealias Model = String
-    let method: String = "getblockhash"
+    let method = "eth_blockNumber"
+    let endpoint: URL? = URL(string: "https://polygon-rpc.example.com")
+}
+```
+
+Because JSON-RPC calls are `POST`, a plain `HRetryPolicy(maxRetries:)` retries only failures that happened before the request reached the server (DNS failure, connection refused, offline). Set `retryNonIdempotentRequests: true` for read-only methods so timeouts and statuses such as 429, 502 and 503 are retried too.
+
+## Named parameters (Bitcoin-style)
+
+```swift
+struct BlockHashRequest: HJRPCRequestProtocol {
+    typealias Model = String
+    let method = "getblockhash"
     let parameters: HJRPCParams?
 
     init(height: Int) {
-        self.parameters = .positioned([height])
+        parameters = .named(["height": height])
     }
 }
 
-let response = await GetBlockHashRequest(height: 750000).requestResult()
+struct AuthenticatedNodeRequest: HJRPCRequestProtocol {
+    typealias Model = Int
+    let method = "getblockcount"
+    let headers: [String: String]? = ["Authorization": "Basic dXNlcjpwYXNz"]
+}
 ```
 
-### Get Block
+## Generic results with `HJSONValue`
 
 ```swift
-struct GetBlockRequest: HJRPCRequestProtocol {
-    typealias Model = Block
-    let method: String = "getblock"
+struct RawRequest: HJRPCRequestProtocol {
+    typealias Model = HJSONValue
+    let method: String
     let parameters: HJRPCParams?
+}
 
-    init(hash: String, verbosity: Int = 1) {
-        self.parameters = .positioned([hash, verbosity])
+func inspect() async throws {
+    let value = try await RawRequest(method: "net_version", parameters: nil).request()
+    switch value {
+    case .string(let version):
+        print(version)
+    case .int(let number):
+        print(number)
+    case .decimal(let big):                         // integers beyond Int (e.g. UInt64.max)
+        print(big)
+    case .object(let fields):
+        print(fields.keys)
+    default:
+        print(value)
     }
 }
-
-struct Block: Codable, Sendable {
-    let hash: String
-    let height: Int
-    let time: Int
-    let tx: [String]
-    let size: Int
-    let weight: Int
-}
 ```
+
+`.decimal` keeps the digits of an integer beyond `Int` exact on iOS 18 / macOS 15 and later (swift-foundation `JSONDecoder`). On earlier OS versions such integers may be rounded through `Double` before reaching `Decimal`. The same applies to big integers passed in `HJRPCParams`.
 
 ## Notifications
 
-Set `isNotification` to `true` and call `notify()`. Notifications carry no `id` and the server does not respond to them. Calling `notify()` on a request that is not a notification throws `HJRPCRequestError.invalidRequest`.
-
 ```swift
-struct UnsubscribeRequest: HJRPCRequestProtocol {
-    typealias Model = Bool
-    let method: String = "eth_unsubscribe"
-    let isNotification: Bool = true
-    let parameters: HJRPCParams?
-
-    init(subscriptionID: String) {
-        self.parameters = .positioned([subscriptionID])
-    }
+struct LogEventNotification: HJRPCRequestProtocol {
+    typealias Model = HJSONValue
+    let method = "log_event"
+    let isNotification = true                     // no `id`; the server must not answer
+    let parameters: HJRPCParams? = .named(["event": "app_open"])
 }
 
-try await UnsubscribeRequest(subscriptionID: "0x123").notify()
-```
-
-## Batch Requests
-
-Use `HarborJRPC.batch(_:)` to send several JSON-RPC requests as a single batch call (JSON-RPC 2.0, section 6):
-
-```swift
-let responses = await HarborJRPC.batch([
-    GetBlockNumberRequest(),
-    GetBalanceRequest(address: "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb")
-])
-
-for response in responses {
-    switch response {
-    case .success(let id, let result):
-        // result is the raw HJSONValue returned for the request with the given id
-        print("Response for \(id?.description ?? "unknown"): \(result)")
-    case .error(let id, let error):
-        print("Error for \(id?.description ?? "unknown"): \(error.localizedDescription)")
-    }
+func sendNotification() async throws {
+    try await LogEventNotification().notify()
 }
 ```
 
-Notifications included in a batch do not produce a response element. Servers may reorder or omit responses, so each `HJRPCBatchResponse` is paired with the identifier echoed by the server. Set `requestID` on your requests if you need stable identifiers to match responses against.
+`notify()` throws `.invalidRequest` when `isNotification` is `false`. A 2xx response with an empty body counts as delivered. A 2xx body that isn't JSON-RPC throws `.codable`, and a JSON-RPC error object throws `.jrpcError`.
 
-## Custom RPC Endpoints
-
-### Generic JSON-RPC Request
+## Batches
 
 ```swift
-struct GenericJRPCRequest<T: Codable & Sendable>: HJRPCRequestProtocol {
-    typealias Model = T
-    let method: String
-    let parameters: HJRPCParams?
+func batch() async throws {
+    let responses = try await HarborJRPC.batch([
+        BlockNumberRequest(),
+        GetBalanceRequest(address: "0xabc"),
+        LogEventNotification()                    // notifications produce no element
+    ])
 
-    init(method: String, parameters: HJRPCParams? = nil) {
-        self.method = method
-        self.parameters = parameters
-    }
-}
-
-// Usage for any JSON-RPC method
-let response = await GenericJRPCRequest<String>(
-    method: "custom_method",
-    parameters: .named(["key": "value"])
-).requestResult()
-```
-
-## Error Handling
-
-### Comprehensive Error Handling
-
-```swift
-let response = await GetBlockNumberRequest().requestResult()
-
-switch response {
-case .success(let blockNumber):
-    print("Block: \(blockNumber)")
-
-case .error(let error):
-    switch error {
-    case .jrpcError(let jrpcError):
-        switch jrpcError.standardCode {
-        case .parseError:
-            print("Parse error: Invalid JSON")
-        case .invalidRequest:
-            print("Invalid request structure")
-        case .methodNotFound:
-            print("Method not found")
-        case .invalidParams:
-            print("Invalid parameters")
-        case .internalError:
-            print("Internal server error")
-        case nil:
-            if jrpcError.isServerError {
-                print("Server error \(jrpcError.code): \(jrpcError.message)")
-            } else {
-                print("Error \(jrpcError.code): \(jrpcError.message)")
-            }
-        }
-    case .urlNeeded:
-        print("JSON-RPC URL is not configured")
-    case .noConnection:
-        print("No internet connection")
-    default:
-        print("Error: \(error.localizedDescription)")
-    }
-}
-```
-
-### Retry with Error Recovery
-
-```swift
-func executeJRPCWithRetry<T: HJRPCRequestProtocol>(
-    request: T,
-    maxRetries: Int = 3
-) async -> T.Model? {
-    for attempt in 1...maxRetries {
-        let response = await request.requestResult()
-
+    for response in responses {
         switch response {
-        case .success(let result):
-            return result
-
-        case .error(let error):
-            print("Attempt \(attempt) failed: \(error.localizedDescription)")
-
-            // Retry on internal or implementation-defined server errors
-            if case .jrpcError(let jrpcError) = error,
-               jrpcError.standardCode == .internalError || jrpcError.isServerError {
-                if attempt < maxRetries {
-                    try? await Task.sleep(nanoseconds: UInt64(attempt) * 1_000_000_000)
-                    continue
-                }
-            }
-
-            // Don't retry client errors
-            return nil
+        case .success(let id, let result):
+            print(id?.description ?? "-", result)
+        case .error(let id, let error):
+            print(id?.description ?? "-", error)
         }
     }
-    return nil
+
+    // Decode an element's HJSONValue into a model
+    if case .success(_, let result)? = responses.first {
+        let data = try JSONEncoder().encode(result)
+        let blockNumber = try JSONDecoder().decode(String.self, from: data)
+        print(blockNumber)
+    }
+
+    let nothing = try await HarborJRPC.batch([])  // [] with no network call
+    print(nothing.isEmpty)
 }
 ```
 
-## Debug Mode
+- `HarborJRPC.batch(_:)` is `async throws`. It throws when the batch as a whole fails: no endpoint, mixed endpoints (`.malformedRequest`), encoding, transport or HTTP errors, a body that isn't a batch response, or a single error object rejecting the batch (`.jrpcError`).
+- Responses are paired by the `id` the server echoes. Servers may reorder or omit them.
+- Merge rules: all requests must resolve to the same endpoint. Headers are merged (the first request setting a header wins). The batch is authenticated if any request has `needsAuth`. It is logged if any request conforms to `HDebugRequestProtocol`. The first non-nil `retryPolicy` is used, but its `retryNonIdempotentRequests` is kept only if **every** request opts in.
 
-### Debug JSON-RPC Requests
+## Errors
+
+```swift
+func handle(_ error: HJRPCRequestError) {
+    switch error {
+    case .jrpcError(let rpcError):
+        // Also returned for 4xx/5xx responses whose body is a JSON-RPC error object
+        print(rpcError.code, rpcError.message, rpcError.data as Any, rpcError.httpStatusCode as Any)
+        if rpcError.standardCode == .methodNotFound { print("Unknown method") }
+        if rpcError.isServerError { print("Implementation-defined server error") }
+    case .api(let statusCode, _):
+        print("HTTP \(statusCode) without a JSON-RPC error body")
+    case .idMismatch(let expected, let actual):
+        print("id mismatch", expected as Any, actual as Any)
+    case .invalidResponse:
+        print("Not a JSON-RPC response (or wrong jsonrpc version)")
+    case .urlNeeded:
+        print("Call HarborJRPC.setURL / configure first")
+    case .noConnection, .timeout, .cannotFindHost, .cannotConnectToHost, .networkFailure:
+        print("Network problem")
+    case .certificate:
+        print("TLS / pinning failure")
+    case .authNeeded, .authProviderNeeded:
+        print("Auth problem")
+    case .codable(let model, let underlying):
+        print("Coding error in \(model): \(underlying)")
+    case .malformedRequest, .invalidRequest, .invalidHttpResponse, .cancelled, .noCachedDataFound, .unknown:
+        print(error.localizedDescription)
+    }
+}
+```
+
+Standard codes (`HJRPCStandardCode`): `.parseError` (-32700), `.invalidRequest` (-32600), `.methodNotFound` (-32601), `.invalidParams` (-32602) and `.internalError` (-32603). The server error range is -32099...-32000 (`isServerError`).
+
+## Debug logging
 
 ```swift
 struct DebugBlockNumberRequest: HJRPCRequestProtocol, HDebugRequestProtocol {
     typealias Model = String
-    let method: String = "eth_blockNumber"
-
-    var debugType: HDebugRequestType = .requestAndResponse
-}
-
-// Enable logging
-await Harbor.setLoggingEnabled(true)
-
-// Execute - will log request and response
-let response = await DebugBlockNumberRequest().requestResult()
-
-// Output:
-// curl -X POST "https://ethereum.publicnode.com" \
-//   -H "Content-Type: application/json" \
-//   -d '{"jsonrpc":"2.0","method":"eth_blockNumber","id":"..."}'
-//
-// Response: {"jsonrpc":"2.0","id":"...","result":"0x1234567"}
-```
-
-## Advanced Patterns
-
-### Parallel Requests
-
-```swift
-func loadBlockchainData() async -> (String?, String?) {
-    async let blockNumber = GetBlockNumberRequest().requestResult()
-    async let gasPrice = GetGasPriceRequest().requestResult()
-
-    let (block, gas) = await (blockNumber, gasPrice)
-
-    let blockResult = if case .success(let b) = block { b } else { nil }
-    let gasResult = if case .success(let g) = gas { g } else { nil }
-
-    return (blockResult, gasResult)
+    let method = "eth_blockNumber"
+    let debugType: HDebugRequestType = .requestAndResponse
 }
 ```
 
-For server-side batching in a single HTTP call, prefer `HarborJRPC.batch(_:)` (see above).
-
-### Streaming JSON-RPC Data
+## SwiftUI polling
 
 ```swift
-actor BlockNumberMonitor {
-    private var isRunning = false
-    private var currentBlock: String?
+@MainActor
+final class BlockViewModel: ObservableObject {
+    @Published var blockNumber = "-"
 
-    func startMonitoring(interval: TimeInterval = 12.0) async {
-        guard !isRunning else { return }
-        isRunning = true
-
-        while isRunning {
-            let response = await GetBlockNumberRequest().requestResult()
-
-            if case .success(let blockNumber) = response {
-                if blockNumber != currentBlock {
-                    currentBlock = blockNumber
-                    await notifyBlockChange(blockNumber)
-                }
+    func poll() async {
+        while !Task.isCancelled {
+            if let block = try? await BlockNumberRequest().request() {
+                blockNumber = block
             }
-
-            try? await Task.sleep(nanoseconds: UInt64(interval * 1_000_000_000))
+            try? await Task.sleep(nanoseconds: 12_000_000_000)
         }
     }
-
-    func stopMonitoring() {
-        isRunning = false
-    }
-
-    private func notifyBlockChange(_ blockNumber: String) async {
-        // Notify observers
-        print("New block: \(blockNumber)")
-    }
 }
 
-// Usage
-let monitor = BlockNumberMonitor()
-await monitor.startMonitoring(interval: 12.0)  // Every 12 seconds
-```
-
-## SwiftUI Integration
-
-### JSON-RPC in SwiftUI
-
-```swift
-struct BlockNumberView: View {
-    @State private var blockNumber: String?
-    @State private var isLoading = false
-    @State private var errorMessage: String?
+struct BlockView: View {
+    @StateObject private var model = BlockViewModel()
 
     var body: some View {
-        VStack {
-            if isLoading {
-                ProgressView("Loading block...")
-            } else if let blockNumber = blockNumber {
-                Text("Current Block")
-                    .font(.headline)
-                Text(blockNumber)
-                    .font(.system(.title, design: .monospaced))
-            } else if let error = errorMessage {
-                Text("Error: \(error)")
-                    .foregroundColor(.red)
-            }
-
-            Button("Refresh") {
-                Task {
-                    await loadBlockNumber()
-                }
-            }
-        }
-        .task {
-            await loadBlockNumber()
-        }
-    }
-
-    func loadBlockNumber() async {
-        isLoading = true
-        defer { isLoading = false }
-
-        let response = await GetBlockNumberRequest().requestResult()
-
-        await MainActor.run {
-            switch response {
-            case .success(let block):
-                self.blockNumber = block
-                self.errorMessage = nil
-            case .error(let error):
-                self.blockNumber = nil
-                self.errorMessage = error.localizedDescription
-            }
-        }
+        Text("Block \(model.blockNumber)")
+            .task { await model.poll() }   // cancelled when the view disappears
     }
 }
 ```
 
-### Polling Pattern
+## Testing
+
+`HMock` can't target JSON-RPC requests, because they are sent through internal wrapper types. Stub the transport with a `URLProtocol` on a custom session and give the request a fixed `requestID` so the stubbed response `id` matches. See `../testing.md`.
 
 ```swift
-struct LiveBlockNumberView: View {
-    @State private var blockNumber: String?
-    @State private var isPolling = false
-
-    var body: some View {
-        VStack {
-            Text("Block: \(blockNumber ?? "...")")
-
-            Button(isPolling ? "Stop" : "Start") {
-                isPolling.toggle()
-            }
-        }
-        .task(id: isPolling) {
-            guard isPolling else { return }
-
-            while isPolling {
-                await loadBlockNumber()
-                try? await Task.sleep(nanoseconds: 12_000_000_000) // 12 seconds
-            }
-        }
-    }
-
-    func loadBlockNumber() async {
-        let response = await GetBlockNumberRequest().requestResult()
-
-        await MainActor.run {
-            if case .success(let block) = response {
-                self.blockNumber = block
-            }
-        }
-    }
-}
-```
-
-## Testing JSON-RPC Requests
-
-JSON-RPC requests run through internal wrapper types, so mocks are registered against `HJRPCRequestWrapper<Model>.self` (or `HJRPCBatchWrapper.self` for batches), which requires `@testable import HarborJRPC`. The mocked JSON must be the full JSON-RPC response envelope, including the `jsonrpc` version and the same `id` the request sends — give the request a fixed `requestID` so the ids match.
-
-### Mock JSON-RPC Response
-
-```swift
-// A request with a fixed requestID, so the mock envelope id can match
-struct TestBlockNumberRequest: HJRPCRequestProtocol {
+struct FixedIDBlockNumberRequest: HJRPCRequestProtocol {
     typealias Model = String
-    let method: String = "eth_blockNumber"
-    let requestID: HJRPCId? = .number(1)
-}
-
-func testGetBlockNumber() async throws {
-    // Given
-    await HarborJRPC.configure(url: URL(string: "https://api.example.com/rpc")!, jrpcVersion: "2.0")
-
-    let mockJSON = """
-    {
-        "jsonrpc": "2.0",
-        "id": 1,
-        "result": "0x1234567"
-    }
-    """
-
-    let mock = await HMock(
-        request: HJRPCRequestWrapper<String>.self,
-        statusCode: 200,
-        jsonResponse: mockJSON
-    )
-    await Harbor.register(mock: mock)
-
-    // When
-    let response = await TestBlockNumberRequest().requestResult()
-
-    // Then
-    switch response {
-    case .success(let blockNumber):
-        XCTAssertEqual(blockNumber, "0x1234567")
-    case .error(let error):
-        XCTFail("Expected success but got error: \(error.localizedDescription)")
-    }
+    let method = "eth_blockNumber"
+    let requestID: HJRPCId? = .string("1")
 }
 ```
 
-### Mock JSON-RPC Error
+## Related files
 
-```swift
-func testJRPCError() async throws {
-    // Given
-    let mockJSON = """
-    {
-        "jsonrpc": "2.0",
-        "id": 1,
-        "error": {
-            "code": -32601,
-            "message": "Method not found"
-        }
-    }
-    """
-
-    let mock = await HMock(
-        request: HJRPCRequestWrapper<String>.self,
-        statusCode: 200,
-        jsonResponse: mockJSON
-    )
-    await Harbor.register(mock: mock)
-
-    // When
-    let response = await TestBlockNumberRequest().requestResult()
-
-    // Then
-    switch response {
-    case .success:
-        XCTFail("Expected error but got success")
-    case .error(let error):
-        guard case .jrpcError(let jrpcError) = error else {
-            return XCTFail("Expected jrpcError but got: \(error.localizedDescription)")
-        }
-        XCTAssertEqual(jrpcError.code, -32601)
-        XCTAssertEqual(jrpcError.message, "Method not found")
-        XCTAssertEqual(jrpcError.standardCode, .methodNotFound)
-    }
-}
-```
-
-## Best Practices
-
-### 1. Configure Endpoint Once
-
-```swift
-// In AppDelegate or app initialization
-await HarborJRPC.configure(url: URL(string: "https://ethereum.publicnode.com")!, jrpcVersion: "2.0")
-```
-
-### 2. Use Type-Safe Models
-
-```swift
-// Define proper response models
-struct BlockData: Codable, Sendable {
-    let number: String
-    let hash: String
-    let timestamp: String
-    let transactions: [String]
-}
-
-struct GetBlockRequest: HJRPCRequestProtocol {
-    typealias Model = BlockData
-    let method = "eth_getBlockByNumber"
-    let parameters: HJRPCParams?
-}
-```
-
-### 3. Use Typed Parameters
-
-```swift
-// Good: typed parameters, no @unchecked Sendable needed
-var parameters: HJRPCParams? {
-    .named(["address": address, "block": block])
-}
-
-// Good: positional parameters
-var parameters: HJRPCParams? {
-    .positioned([address, block])
-}
-```
-
-### 4. Handle Both Success and Error Cases
-
-```swift
-switch response {
-case .success(let result):
-    // Handle success
-case .error(let error):
-    // Always handle errors (HJRPCRequestError conforms to LocalizedError)
-    print(error.localizedDescription)
-}
-```
-
-### 5. Use Debug Mode During Development
-
-```swift
-struct DebugRequest: HJRPCRequestProtocol, HDebugRequestProtocol {
-    // ... protocol conformance
-    var debugType: HDebugRequestType = .requestAndResponse
-}
-```
-
-### 6. Implement Retry Logic for Transient Errors
-
-```swift
-// Retry on server errors (.internalError, isServerError)
-// Don't retry on client errors (.invalidRequest, .methodNotFound, .invalidParams)
-```
-
-## Related Files
-
-**JSON-RPC Implementation:**
-- `Sources/HarborJRPC/Request/HJRPCRequestProtocol.swift` - Protocol definition and internal request wrapper
-- `Sources/HarborJRPC/Request/HJRPCRequestManager.swift` - Request execution, notifications and batches
-- `Sources/HarborJRPC/HarborJRPC.swift` - Configuration entry point
-- `Sources/HarborJRPC/Config/HJRPCConfig.swift` - Configuration storage
-
-**Examples:**
-- `Example/HarborExample/Requests/JRPCRequest.swift` - JSON-RPC example
-- `Tests/HarborJRPCTests/` - JSON-RPC tests
-
-**More Examples:**
-- [basic.md](basic.md) - Basic REST patterns
-- [advanced.md](advanced.md) - Advanced patterns
+- `Sources/HarborJRPC/HarborJRPC.swift`: configuration and `batch`.
+- `Sources/HarborJRPC/Request/HJRPCRequestProtocol.swift`, `HJRPCRequestManager.swift`.
+- `Sources/HarborJRPC/Request/HJRPCRequestError.swift`, `HJRPCError.swift`, `HJSONValue.swift`, `HJRPCId.swift`.

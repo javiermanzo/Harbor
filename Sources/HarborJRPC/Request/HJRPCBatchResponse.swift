@@ -16,24 +16,63 @@ public enum HJRPCBatchResponse: Sendable {
     case error(id: HJRPCId?, error: HJRPCRequestError)
 }
 
+// MARK: - Internal Batch Payload
+
+/// The body of a response to a JSON-RPC batch.
+enum HJRPCBatchPayload: HModel {
+    /// An empty (or whitespace-only) body: the server's answer to a batch of notifications.
+    case empty
+    /// An array with one response object per answered request.
+    case responses([HJRPCResult<HJSONValue>])
+    /// A single response object, sent when the server rejects the batch as a whole
+    /// (e.g. a parse error or an invalid batch, JSON-RPC 2.0 section 6).
+    case single(HJRPCResult<HJSONValue>)
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        if let responses = try? container.decode([HJRPCResult<HJSONValue>].self) {
+            self = .responses(responses)
+        } else {
+            self = .single(try container.decode(HJRPCResult<HJSONValue>.self))
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        switch self {
+        case .empty:
+            try container.encodeNil()
+        case .responses(let responses):
+            try container.encode(responses)
+        case .single(let response):
+            try container.encode(response)
+        }
+    }
+}
+
 // MARK: - Internal Batch Wrapper
 
 /// Internal wrapper that adapts a JSON-RPC batch payload to Harbor's request protocol.
-struct HJRPCBatchWrapper: Sendable, HPostRequestProtocol, HRequestWithResultProtocol {
-    typealias Model = [HJRPCResult<HJSONValue>]
+struct HJRPCBatchWrapper: HJRPCTransportRequest {
+    typealias Model = HJRPCBatchPayload
 
-    let debugType: HDebugRequestType
-    var bodyType: HRequestDataType = .json
+    let requestedDebugType: HDebugRequestType?
     let rawBody: Data?
     let requestIDs: [HJRPCId?]
     let url: String
     let needsAuth: Bool
-    var retryPolicy: HRetryPolicy?
-    let pathParameters: [String: String]?
-    var headerParameters: [String: String]?
+    let retryPolicy: HRetryPolicy?
+    let headerParameters: [String: String]?
 
-    var bodyParameters: [String: Any]? {
-        get { nil }
-        set { }
+    /// The batch is sent from `rawBody`; there are no dictionary body parameters.
+    var bodyParameters: [String: Any]? { nil }
+
+    /// Decodes the batch response. An empty (or whitespace-only) body decodes as `.empty`; any
+    /// other body must be a JSON array of responses or a single response object.
+    func parseData<T: Codable>(data: Data, model: T.Type) throws -> T {
+        if data.isBlankJSONBody, let empty = HJRPCBatchPayload.empty as? T {
+            return empty
+        }
+        return try JSONDecoder().decode(T.self, from: data)
     }
 }

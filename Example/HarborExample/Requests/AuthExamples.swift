@@ -114,32 +114,30 @@ private let validDemoToken = "valid_demo_token"
 
 /// Auth provider for the token-refresh demo.
 ///
-/// It starts holding an expired access token. The demo stub server rejects that token
-/// with a 401 and Harbor asks for the authorization header again before retrying the
-/// request. Being asked again for the same token is the signal that the server rejected
-/// it, so the provider refreshes the token and Harbor's automatic retry succeeds.
+/// It starts holding an expired access token. The demo stub server rejects that token with
+/// a 401. Harbor then asks for the current header: if it already differs from the rejected
+/// one (another request refreshed it meanwhile) the request is re-sent with it without
+/// calling `authFailed()`. Otherwise Harbor calls `authFailed()` exactly once (concurrent
+/// requests rejected with the same header share that call), where this provider refreshes
+/// the token, and re-sends the request once with the new header. A request that still
+/// fails after that ends with `.authNeeded`.
+///
+/// `getAuthorizationHeader()` only returns the current token: the refresh lives in
+/// `authFailed()`.
 final class RefreshingAuthProvider: HAuthProviderProtocol, @unchecked Sendable {
     private var accessToken = expiredDemoToken
-    private var currentTokenWasSent = false
     private(set) var refreshCount = 0
 
     func getAuthorizationHeader() async -> HAuthorizationHeader? {
-        if currentTokenWasSent {
-            refreshAccessToken()
-        }
-        currentTokenWasSent = true
-        return HAuthorizationHeader(key: "Authorization", value: "Bearer \(accessToken)")
+        HAuthorizationHeader(key: "Authorization", value: "Bearer \(accessToken)")
     }
 
     private static let logger = LogBird(subsystem: "com.harbor.example", category: "Auth")
 
     func authFailed() async {
-        // Called when Harbor cannot recover the request with a refreshed token.
-        Self.logger.log("Authentication failed: no fresh token available", level: .error)
-    }
-
-    private func refreshAccessToken() {
-        // A real provider would call its token endpoint here.
+        // Called once per request after a 401 that the current header cannot recover from.
+        // A real provider would call its token endpoint here (or log the user out).
+        Self.logger.log("Server rejected the access token; refreshing it", level: .info)
         accessToken = validDemoToken
         refreshCount += 1
     }
@@ -147,16 +145,16 @@ final class RefreshingAuthProvider: HAuthProviderProtocol, @unchecked Sendable {
     /// Restores the initial state so the demo can run again with an expired token.
     func reset() {
         accessToken = expiredDemoToken
-        currentTokenWasSent = false
         refreshCount = 0
     }
 }
 
 /// Local stub server for the token-refresh demo.
 ///
-/// Registered as a global URLProtocol, it answers requests to `auth-demo.local`
-/// without touching the network: the expired demo token gets a 401 and the refreshed
-/// token gets a 200 with a small JSON body. Requests to any other host are untouched.
+/// Installed in the `protocolClasses` of the demo's custom `URLSession`, it answers requests
+/// to `auth-demo.local` without touching the network: the expired demo token gets a 401 and
+/// the refreshed token gets a 200 with a small JSON body. Requests to any other host are
+/// untouched.
 final class AuthDemoStubProtocol: URLProtocol {
     static let host = "auth-demo.local"
 

@@ -51,9 +51,4 @@ extension HMock {
     var responseBody: Data {
         jsonResponse?.data(using: .utf8) ?? Data()
     }
-
-    /// Whether the mock has an explicit JSON body configured.
-    var hasBody: Bool {
-        jsonResponse != nil
-    }
 }

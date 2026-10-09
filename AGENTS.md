@@ -8,7 +8,7 @@ Harbor is a lightweight networking library for Swift, built for Swift 6 strict c
 ## Architecture & Concurrency Rules
 
 1. **Protocols, not Classes**: Requests are `Sendable` `struct`s conforming to `HGetRequestProtocol`, `HPostRequestProtocol`, `HPutRequestProtocol`, `HPatchRequestProtocol` or `HDeleteRequestProtocol`. Every requirement is get-only (`url`, `headerParameters`, `bodyParameters`, ...), so implement them as `let` constants or computed properties; a computed `bodyParameters` keeps the struct `Sendable` without `@unchecked`.
-2. **Default Implementations**: The protocols provide defaults for `needsAuth` (`false`), `retryPolicy`, `pathParameters`, `headerParameters`, `queryParameters`, `cacheType`, `timeoutInterval` (all `nil`), `bodyType` (`.json`), `multipartBody` and `rawBody` (`nil`). Only `url` (and `bodyParameters` for body requests) must be provided.
+2. **Default Implementations**: The protocols provide defaults for `needsAuth` (`false`), `retryPolicy`, `pathParameters`, `headerParameters`, `queryParameters`, `cacheType`, `timeoutInterval` (all `nil`), `multipartBody` and `rawBody` (`nil`). Only `url` (and `bodyParameters` for body requests) must be provided. The body is the first non-nil of `rawBody`, `multipartBody` and `bodyParameters` (JSON); `rawBody` is sent as `application/json` unless `headerParameters` sets a `Content-Type` (header names match case-insensitively).
 3. **Async/Await First, results not throws**: REST `request()` never throws. GET requests return `HResponseWithResult<Model>` (`.success(Model)` / `.error(HRequestError)`); POST/PUT/PATCH/DELETE return `HResponse` (`.success` / `.error(HRequestError)`). JSON-RPC `request()` is the exception: it is `async throws` and returns the model (`requestResult()` returns `HJRPCResponse<Model>`).
 4. **Actor Isolation**: Global configuration lives in the `Harbor` enum (isolated to `@HRequestManagerActor`). Configure it with `await Harbor.setSomething(...)`. Update UI on `@MainActor` after reading configuration.
 5. **No Callbacks**: Never use escaping closures or callbacks for requests. Always `await`. Cancel a request by cancelling its `Task` (it finishes with `.cancelled`).
@@ -63,7 +63,7 @@ func configure() async {
     await Harbor.setCustomURLSession(nil)
 }
 ```
-Harbor caches up to 4 internally built sessions (one per cache/cookie configuration; past the limit only the least recently used one is dropped) and rebuilds them when timeouts, cookies, mTLS or pinning change; a session still used by an in-flight request is only invalidated once that request finishes. Offline (network path unsatisfied) requests fail with `.noConnection`, except GET requests with a usable cached response (fresh, `stale-if-error` or `URLCache`); for `needsAuth` GETs the lookup uses the credential namespace remembered from the last online request for that URL without calling the provider, and never the un-namespaced entry.
+Harbor caches up to 4 internally built sessions (one per cache/cookie configuration; past the limit only the least recently used one is dropped) and rebuilds them when timeouts, cookies, mTLS or pinning change; a session still used by an in-flight request is only invalidated once that request finishes. Offline (network path unsatisfied) requests fail with `.noConnection`, except GET requests with a usable cached response (fresh, `stale-if-error` or `URLCache`); for `needsAuth` GETs the lookup uses the credential remembered from the last online success for that URL without calling the provider (otherwise the provider is asked for its current header), and never the un-namespaced entry. A `needsAuth` GET sent without a credential (provider returned `nil`) is neither cached nor served from cache.
 
 ### 3. Caching
 Harbor has a multi-layer cache (memory + disk, LRU) that honors `Cache-Control` (incl. `stale-while-revalidate`, `stale-if-error`), `Expires`, `Age`, `Date`, `ETag`/`Last-Modified` revalidation (304) and `Vary`. Entries of `needsAuth` requests are namespaced by a hash of the credential: call `Harbor.clearAllCache()` on logout.
@@ -103,8 +103,8 @@ func security(certURL: URL) async throws {
     await Harbor.setSSLPinningKeys(["base64(SHA256(SPKI))_hash"], forHosts: ["api.example.com"])
 
     // Logs redact sensitive headers, query values, body fields and cURL by default.
-    await Harbor.loggingSensitiveKeys(.add(["signature"]))
-    await Harbor.setLogSensitiveHeaders(false) // true prints unredacted values (local debugging only)
+    await Harbor.updateLogSensitiveKeys(.add(["signature"]))
+    await Harbor.setLogSensitiveValues(false) // true prints unredacted values (local debugging only)
 }
 ```
 Pin mismatches, mTLS rejections and certificate-specific `URLError`s surface as `HRequestError.certificate` (never retried); a generic `URLError.secureConnectionFailed` is `.networkFailure` and retryable as transient. Cross-origin redirects drop `Authorization`, `Cookie`, `Proxy-Authorization` and the auth provider's header.
@@ -173,7 +173,7 @@ func mocks() async {
     await Harbor.register(mock: mock)
 }
 ```
-Use `HMockSequence` / `Harbor.registerMockSequence(_:)` to script several responses, and `Harbor.mockCallCount(for:)` to assert calls. The test suite intercepts real traffic with `URLProtocol` stubs through an internal hook (`Harbor.setProtocolClasses`, `@testable import`). Real-service tests only run with `HARBOR_RUN_NETWORK_TESTS=1`.
+Mocks are on by default in DEBUG and off in release (`setMocksEnabled(true)` enables them in release). Use `HMockSequence(request:responses:)` / `Harbor.register(mockSequence:)` to script several responses, `Harbor.mockCallCount(for:)` to assert calls (every mocked attempt, retries included, since the last `removeAllMocks()`), `Harbor.isMockRegistered(for:)` and `Harbor.removeMock(for:)`. The test suite intercepts real traffic with `URLProtocol` stubs through an internal hook (`Harbor.setProtocolClasses`, `@testable import`). Real-service tests only run with `HARBOR_RUN_NETWORK_TESTS=1`.
 
 ## Example App
 The repository includes an `Example/HarborExample` app showcasing every feature (GET, POST incl. `rawBody` and multipart, Caching, Streaming, JRPC, Auth with token refresh, Retry, mTLS, SSL pinning, Mocking). It is built in Swift 6 language mode (`SWIFT_VERSION = 6.0`, `SWIFT_STRICT_CONCURRENCY = complete`). When modifying the Example App:

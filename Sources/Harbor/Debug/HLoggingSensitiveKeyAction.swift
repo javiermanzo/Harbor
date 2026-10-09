@@ -8,7 +8,7 @@
 import Foundation
 
 /// Describes an update to Harbor's sensitive-key redaction set, used by
-/// ``Harbor/loggingSensitiveKeys(_:)``. Harbor's logger inherits LogBird's
+/// ``Harbor/updateLogSensitiveKeys(_:)``. Harbor's logger inherits LogBird's
 /// global default sensitive keys; these actions let you override, extend,
 /// restore or disable them for Harbor's logger.
 public enum HLoggingSensitiveKeyAction: Sendable {
@@ -22,6 +22,6 @@ public enum HLoggingSensitiveKeyAction: Sendable {
     /// Removes all configurable sensitive keys, disabling LogBird's key-based
     /// redaction of log metadata. Harbor's built-in HTTP credential keys still
     /// apply to headers, query values and bodies; use
-    /// `Harbor.setLogSensitiveHeaders(true)` to inspect tokens or credentials.
+    /// `Harbor.setLogSensitiveValues(true)` to inspect tokens or credentials.
     case clear
 }

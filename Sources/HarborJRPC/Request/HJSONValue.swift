@@ -47,6 +47,8 @@ public enum HJSONValue: Sendable, Equatable {
 // MARK: - Codable
 
 extension HJSONValue: Codable {
+    /// Decodes any JSON value. Integers that fit in `Int` decode as `.int`, larger integers as
+    /// `.decimal` and other numbers as `.double`.
     public init(from decoder: Decoder) throws {
         let container = try decoder.singleValueContainer()
 
@@ -73,6 +75,7 @@ extension HJSONValue: Codable {
         }
     }
 
+    /// Encodes the value as the JSON it represents.
     public func encode(to encoder: Encoder) throws {
         var container = encoder.singleValueContainer()
 
@@ -169,6 +172,7 @@ extension HJSONValue {
 
 // MARK: - Decimal Helpers
 
+/// Integer-range helpers used to classify decoded numbers.
 fileprivate extension Decimal {
     /// Whether the value is an integer that does not fit in `Int`.
     var isIntegerOutsideIntRange: Bool {

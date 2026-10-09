@@ -49,7 +49,7 @@ How it works (`HURLSessionDelegate`):
 3. The SPKI hash of every certificate in the chain (leaf, intermediates, root) is compared with the pins. One match accepts the connection. Certificates with unsupported key types are skipped, with one warning per host.
 4. On a mismatch or an untrusted chain, the challenge is cancelled and the request fails with `HRequestError.certificate`. It is never retried and never served from cache.
 
-Malformed pins (not base64 SHA-256) trigger a security warning when set and are ignored. If only malformed pins are configured for a host, every connection to it fails. The deprecated `setSSlPinningKeys(_:)` shim (spelling used by the 4.0.0 pre-releases) forwards to `setSSLPinningKeys(_:)`.
+Malformed pins (not base64 SHA-256) trigger a security warning when set and are ignored. If only malformed pins are configured for a host, every connection to it fails.
 
 Only certificate-specific failures surface as `HRequestError.certificate`: a pin mismatch, an untrusted chain, an mTLS rejection and the certificate `URLError` codes (`serverCertificateUntrusted`, `serverCertificateHasBadDate`, `serverCertificateHasUnknownRoot`, `serverCertificateNotYetValid`, `clientCertificateRejected`, `clientCertificateRequired`). A generic `URLError.secureConnectionFailed` maps to `.networkFailure` and is retried as a transient failure for idempotent (or opted-in) requests.
 
@@ -78,7 +78,7 @@ func configureMTLS() async {
 }
 ```
 
-- The password provider is called once, during import, and the password isn't retained. The `HMTLS(p12FileUrl:password:)` initializer is deprecated.
+- The password provider is called once, during import, and the password isn't retained. `HMTLS(p12FileUrl:hosts:passwordProvider:)` is the only initializer.
 - The P12 is read and imported off the actor. On macOS 15 / iOS 18 and later the identity is imported into memory only (`kSecImportToMemoryOnly`). On earlier systems, `SecPKCS12Import` may persist it to the keychain.
 - The identity and its certificate chain are presented only to the `hosts` you list (case-insensitive). With `hosts: nil` they go to every host that asks for a client certificate, so scoping is recommended. Other hosts get default handling.
 - On failure, mTLS stays disabled and the error is thrown.
@@ -188,17 +188,17 @@ Debug output is opt-in per request (`HDebugRequestProtocol`) and gated by `Harbo
 Everything Harbor prints goes through one redaction policy (`HRedactionPolicy`): request and response headers, query values, path, query and body parameters, cURL commands, response bodies and `HRequestError.api` descriptions. A key is sensitive when its normalized form (lowercased, `-`, `_` and spaces removed) contains:
 
 - a built-in credential key (`authorization`, `cookie`, `set-cookie`, `x-api-key`, `password`, `token`, `secret`, `session_id`, ...), which always applies;
-- a configurable key, managed with `Harbor.loggingSensitiveKeys(_:)`;
+- a configurable key, managed with `Harbor.updateLogSensitiveKeys(_:)`;
 - the header key the auth provider's credential was sent under.
 
 ```swift
 func configureRedaction() async {
-    await Harbor.loggingSensitiveKeys(.add(["otp", "pin_code"]))   // extend
-    await Harbor.loggingSensitiveKeys(.set(["otp"]))                // replace the configurable set
-    await Harbor.loggingSensitiveKeys(.reset)                       // defaults
-    await Harbor.loggingSensitiveKeys(.clear)                       // only the built-in floor remains
-    await Harbor.setLogSensitiveHeaders(true)                       // print everything unredacted (local debugging only)
-    await Harbor.setLogSensitiveHeaders(false)                      // default: redact as <redacted>
+    await Harbor.updateLogSensitiveKeys(.add(["otp", "pin_code"]))  // extend
+    await Harbor.updateLogSensitiveKeys(.set(["otp"]))              // replace the configurable set
+    await Harbor.updateLogSensitiveKeys(.reset)                     // defaults
+    await Harbor.updateLogSensitiveKeys(.clear)                     // only the built-in floor remains
+    await Harbor.setLogSensitiveValues(true)                        // print everything unredacted (local debugging only)
+    await Harbor.setLogSensitiveValues(false)                       // default: redact as <redacted>
 }
 ```
 
@@ -208,7 +208,7 @@ func configureRedaction() async {
 - Scope the mTLS identity with `hosts:`. Load the password lazily.
 - Use `Harbor.makeURLSessionDelegate()` for any custom session, and rebuild it after changing pins or mTLS.
 - Call `Harbor.clearAllCache()` on logout.
-- Keep `setLogSensitiveHeaders(false)` outside local debugging.
+- Keep `setLogSensitiveValues(false)` outside local debugging.
 
 ## Related files
 

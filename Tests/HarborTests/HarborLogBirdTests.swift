@@ -15,13 +15,13 @@ final class HarborLogBirdTests: XCTestCase {
     override func setUp() async throws {
         await Harbor.setLoggingEnabled(true)
         await HLogger.logger.clearLogs()
-        await Harbor.loggingSensitiveKeys(.reset)
+        await Harbor.updateLogSensitiveKeys(.reset)
     }
 
     override func tearDown() async throws {
         await Harbor.setLoggingEnabled(true)
         await HLogger.logger.clearLogs()
-        await Harbor.loggingSensitiveKeys(.reset)
+        await Harbor.updateLogSensitiveKeys(.reset)
         cancellables.removeAll()
     }
 
@@ -38,7 +38,7 @@ final class HarborLogBirdTests: XCTestCase {
     // MARK: - .set (replace semantics)
 
     func testSetReplacesEntireSensitiveKeySet() async {
-        await Harbor.loggingSensitiveKeys(.set(["only_this"]))
+        await Harbor.updateLogSensitiveKeys(.set(["only_this"]))
 
         let keys = await HLogger.sensitiveKeys
         // Keys are normalized at insertion (lowercased, stripping -, _ and whitespace).
@@ -49,7 +49,7 @@ final class HarborLogBirdTests: XCTestCase {
 
     func testClearDisablesRedactionForDebugging() async {
         // Disabling redaction entirely so tokens are visible while debugging.
-        await Harbor.loggingSensitiveKeys(.clear)
+        await Harbor.updateLogSensitiveKeys(.clear)
 
         let info: [String: LBValue] = [
             "username": .string("johndoe"),
@@ -75,7 +75,7 @@ final class HarborLogBirdTests: XCTestCase {
     // MARK: - .add (extend semantics)
 
     func testAddExtendsActiveSensitiveKeySet() async {
-        await Harbor.loggingSensitiveKeys(.add(["trace_id", "token"])) // "token" is already a default
+        await Harbor.updateLogSensitiveKeys(.add(["trace_id", "token"])) // "token" is already a default
 
         let keys = await HLogger.sensitiveKeys
         // Inserted keys are normalized (lowercased, stripping -, _ and whitespace).
@@ -87,8 +87,8 @@ final class HarborLogBirdTests: XCTestCase {
     // MARK: - .reset
 
     func testResetRestoresLogBirdDefaults() async {
-        await Harbor.loggingSensitiveKeys(.set(["custom"]))
-        await Harbor.loggingSensitiveKeys(.reset)
+        await Harbor.updateLogSensitiveKeys(.set(["custom"]))
+        await Harbor.updateLogSensitiveKeys(.reset)
 
         let keys = await HLogger.sensitiveKeys
         XCTAssertEqual(keys, LogBird.defaultSensitiveKeys)

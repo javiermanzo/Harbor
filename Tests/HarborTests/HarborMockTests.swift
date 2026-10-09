@@ -59,12 +59,12 @@ final class HarborMockTests: XCTestCase {
 
     override func setUp() async throws {
         Harbor.removeAllMocks()
-        Harbor.setMocksEnabled(nil)
+        Harbor.setMocksEnabled(true)
     }
 
     override func tearDown() async throws {
         Harbor.removeAllMocks()
-        Harbor.setMocksEnabled(nil)
+        Harbor.setMocksEnabled(true)
         Harbor.setAuthProvider(nil)
     }
 
@@ -107,25 +107,25 @@ final class HarborMockTests: XCTestCase {
             """)
 
         // Before registering, no mock is present for the request type.
-        XCTAssertFalse(Harbor.isMockRegistered(MockGetRequest<MockModel>.self))
+        XCTAssertFalse(Harbor.isMockRegistered(for: MockGetRequest<MockModel>.self))
 
         Harbor.register(mock: successMock)
-        XCTAssertTrue(Harbor.isMockRegistered(MockGetRequest<MockModel>.self))
+        XCTAssertTrue(Harbor.isMockRegistered(for: MockGetRequest<MockModel>.self))
 
         // Removing the mock clears the registration.
-        Harbor.remove(mock: successMock)
-        XCTAssertFalse(Harbor.isMockRegistered(MockGetRequest<MockModel>.self))
+        Harbor.removeMock(for: successMock.request)
+        XCTAssertFalse(Harbor.isMockRegistered(for: MockGetRequest<MockModel>.self))
     }
 
     func testRemoveAllMocksClearsRegistration() async throws {
         Harbor.register(mock: HMock(request: MockGetRequest<MockModel>.self, statusCode: 200))
         Harbor.register(mock: HMock(request: MockGetRequestWithRetries<MockModel>.self, statusCode: 200))
-        XCTAssertEqual(Harbor.isMockRegistered(MockGetRequest<MockModel>.self), true)
-        XCTAssertEqual(Harbor.isMockRegistered(MockGetRequestWithRetries<MockModel>.self), true)
+        XCTAssertEqual(Harbor.isMockRegistered(for: MockGetRequest<MockModel>.self), true)
+        XCTAssertEqual(Harbor.isMockRegistered(for: MockGetRequestWithRetries<MockModel>.self), true)
 
         Harbor.removeAllMocks()
-        XCTAssertEqual(Harbor.isMockRegistered(MockGetRequest<MockModel>.self), false)
-        XCTAssertEqual(Harbor.isMockRegistered(MockGetRequestWithRetries<MockModel>.self), false)
+        XCTAssertEqual(Harbor.isMockRegistered(for: MockGetRequest<MockModel>.self), false)
+        XCTAssertEqual(Harbor.isMockRegistered(for: MockGetRequestWithRetries<MockModel>.self), false)
     }
 
     // MARK: - Call counting
@@ -148,7 +148,7 @@ final class HarborMockTests: XCTestCase {
 
     func testSequencePlaysResponsesInOrderThenRepeats() async throws {
         Harbor.setMocksEnabled(true)
-        Harbor.registerMockSequence(HMockSequence(request: MockGetRequest<MockModel>.self, responses: [
+        Harbor.register(mockSequence: HMockSequence(request: MockGetRequest<MockModel>.self, responses: [
             .init(statusCode: 401, error: .authNeeded),
             .init(statusCode: 200, jsonResponse: """
             {"quote":"then-success"}
@@ -195,7 +195,7 @@ final class HarborMockTests: XCTestCase {
 
     func testSequenceAdvancesAcrossRetries() async throws {
         // Given a sequence that fails with a 500 once, then succeeds, and a request with retries
-        Harbor.registerMockSequence(HMockSequence(request: MockGetRequest<MockModel>.self, responses: [
+        Harbor.register(mockSequence: HMockSequence(request: MockGetRequest<MockModel>.self, responses: [
             .init(statusCode: 500),
             .init(statusCode: 200, jsonResponse: """
             {"quote":"after-retry"}
@@ -218,7 +218,7 @@ final class HarborMockTests: XCTestCase {
         // Given a sequence answering 401 then 200, and an auth provider
         let provider = CountingAuthProvider()
         Harbor.setAuthProvider(provider)
-        Harbor.registerMockSequence(HMockSequence(request: MockGetRequest<MockModel>.self, responses: [
+        Harbor.register(mockSequence: HMockSequence(request: MockGetRequest<MockModel>.self, responses: [
             .init(statusCode: 401),
             .init(statusCode: 200, jsonResponse: """
             {"quote":"after-auth"}
@@ -239,7 +239,7 @@ final class HarborMockTests: XCTestCase {
 
     func testMockedTransportErrorIsRetried() async throws {
         // Given a sequence that times out once, then succeeds, and a request with retries
-        Harbor.registerMockSequence(HMockSequence(request: MockGetRequest<MockModel>.self, responses: [
+        Harbor.register(mockSequence: HMockSequence(request: MockGetRequest<MockModel>.self, responses: [
             .init(statusCode: 0, error: .timeout),
             .init(statusCode: 200, jsonResponse: """
             {"quote":"after-timeout"}
@@ -260,7 +260,7 @@ final class HarborMockTests: XCTestCase {
 
     func testMockedTimeoutOnNonIdempotentRequestIsNotRetriedByDefault() async throws {
         // Given a POST whose first mocked attempt times out
-        Harbor.registerMockSequence(HMockSequence(request: RetryingMockPostRequest.self, responses: [
+        Harbor.register(mockSequence: HMockSequence(request: RetryingMockPostRequest.self, responses: [
             .init(statusCode: 0, error: .timeout),
             .init(statusCode: 200)
         ]))
@@ -277,7 +277,7 @@ final class HarborMockTests: XCTestCase {
 
     func testMockedPreConnectionErrorOnNonIdempotentRequestIsRetried() async throws {
         // Given a POST whose first mocked attempt cannot reach the host
-        Harbor.registerMockSequence(HMockSequence(request: RetryingMockPostRequest.self, responses: [
+        Harbor.register(mockSequence: HMockSequence(request: RetryingMockPostRequest.self, responses: [
             .init(statusCode: 0, error: .cannotConnectToHost),
             .init(statusCode: 200)
         ]))

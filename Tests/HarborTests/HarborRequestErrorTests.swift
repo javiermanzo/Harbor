@@ -18,7 +18,6 @@ final class HarborRequestErrorTests: XCTestCase {
         switch error {
         case .api: return "api"
         case .invalidHttpResponse: return "invalidHttpResponse"
-        case .invalidRequest: return "invalidRequest"
         case .authProviderNeeded: return "authProviderNeeded"
         case .authNeeded: return "authNeeded"
         case .codable: return "codable"

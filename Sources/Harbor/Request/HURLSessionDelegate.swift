@@ -270,7 +270,9 @@ public final class HURLSessionDelegate: NSObject, URLSessionTaskDelegate, Sendab
     /// a `SecTrust` is safe to evaluate from any queue and the challenge completion
     /// handler may be invoked from any queue.
     private struct TrustEvaluationContext: @unchecked Sendable {
+        /// The trust to evaluate.
         let serverTrust: SecTrust
+        /// The challenge completion handler.
         let completionHandler: @Sendable (URLSession.AuthChallengeDisposition, URLCredential?) -> Void
     }
 

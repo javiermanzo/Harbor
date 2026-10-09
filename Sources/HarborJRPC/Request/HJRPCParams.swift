@@ -38,6 +38,8 @@ extension HJRPCParams {
         }
     }
 
+    /// Encodes one parameter and decodes it back as an `HJSONValue`.
+    /// - Throws: The `EncodingError` raised for a value JSON cannot represent.
     private static func encodeToJSONValue(_ value: any Encodable & Sendable) throws -> HJSONValue {
         let data = try JSONEncoder().encode(value)
         return try JSONDecoder().decode(HJSONValue.self, from: data)

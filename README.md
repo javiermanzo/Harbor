@@ -141,7 +141,7 @@ func createUser() async {
 
 `bodyParameters` is a get-only requirement: a computed property keeps the request a plain `Sendable` struct (a stored `[String: Any]` would require `@unchecked Sendable`). A body that `JSONSerialization` cannot encode fails with `HRequestError.malformedRequest(reason:)` instead of being sent empty.
 
-To send pre-encoded data (for example an `Encodable` model) use `rawBody`, which is sent as-is with `Content-Type: application/json`:
+The body is the first non-nil of `rawBody`, `multipartBody` and `bodyParameters`. To send pre-encoded data (for example an `Encodable` model) use `rawBody`, which is sent as-is with `Content-Type: application/json` unless `headerParameters` sets a `Content-Type` (header names match case-insensitively, so `content-type` also replaces it):
 
 ```swift
 struct UpdateUserRequest: HPutRequestProtocol {
@@ -178,7 +178,7 @@ func handle(_ error: HRequestError) {
         print("URLError \(urlError.code)")
     case .unknown(let underlying):
         print("Unexpected: \(underlying)")
-    case .invalidHttpResponse, .invalidRequest, .noCachedDataFound:
+    case .invalidHttpResponse, .noCachedDataFound:
         print(error.localizedDescription)
     }
 }
@@ -221,7 +221,7 @@ await Harbor.setHTTPShouldHandleCookies(true)
 
 Harbor builds its own `URLSession`s and keeps up to four of them alive, one per cache/cookie configuration, so connections are reused. They are rebuilt when a session-affecting setting (timeouts, cookies, mTLS, SSL pinning) changes.
 
-**Connectivity:** a request fails fast with `.noConnection` only when the network path is unsatisfied. In that case GET requests return a cached response instead when one is usable (a fresh entry, an entry within its `stale-if-error` window, or a `URLCache` response); other network errors fall back to `stale-if-error` content only. For `needsAuth` requests the lookup uses the credential namespace remembered from the last online request for that URL, without calling the auth provider (the provider is only asked when nothing is remembered, and the entry stored without credentials is never served). In DEBUG and simulator builds network availability is assumed; call `await Harbor.setAssumeNetworkAvailableInDebug(false)` to exercise offline flows.
+**Connectivity:** a request fails fast with `.noConnection` only when the network path is unsatisfied. In that case GET requests return a cached response instead when one is usable (a fresh entry, an entry within its `stale-if-error` window, or a `URLCache` response); other network errors fall back to `stale-if-error` content only. For `needsAuth` requests the lookup uses the credential remembered from the last successful online request for that URL, without calling the auth provider; when nothing is remembered the provider is asked for its current header. The entry stored without credentials is never served. In DEBUG and simulator builds network availability is assumed; call `await Harbor.setAssumeNetworkAvailableInDebug(false)` to exercise offline flows.
 
 ### Authentication
 
@@ -264,7 +264,7 @@ struct SecureRequest: HGetRequestProtocol {
 
 On a 401, Harbor asks the provider for its current header. If it already differs from the rejected one (another request's refresh finished meanwhile), the request is sent again with it without calling `authFailed()`. Otherwise Harbor calls `authFailed()` exactly once per request (concurrent requests rejected with the same credential share a single call) and, if the provider then returns a different header, sends the request once more with it. When no re-send is possible, or the re-sent request is rejected again, the request fails with `.authNeeded`; by then `authFailed()` has been called exactly once.
 
-Cached responses of requests with `needsAuth` are namespaced by a hash of the credential they were fetched with, so one user never reads another user's entries. Replacing the provider does not delete them: **call `await Harbor.clearAllCache()` on logout.**
+Cached responses of requests with `needsAuth` are namespaced by a hash of the credential they were actually sent with, so one user never reads another user's entries. A `needsAuth` request sent without a credential (the provider returned `nil`) is neither cached nor served from cache. Replacing the provider does not delete existing entries: **call `await Harbor.clearAllCache()` on logout.** A response whose request started before `Harbor.clearAllCache()` or `Harbor.setAuthProvider(_:)` is still returned to its caller, but it is not written to the cache nor remembered for offline lookups.
 
 ### Retry Policies
 
@@ -375,8 +375,10 @@ func configureCache() async {
 ```
 
 The custom cache:
-- honors `Cache-Control` (`no-store`, `no-cache`, `must-revalidate`, `max-age`, `s-maxage`, `stale-while-revalidate`, `stale-if-error`), `Expires`, `Age`, `Date` and `Vary` (Vary'd header values are stored hashed on disk); a `no-store` response, or a body larger than `maxObjectSizeInMBs`, also evicts the previous entry for that key;
+- honors `Cache-Control` (`no-store`, `no-cache`, `must-revalidate`, `max-age`, `stale-while-revalidate`, `stale-if-error`), `Expires`, `Age`, `Date` and `Vary` (Vary'd header values are stored hashed on disk); a `no-store` response, or a body larger than `maxObjectSizeInMBs`, also evicts the previous entry for that key;
 - revalidates stored entries with `If-None-Match` / `If-Modified-Since` and serves the cached body on `304 Not Modified` (a 304 without a usable cached body triggers one unconditional refetch); a validator you set yourself in `headerParameters` is kept, Harbor does not inject its own, and a 304 answering it is returned to you as `.api(statusCode: 304, data:)`;
+- keeps expired entries without validators while their `stale-if-error` window still allows serving them;
+- ignores the shared-cache-only directives `s-maxage` and `proxy-revalidate` (it is a private cache);
 - evicts least-recently-used entries when the disk capacity is exceeded;
 - namespaces entries of `needsAuth` requests by credential (see [Authentication](#authentication)).
 
@@ -412,7 +414,7 @@ func inspectCache() async {
 }
 ```
 
-With `.urlCache`, `cache()` and the cached element of `requestStream(source: .cacheAndRemote)` serve the stored response unless it is explicitly stale (`no-cache` / `no-store`, an elapsed `max-age` / `s-maxage` / `Expires` lifetime after `Age` and `stale-while-revalidate` are accounted for, or an elapsed `Last-Modified` heuristic when `Date` is present). Responses without freshness headers are served.
+With `.urlCache`, `cache()` and the cached element of `requestStream(source: .cacheAndRemote)` serve the stored response unless it is explicitly stale (`no-cache` / `no-store`, an elapsed `max-age` / `Expires` lifetime after `Age` and `stale-while-revalidate` are accounted for, or an elapsed `Last-Modified` heuristic when `Date` is present). Responses without freshness headers are served.
 
 ### Multipart Requests
 
@@ -432,8 +434,6 @@ struct UploadAvatarRequest: HPostRequestProtocol {
     }
 }
 ```
-
-Alternatively, set `bodyType` to `.multipart` to send string `bodyParameters` as form fields.
 
 ### Streaming Requests
 
@@ -533,11 +533,11 @@ func configureLogging() async {
     await Harbor.setLoggingEnabled(true)
 
     // Extend the sensitive keys (also .set, .reset, .clear)
-    await Harbor.loggingSensitiveKeys(.add(["signature", "otp"]))
+    await Harbor.updateLogSensitiveKeys(.add(["signature", "otp"]))
 }
 ```
 
-Every logged value goes through one redaction policy: request and response headers, query values, path/query/body parameters, cURL commands, response bodies and `HRequestError.api` descriptions. Sensitive keys (`authorization`, `cookie`, `set-cookie`, `x-api-key`, `password`, `token`, `secret`, the auth provider's header, plus the keys configured with `loggingSensitiveKeys(_:)`) are printed as `<redacted>`. Matching is case-insensitive and ignores separators. `await Harbor.setLogSensitiveHeaders(true)` disables redaction (for local debugging only).
+Every logged value goes through one redaction policy: request and response headers, query values, path/query/body parameters, cURL commands, response bodies and `HRequestError.api` descriptions. Sensitive keys (`authorization`, `cookie`, `set-cookie`, `x-api-key`, `password`, `token`, `secret`, the auth provider's header, plus the keys configured with `updateLogSensitiveKeys(_:)`) are printed as `<redacted>`. Matching is case-insensitive and ignores separators. `await Harbor.setLogSensitiveValues(true)` disables redaction (for local debugging only).
 
 The cURL command only includes cookies (redacted by default) when the session sends them: with Harbor's own sessions that is when `Harbor.setHTTPShouldHandleCookies(true)` is on, reading `HTTPCookieStorage.shared`; with a custom session, according to its configuration.
 
@@ -547,7 +547,7 @@ Mocks are resolved inside Harbor's request pipeline: when mocks are enabled and 
 
 ```swift
 func registerMocks() async {
-    // Mocks are enabled in DEBUG builds by default; force them on or off with:
+    // Mocks are on in DEBUG builds and off in release by default; turn them on or off with:
     await Harbor.setMocksEnabled(true)
 
     let mock = HMock(
@@ -563,13 +563,17 @@ func registerMocks() async {
     await Harbor.register(mock: HMock(request: SecureRequest.self, statusCode: 401, error: .authNeeded))
 
     // Script a sequence: first a 503, then a success (the last response repeats)
-    await Harbor.registerMockSequence(HMockSequence(request: ResilientRequest.self, responses: [
+    await Harbor.register(mockSequence: HMockSequence(request: ResilientRequest.self, responses: [
         .init(statusCode: 503),
         .init(statusCode: 200, jsonResponse: #"{"items": []}"#)
     ]))
 
+    // Every mocked attempt (retries included) since the last removeAllMocks()
     let calls = await Harbor.mockCallCount(for: ResilientRequest.self)
-    print(calls)
+    let registered = await Harbor.isMockRegistered(for: ResilientRequest.self)
+    print(calls, registered)
+
+    await Harbor.removeMock(for: ResilientRequest.self)
 
     await Harbor.removeAllMocks()
 }

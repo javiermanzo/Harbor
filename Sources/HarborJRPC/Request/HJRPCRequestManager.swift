@@ -108,7 +108,7 @@ extension HJRPCRequestManager {
     /// The requests are merged into one HTTP request as follows:
     /// - Endpoint: every request must resolve to the same endpoint (its `endpoint`, or the
     ///   configured URL); mixing endpoints throws `.malformedRequest`.
-    /// - Headers: the `headers` of every request are merged. When several requests set the same
+    /// - Headers: the `headerParameters` of every request are merged. When several requests set the same
     ///   header (compared case-insensitively), the value of the first request in the batch wins.
     /// - Authentication: the batch is authenticated when any request has `needsAuth`.
     /// - Retry: the first non-nil `retryPolicy` in the batch is used. Since a batch is a `POST`
@@ -219,7 +219,7 @@ extension HJRPCRequestManager {
         var merged: [String: String] = [:]
         var seenNames: Set<String> = []
         for request in requests {
-            guard let headers = request.headers else { continue }
+            guard let headers = request.headerParameters else { continue }
             for (name, value) in headers.sorted(by: { $0.key < $1.key }) where seenNames.insert(name.lowercased()).inserted {
                 merged[name] = value
             }

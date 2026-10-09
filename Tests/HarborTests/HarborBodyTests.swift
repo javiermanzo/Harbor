@@ -12,7 +12,7 @@ import XCTest
 final class HarborBodyTests: XCTestCase {
 
     func testBuildRequestWithMultipartBodyType() async throws {
-        let service = MockPostBodyRequest(url: "https://example.com", bodyParameters: ["foo": "bar"], bodyType: .multipart)
+        let service = MockPostBodyRequest(url: "https://example.com", multipartBody: ["foo": .text("bar")])
 
         let url = URL(string: service.url)
         let request = try await HURLBuilder.buildUrlRequest(request: service)
@@ -23,7 +23,7 @@ final class HarborBodyTests: XCTestCase {
     }
 
     func testBuildRequestWithEmptyMultipartBodyParameters() async throws {
-        let service = MockPostBodyRequest(url: "https://example.com", bodyParameters: nil, bodyType: .multipart)
+        let service = MockPostBodyRequest(url: "https://example.com", bodyParameters: nil)
 
         let url = URL(string: service.url)
         let request = try await HURLBuilder.buildUrlRequest(request: service)
@@ -33,7 +33,7 @@ final class HarborBodyTests: XCTestCase {
     }
 
     func testBuildRequestWithJsonBodyType() async throws {
-        let service = MockPostBodyRequest(url: "https://example.com", bodyParameters: ["foo": "bar"], bodyType: .json)
+        let service = MockPostBodyRequest(url: "https://example.com", bodyParameters: ["foo": "bar"])
         let expectedContentType = "application/json"
 
         let url = URL(string: service.url)
@@ -75,17 +75,13 @@ final class HarborBodyTests: XCTestCase {
         }
     }
 
-    func testMultipartBodyParametersStringifyScalars() async throws {
-        let service = MockPostBodyRequest(url: "https://example.com", bodyParameters: ["count": 42, "flag": true], bodyType: .multipart)
+    func testHeaderParametersReplaceContentTypeCaseInsensitively() async throws {
+        let service = MockPostBodyRequest(headerParameters: ["content-type": "application/vnd.api+json"], url: "https://example.com", bodyParameters: ["foo": "bar"])
 
         let request = try await HURLBuilder.buildUrlRequest(request: service)
-        let body = try XCTUnwrap(request.httpBody)
-        let bodyString = try XCTUnwrap(String(data: body, encoding: .utf8))
 
-        XCTAssertTrue(bodyString.contains("name=\"count\""))
-        XCTAssertTrue(bodyString.contains("\r\n42\r\n"))
-        XCTAssertTrue(bodyString.contains("name=\"flag\""))
-        XCTAssertTrue(bodyString.contains("\r\ntrue\r\n"))
+        XCTAssertEqual(request.value(forHTTPHeaderField: "Content-Type"), "application/vnd.api+json")
+        XCTAssertEqual(request.allHTTPHeaderFields?.keys.filter { $0.lowercased() == "content-type" }.count, 1)
     }
 
     func testMultipartBodyWithFile() async throws {
@@ -240,7 +236,7 @@ final class HarborBodyTests: XCTestCase {
         Harbor.register(mock: mock)
         addTeardownBlock { @HRequestManagerActor in
             Harbor.removeAllMocks()
-            Harbor.setMocksEnabled(nil)
+            Harbor.setMocksEnabled(true)
         }
         let fileURL = try makeTemporaryFile(Data("x".utf8))
 

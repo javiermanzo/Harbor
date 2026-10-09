@@ -8,18 +8,22 @@
 import Foundation
 
 public extension HCache {
-    /// Defines the caching type for network requests.
+    /// The cache a GET request uses. Set the default with `Harbor.setDefaultCacheType(_:)` and
+    /// override it per request with `cacheType`.
     enum CacheType: Sendable, Equatable {
-        /// Use URLCache with automatic ETag/304 support.
+        /// Foundation's `URLCache`, which stores and revalidates responses (`ETag`/`304`)
+        /// transparently following the response's HTTP caching headers.
         /// - Parameters:
-        ///   - urlCache: The URLCache to use. Defaults to URLCache.shared.
-        ///   - requestCachePolicy: The cache policy for requests. Defaults to .useProtocolCachePolicy.
+        ///   - urlCache: The URLCache to use. Defaults to `URLCache.shared`.
+        ///   - requestCachePolicy: The cache policy of the requests. Defaults to `.useProtocolCachePolicy`.
         case urlCache(urlCache: URLCache = .shared, requestCachePolicy: NSURLRequest.CachePolicy = .useProtocolCachePolicy)
 
-        /// Use Harbor's custom cache system with full control over expiration and storage.
+        /// Harbor's own memory + disk cache (LRU), with a fallback expiration and size limits. It
+        /// honors `Cache-Control`, `Expires`, `Age`, `Vary`, `stale-while-revalidate` and
+        /// `stale-if-error`, and revalidates entries with their `ETag`/`Last-Modified`.
         case custom(Configuration)
 
-        /// No caching - always fetch fresh data from network.
+        /// No caching: every request reaches the network.
         case disabled
 
         /// Whether caching is enabled for this type. Used by tests.

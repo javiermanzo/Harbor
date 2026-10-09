@@ -7,7 +7,7 @@ final class HarborJRPCTests: XCTestCase {
 
     override func setUp() async throws {
         await Harbor.removeAllMocks()
-        await Harbor.setMocksOnlyInDebug(false)
+        await Harbor.setMocksEnabled(true)
         await HarborJRPC.configure(url: URL(string: "https://api.example.com/rpc")!, jrpcVersion: "2.0")
     }
 
@@ -442,33 +442,14 @@ final class HarborJRPCTests: XCTestCase {
 
     // MARK: - Configuration
 
-    func testSetURLFromStringValidatesTheURL() async throws {
-        do {
-            try await HarborJRPC.setURL("https://api.example.com/rpc")
-        } catch {
-            XCTFail("Expected setURL to succeed but got: \(error)")
-        }
+    func testConfigureSetsURLAndVersion() async {
+        await HarborJRPC.configure(url: URL(string: "https://api.example.com/v2")!, jrpcVersion: "2.0")
 
-        do {
-            try await HarborJRPC.setURL("ht tp://bad url")
-            XCTFail("Expected setURL to throw")
-        } catch let error as HJRPCConfigurationError {
-            guard case .invalidURL(let urlString) = error else {
-                return XCTFail("Expected invalidURL but got: \(error)")
-            }
-            XCTAssertEqual(urlString, "ht tp://bad url")
-        }
-    }
-
-    func testHJRPCConfigPublicInit() async {
-        let config = HJRPCConfig(url: "https://api.example.com/rpc", jrpcVersion: "2.0")
-
-        XCTAssertEqual(config.url, "https://api.example.com/rpc")
+        let config = await HJRPCRequestManager.config
+        XCTAssertEqual(config.url, "https://api.example.com/v2")
         XCTAssertEqual(config.jrpcVersion, "2.0")
 
-        let defaultConfig = HJRPCConfig()
-        XCTAssertEqual(defaultConfig.url, "")
-        XCTAssertEqual(defaultConfig.jrpcVersion, "2.0")
+        await HarborJRPC.configure(url: URL(string: "https://api.example.com/rpc")!)
     }
 
     // MARK: - HJRPCResponse

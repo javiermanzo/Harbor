@@ -12,7 +12,7 @@ Requirements: Swift 6 toolchain (tools 6.0), iOS 15+ / macOS 14+. Products: `Har
 ## Core rules
 
 1. **Requests are structs.** Conform to `HGetRequestProtocol`, `HPostRequestProtocol`, `HPutRequestProtocol`, `HPatchRequestProtocol` or `HDeleteRequestProtocol`. Requirements such as `headerParameters` and `bodyParameters` are get-only: implement them as `let` constants or computed properties. A computed `bodyParameters: [String: Any]?` keeps the struct `Sendable` without `@unchecked`.
-2. **Defaults exist.** `needsAuth` (`false`), `retryPolicy` (`nil`, no retries), `pathParameters`, `headerParameters`, `timeoutInterval`, `queryParameters`, `cacheType` (all `nil`), `bodyType` (`.json`), `multipartBody` and `rawBody` (`nil`). Override only what you need.
+2. **Defaults exist.** `needsAuth` (`false`), `retryPolicy` (`nil`, no retries), `pathParameters`, `headerParameters`, `timeoutInterval`, `queryParameters`, `cacheType` (all `nil`), `multipartBody` and `rawBody` (`nil`). Override only what you need. Body requests must provide `bodyParameters` (return `nil` when you send `rawBody` or `multipartBody`).
 3. **REST requests do not throw.** For a GET, `request()` returns `HResponseWithResult<Model>` (`.success(Model)` / `.error(HRequestError)`). POST, PUT, PATCH and DELETE return `HResponse` (`.success` / `.error`). REST requests have no `requestResult()`.
 4. **JSON-RPC requests throw.** `HJRPCRequestProtocol.request()` is `async throws -> Model`, and `requestResult()` returns `HJRPCResponse<Model>` without throwing.
 5. **Configuration is awaited.** Call `await Harbor.setX(...)` from any context. `HRequestManagerActor` is a global actor, so hop back to `@MainActor` before updating UI.
@@ -141,7 +141,7 @@ func cacheExamples() async {
 }
 ```
 
-Entries for `needsAuth` requests are namespaced by a SHA-256 digest of the authorization header, so one user never reads another user's entry. Replacing the auth provider does not delete anything, which is why `clearAllCache()` belongs in the logout flow.
+Entries for `needsAuth` requests are namespaced by a SHA-256 digest of the authorization header the request was actually sent with, so one user never reads another user's entry. A `needsAuth` request sent without a credential (provider returned `nil`) is neither cached nor served from cache. Replacing the auth provider does not delete anything, which is why `clearAllCache()` belongs in the logout flow. A response whose request started before `clearAllCache()` or `setAuthProvider(_:)` is returned to its caller but not cached. `s-maxage` and `proxy-revalidate` are ignored (private cache).
 
 ## Streaming
 
@@ -149,11 +149,11 @@ Entries for `needsAuth` requests are namespaced by a SHA-256 digest of the autho
 
 ## Multipart and raw bodies
 
-Use `multipartBody: [String: HFormValue]?` with `.text(String)` and `.file(url:mimeType:fileName:)`. When file parts are present, the body is streamed to a temporary file and uploaded from disk. Use `rawBody: Data?` to send bytes as-is (with `Content-Type: application/json` unless you set it in `headerParameters`). If `bodyParameters` can't be serialized as JSON, the request fails with `.malformedRequest`.
+The body is the first non-nil of `rawBody`, `multipartBody` and `bodyParameters` (JSON). Use `multipartBody: [String: HFormValue]?` with `.text(String)` and `.file(url:mimeType:fileName:)`. When file parts are present, the body is streamed to a temporary file and uploaded from disk. Use `rawBody: Data?` to send bytes as-is (with `Content-Type: application/json` unless `headerParameters` sets a `Content-Type`; header names match case-insensitively). If `bodyParameters` can't be serialized as JSON, the request fails with `.malformedRequest`.
 
 ## Errors
 
-`HRequestError` is `Equatable`. Cases: `.api(statusCode:data:)`, `.invalidHttpResponse`, `.invalidRequest`, `.authProviderNeeded`, `.authNeeded`, `.codable(modelName:error:)`, `.noConnection`, `.malformedRequest(reason:)`, `.timeout`, `.cannotFindHost`, `.cannotConnectToHost`, `.cancelled`, `.certificate` (pin mismatch, mTLS rejection or a certificate-specific `URLError`; a generic `secureConnectionFailed` is `.networkFailure`), `.noCachedDataFound`, `.networkFailure(URLError)` and `.unknown(Error)`.
+`HRequestError` is `Equatable`. Cases: `.api(statusCode:data:)`, `.invalidHttpResponse`, `.authProviderNeeded`, `.authNeeded`, `.codable(modelName:error:)`, `.noConnection`, `.malformedRequest(reason:)`, `.timeout`, `.cannotFindHost`, `.cannotConnectToHost`, `.cancelled`, `.certificate` (pin mismatch, mTLS rejection or a certificate-specific `URLError`; a generic `secureConnectionFailed` is `.networkFailure`), `.noCachedDataFound`, `.networkFailure(URLError)` and `.unknown(Error)`.
 
 ## Security
 
@@ -162,14 +162,14 @@ func configureSecurity(certURL: URL) async throws {
     await Harbor.setSSLPinningKeys(["base64(SHA256(SPKI))="], forHosts: ["api.example.com"])
     let mTLS = HMTLS(p12FileUrl: certURL, hosts: ["api.example.com"]) { "p12-password" }
     try await Harbor.setMTLS(mTLS)
-    await Harbor.setLogSensitiveHeaders(false)               // false (default) = redact
-    await Harbor.loggingSensitiveKeys(.add(["otp"]))
+    await Harbor.setLogSensitiveValues(false)                // false (default) = redact
+    await Harbor.updateLogSensitiveKeys(.add(["otp"]))
 }
 ```
 
 ## Mocks
 
-Mocks short-circuit inside Harbor's request manager on each attempt, before any network call. They are enabled by default in DEBUG builds.
+Mocks short-circuit inside Harbor's request manager on each attempt, before any network call. They are on by default in DEBUG builds and off in release; `setMocksEnabled(true)` enables them in release. Script several responses with `Harbor.register(mockSequence: HMockSequence(request:responses:))`; inspect with `Harbor.mockCallCount(for:)` and `Harbor.isMockRegistered(for:)`; remove with `Harbor.removeMock(for:)` / `Harbor.removeAllMocks()`.
 
 ```swift
 func registerMocks() async {

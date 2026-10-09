@@ -7,18 +7,27 @@ import Foundation
 
 /// A scripted sequence of mock responses for a request type, played back in order.
 ///
-/// Register a sequence with `Harbor.registerMockSequence(_:)`. Each request of the given type
-/// resolves to the next response; after the last one is consumed it repeats indefinitely.
+/// Register a sequence with `Harbor.register(mockSequence:)`. Each attempt of a request of the
+/// given type (retries included) resolves to the next response; after the last one is consumed
+/// it repeats indefinitely. Use it to script a failure followed by a success, a token refresh, …
+///
+/// ```swift
+/// await Harbor.register(mockSequence: HMockSequence(request: GetUserRequest.self, responses: [
+///     .init(statusCode: 503),
+///     .init(statusCode: 200, jsonResponse: #"{"id": 1, "name": "Jane"}"#)
+/// ]))
+/// ```
 public struct HMockSequence: Sendable {
     /// One response in a mock sequence.
     public struct Response: Sendable {
         /// The HTTP status code to return.
         public let statusCode: Int
-        /// Optional JSON response body.
+        /// Optional JSON response body. When `nil`, the response has an empty body.
         public let jsonResponse: String?
-        /// Optional error to return instead of success.
+        /// Optional error the attempt fails with instead of producing a response. It goes
+        /// through the retry policy like the real failure it stands for.
         public let error: HRequestError?
-        /// Optional HTTP response headers.
+        /// Optional HTTP response headers (e.g. `Cache-Control`, `ETag`, `Retry-After`).
         public let headers: [String: String]?
         /// Optional delay in seconds before returning the response.
         public let delay: Double?
@@ -55,22 +64,6 @@ public struct HMockSequence: Sendable {
     public init(request: HRequestBaseRequestProtocol.Type, responses: [Response]) {
         self.request = request
         self.responses = responses
-    }
-
-    /// Convenience to build a sequence from raw `HMock` configurations, sharing their
-    /// status/body/error/headers/delay.
-    /// - Parameters:
-    ///   - request: The request type this sequence mocks (the mocks' own `request` is ignored).
-    ///   - mocks: The mocks whose responses are played back, in order.
-    public init(request: HRequestBaseRequestProtocol.Type, mocks: [HMock]) {
-        self.request = request
-        self.responses = mocks.map {
-            Response(statusCode: $0.statusCode,
-                     jsonResponse: $0.jsonResponse,
-                     error: $0.error,
-                     headers: $0.headers,
-                     delay: $0.delay)
-        }
     }
 
     /// Returns the response at the given index, clamping to the last available response.

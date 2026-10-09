@@ -19,6 +19,7 @@ public enum HJRPCResponse<Model: Sendable>: Sendable {
 // MARK: - CustomStringConvertible
 
 extension HJRPCResponse: CustomStringConvertible {
+    /// `HJRPCResponse.success(<model>)` or `HJRPCResponse.error(<description>)`.
     public var description: String {
         switch self {
         case .success(let model):

@@ -84,6 +84,19 @@ extension HCache {
             return max(staleWhileRevalidate ?? 0, 0)
         }
 
+        /// Whether an expired entry can be deleted: it has no validator to revalidate it with, and
+        /// neither its `stale-while-revalidate` nor its `stale-if-error` window still allows
+        /// serving it.
+        /// - Parameter maxAge: Freshness lifetime used when the entry has no stored expiration time.
+        func isDiscardable(maxAge: TimeInterval?) -> Bool {
+            guard !hasValidator, isExpired(maxAge: maxAge, grace: servableStaleWindow) else { return false }
+            if !mustRevalidate, let window = staleIfError, let freshness = expirationTime,
+               Date().timeIntervalSince(timestamp) - freshness <= window {
+                return false
+            }
+            return true
+        }
+
         /// Whether the entry can be served for a request with the given vary key.
         /// `Vary: *` entries are never served directly.
         /// - Parameter currentVaryKey: The vary key computed from current request headers.

@@ -29,6 +29,8 @@ public enum HJRPCId: Sendable, Equatable {
 // MARK: - Codable
 
 extension HJRPCId: Codable {
+    /// Decodes a string, an integer that fits in `Int`, or `null`.
+    /// - Throws: `DecodingError` for any other JSON value, including fractional or out-of-range numbers.
     public init(from decoder: Decoder) throws {
         let container = try decoder.singleValueContainer()
 
@@ -48,6 +50,7 @@ extension HJRPCId: Codable {
         }
     }
 
+    /// Encodes the identifier as a JSON string, number or `null`.
     public func encode(to encoder: Encoder) throws {
         var container = encoder.singleValueContainer()
 
@@ -65,6 +68,7 @@ extension HJRPCId: Codable {
 // MARK: - CustomStringConvertible
 
 extension HJRPCId: CustomStringConvertible {
+    /// The identifier as it appears in JSON: a quoted string, a number or `null`.
     public var description: String {
         switch self {
         case .string(let value):

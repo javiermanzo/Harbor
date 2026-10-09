@@ -15,7 +15,7 @@ import LogBird
 /// LogBird stays an internal implementation detail of Harbor instead of being configured
 /// from `HConfig`, `Harbor` and the debug protocol independently.
 ///
-/// Configure redaction through the public `Harbor.loggingSensitiveKeys(_:)`
+/// Configure redaction through the public `Harbor.updateLogSensitiveKeys(_:)`
 /// entry point, which takes an `HLoggingSensitiveKeyAction` (`.set`, `.add`,
 /// `.reset`, `.clear`).
 @HRequestManagerActor

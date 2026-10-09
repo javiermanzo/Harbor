@@ -16,7 +16,7 @@ private struct DebugPostRequest: HPostRequestProtocol, HDebugRequestProtocol, @u
     var url: String = "https://api.example.com/login"
     var headerParameters: [String: String]?
     var bodyParameters: [String: Any]?
-    var bodyType: HRequestDataType = .json
+    var multipartBody: [String: HFormValue]?
 }
 
 /// GET request with debug logging and query parameters.
@@ -33,16 +33,16 @@ private struct NotJSONEncodable {
 final class HarborLogRedactionTests: XCTestCase {
 
     override func setUp() async throws {
-        await Harbor.setLogSensitiveHeaders(false)
+        await Harbor.setLogSensitiveValues(false)
         await Harbor.setLoggingEnabled(true)
-        await Harbor.loggingSensitiveKeys(.reset)
+        await Harbor.updateLogSensitiveKeys(.reset)
         await HLogger.logger.clearLogs()
     }
 
     override func tearDown() async throws {
-        await Harbor.setLogSensitiveHeaders(false)
+        await Harbor.setLogSensitiveValues(false)
         await Harbor.setLoggingEnabled(true)
-        await Harbor.loggingSensitiveKeys(.reset)
+        await Harbor.updateLogSensitiveKeys(.reset)
         await HLogger.logger.clearLogs()
     }
 
@@ -101,7 +101,7 @@ final class HarborLogRedactionTests: XCTestCase {
     }
 
     func testConfiguredSensitiveKeysApplyToHeadersAndBodies() async throws {
-        await Harbor.loggingSensitiveKeys(.add(["otp"]))
+        await Harbor.updateLogSensitiveKeys(.add(["otp"]))
         let request = DebugPostRequest(headerParameters: ["X-OTP": "123456"], bodyParameters: ["otp": "654321", "name": "visible"])
         let urlRequest = try await HURLBuilder.buildUrlRequest(request: request)
 
@@ -175,7 +175,7 @@ final class HarborLogRedactionTests: XCTestCase {
     // MARK: - Opt-out
 
     func testLogSensitiveHeadersShowsEverything() async throws {
-        await Harbor.setLogSensitiveHeaders(true)
+        await Harbor.setLogSensitiveValues(true)
         let request = DebugPostRequest(headerParameters: ["X-Session-Id": "sess-42"], bodyParameters: ["password": "hunter2"])
         let urlRequest = try await HURLBuilder.buildUrlRequest(request: request)
 
@@ -198,7 +198,7 @@ final class HarborLogRedactionTests: XCTestCase {
     // MARK: - Multipart in cURL
 
     func testCurlOmitsMultipartBodyWhileRedacting() async throws {
-        let request = DebugPostRequest(bodyParameters: ["password": "hunter2"], bodyType: .multipart)
+        let request = DebugPostRequest(multipartBody: ["password": .text("hunter2")])
         let urlRequest = try await HURLBuilder.buildUrlRequest(request: request)
 
         let curl = await request.generateCurl(urlRequest: urlRequest)
@@ -264,7 +264,7 @@ final class HarborLogRedactionTests: XCTestCase {
     }
 
     func testDataBodyRejectsUnserializableValues() {
-        XCTAssertThrowsError(try HURLBuilder.dataBody(params: ["value": Double.nan], type: .json)) { error in
+        XCTAssertThrowsError(try HURLBuilder.jsonBody(params: ["value": Double.nan])) { error in
             guard case HRequestError.malformedRequest = error else {
                 return XCTFail("Expected malformedRequest but got: \(error)")
             }
@@ -281,14 +281,12 @@ final class HarborLogRedactionTests: XCTestCase {
         }
     }
 
-    func testLoggingAMultipartBodyWithNonFiniteNumbersDoesNotCrash() async throws {
-        // Multipart accepts non-finite numbers as text; the debug log must not crash on them.
-        let request = DebugPostRequest(bodyParameters: ["nan": Double.nan, "inf": Double.infinity, "date": Date()], bodyType: .multipart)
-        let multipartRequest = DebugPostRequest(bodyParameters: ["nan": Double.nan, "inf": Double.infinity], bodyType: .multipart)
-        let urlRequest = try await HURLBuilder.buildUrlRequest(request: multipartRequest)
+    func testLoggingBodyParametersWithNonFiniteNumbersDoesNotCrash() async throws {
+        // Body parameters JSON cannot represent must not crash the debug log.
+        let request = DebugPostRequest(bodyParameters: ["nan": Double.nan, "inf": Double.infinity, "date": Date()])
+        let urlRequest = URLRequest(url: try XCTUnwrap(URL(string: request.url)))
 
         await request.logRequest(urlRequest: urlRequest)
-        await multipartRequest.logRequest(urlRequest: urlRequest)
 
         let log = try await lastLog()
         XCTAssertTrue(info(log, "bodyParameters")?.contains("not JSON-serializable") == true)

@@ -42,7 +42,7 @@ Retry semantics also changed. v4 retries only transient failures: the statuses i
 ## 2. Get-only request properties
 
 **v3:** `headerParameters`, `bodyType`, `bodyParameters` (REST) and `retries`, `headers`, `parameters` (JSON-RPC) were `{ get set }`.
-**v4:** every requirement is `{ get }`, and most have defaults (`needsAuth = false`, `headerParameters = nil`, `bodyType = .json`, ...).
+**v4:** every requirement is `{ get }`, and most have defaults (`needsAuth = false`, `headerParameters = nil`, `multipartBody = nil`, `rawBody = nil`, ...). The JSON-RPC `headers` requirement is now `headerParameters` (see section 12). `bodyType` and `HRequestDataType` were removed: delete those declarations (see section 9 for multipart).
 
 Remove the dummy setters and `@unchecked Sendable`. Expose `bodyParameters` as a computed property so the struct is `Sendable`:
 
@@ -83,7 +83,7 @@ The 401 flow is also stricter. Harbor first asks for the current header: if it a
 ## 4. mTLS
 
 **v3:** `Harbor.setMTLS(HmTLS(p12FileUrl:password:))`, synchronous.
-**v4:** `try await Harbor.setMTLS(HMTLS(p12FileUrl:hosts:passwordProvider:))`, which throws `HMTLSError`. `Harbor.clearMTLS()` removes it.
+**v4:** `try await Harbor.setMTLS(HMTLS(p12FileUrl:hosts:passwordProvider:))`, which throws `HMTLSError`. `Harbor.clearMTLS()` removes it (v3's `setMTLS(nil)`).
 
 ```swift
 func migrateMTLS(p12URL: URL) async throws {
@@ -94,12 +94,12 @@ func migrateMTLS(p12URL: URL) async throws {
 }
 ```
 
-`HmTLS` remains as a typealias and `init(p12FileUrl:password:)` remains deprecated. Scope the identity with `hosts:`. With `nil` it is presented to every host that asks for a client certificate.
+The `HmTLS` type and its `init(p12FileUrl:password:)` were removed: rename `HmTLS` to `HMTLS` and pass the password through the `passwordProvider` closure. Scope the identity with `hosts:`. With `nil` it is presented to every host that asks for a client certificate.
 
 ## 5. SSL pinning
 
 **v3:** `Harbor.setSSlPinningSHA256(String?)`, a hash of the raw public key.
-**v4:** `Harbor.setSSLPinningKeys([String]?)` and `setSSLPinningKeys(_:forHosts:)`. **Pins must be `base64(SHA256(SPKI))`.** Old pins never match, so regenerate them with `Harbor.computePin(for:)` or OpenSSL (see `../harbor/security.md`). Code written against a 4.0.0 pre-release may call `setSSlPinningKeys(_:)` (lowercase `l`); that deprecated shim forwards to `setSSLPinningKeys(_:)`.
+**v4:** `Harbor.setSSLPinningKeys([String]?)` and `setSSLPinningKeys(_:forHosts:)`. **Pins must be `base64(SHA256(SPKI))`.** Old pins never match, so regenerate them with `Harbor.computePin(for:)` or OpenSSL (see `../harbor/security.md`). There is no `setSSlPinning...` (lowercase `l`) spelling in v4.
 
 ## 6. Custom URLSession
 
@@ -122,6 +122,7 @@ func migrateSession() async {
 | `.noConnectionError` | `.noConnection` |
 | `.malformedRequestError` | `.malformedRequest(reason: String?)` |
 | `.timeoutError` | `.timeout` |
+| `.invalidRequest` | removed (it was never produced) |
 | (n/a) | `.cannotConnectToHost`, `.certificate`, `.noCachedDataFound`, `.networkFailure(URLError)`, `.unknown(Error)` |
 
 `HRequestError` is now `Equatable` and `LocalizedError`. Switches that must be exhaustive need the new cases. Pin mismatches, mTLS rejections and certificate-specific `URLError`s surface as `.certificate`; a generic `URLError.secureConnectionFailed` is `.networkFailure`. A JSON body that can't be serialized now fails with `.malformedRequest` instead of crashing.
@@ -132,7 +133,7 @@ v3 had no cache module. v4 adds `HCache.Configuration`, the `.custom`, `.urlCach
 
 ## 9. Multipart bodies
 
-v3 only supported multipart through `bodyType = .multipart` with string `bodyParameters`. That still works, but v4 adds the typed `multipartBody: [String: HFormValue]?` requirement (`.text(String)` and `.file(url:mimeType:fileName:)`), which takes precedence over `bodyParameters` and streams file parts from disk:
+v3 only supported multipart through `bodyType = .multipart` with string `bodyParameters`. v4 removed `bodyType` and `HRequestDataType`: multipart is sent only through the typed `multipartBody: [String: HFormValue]?` requirement (`.text(String)` and `.file(url:mimeType:fileName:)`), which streams file parts from disk. Move the fields from `bodyParameters` into `multipartBody` as `.text(...)` values and return `nil` from `bodyParameters`:
 
 ```swift
 struct UploadAvatarRequest: HPostRequestProtocol {
@@ -146,24 +147,38 @@ struct UploadAvatarRequest: HPostRequestProtocol {
 }
 ```
 
-`rawBody: Data?` (new as well) sends pre-encoded bytes as-is.
+`rawBody: Data?` (new as well) sends pre-encoded bytes as-is, with `Content-Type: application/json` unless `headerParameters` sets a `Content-Type` (header names match case-insensitively). The body is the first non-nil of `rawBody`, `multipartBody` and `bodyParameters` (JSON).
 
 ## 10. Mocks
 
-`HMock(request:statusCode:jsonResponse:error:delay:)` keeps its shape and gains `headers:`. New in v4: `Harbor.setMocksEnabled(_:)`, `Harbor.mocksEnabled`, `HMockSequence` / `Harbor.registerMockSequence(_:)`, `Harbor.mockCallCount(for:)` and `Harbor.isMockRegistered(_:)`. Mocks are now resolved on every attempt, so a sequence drives retries.
+`HMock(request:statusCode:jsonResponse:error:delay:)` keeps its shape and gains `headers:`.
+
+| v3 | v4 |
+|---|---|
+| `Harbor.register(mock:)` | `Harbor.register(mock:)` (unchanged) |
+| `Harbor.remove(mock: mock)` | `Harbor.removeMock(for: MyRequest.self)` |
+| `Harbor.removeAllMocks()` | `Harbor.removeAllMocks()` (also resets call counts) |
+| `Harbor.setMocksOnlyInDebug(true)` | nothing: mocks are on in DEBUG and off in release by default |
+| `Harbor.setMocksOnlyInDebug(false)` | `Harbor.setMocksEnabled(true)` (enables mocks in release builds too) |
+| (n/a) | `Harbor.setMocksEnabled(_ enabled: Bool)`, `Harbor.mocksEnabled` |
+| (n/a) | `Harbor.register(mockSequence: HMockSequence(request:responses:))` with `HMockSequence.Response` values (e.g. `.init(statusCode: 503)`) |
+| (n/a) | `Harbor.mockCallCount(for:)` (every mocked attempt, retries included, since the last `removeAllMocks()`), `Harbor.isMockRegistered(for:)` |
+
+Mocks are now resolved on every attempt, so a sequence drives retries.
 
 ## 11. Logging
 
-`Harbor.setLoggingEnabled(_:)` (default: on in DEBUG, off in release), `Harbor.setLogSensitiveHeaders(_ enabled: Bool)` and `Harbor.loggingSensitiveKeys(_:)` are new. Logged values are redacted by default. `HDebugRequestProtocol.debugType` is get-only and defaults to `.requestAndResponse`: drop `{ get set }` conformances and declare it as a `let` (or omit it).
+`Harbor.setLoggingEnabled(_:)` (default: on in DEBUG, off in release), `Harbor.setLogSensitiveValues(_ enabled: Bool)` and `Harbor.updateLogSensitiveKeys(_:)` are new. Logged values are redacted by default. `HDebugRequestProtocol.debugType` is get-only and defaults to `.requestAndResponse`: drop `{ get set }` conformances and declare it as a `let` (or omit it).
 
 ## 12. JSON-RPC
 
 | v3 | v4 |
 |---|---|
-| `HarborJRPC.setURL(String)` | `HarborJRPC.setURL(URL)`, `try HarborJRPC.setURL(String)` (throws), or `HarborJRPC.configure(url: URL, jrpcVersion:)` |
+| `HarborJRPC.setURL(String)` | `await HarborJRPC.configure(url: URL)` (`HarborJRPC` is an enum with only `configure(url:jrpcVersion:)` and `batch(_:)`) |
+| `HarborJRPC.setJRPCVersion(String)` | `await HarborJRPC.configure(url: URL, jrpcVersion: String)` (default `"2.0"`) |
 | `var parameters: [String: Any]? { get set }` | `var parameters: HJRPCParams? { get }` (`.named` / `.positioned`) |
 | `var retries: Int? { get set }` | `var retryPolicy: HRetryPolicy? { get }` |
-| `var headers: [String: String]? { get set }` | `var headers: [String: String]? { get }` |
+| `var headers: [String: String]? { get set }` | `var headerParameters: [String: String]? { get }` (same name as REST requests) |
 | `request() async -> HJRPCResponse<Model>` | `request() async throws -> Model`, or `requestResult() async -> HJRPCResponse<Model>` |
 | (n/a) | `notify()`, `HarborJRPC.batch(_:) async throws`, `requestID`, `isNotification`, `endpoint: URL?` |
 
@@ -193,11 +208,12 @@ Other JSON-RPC changes: 4xx/5xx responses with a JSON-RPC error body surface as 
 ## Checklist
 
 1. Replace `retries` with `retryPolicy` (REST and JSON-RPC).
-2. Make request types plain structs with get-only properties, and drop `@unchecked Sendable`.
+2. Make request types plain structs with get-only properties, drop `@unchecked Sendable`, remove `bodyType`, and move `.multipart` bodies to `multipartBody`.
 3. Make `getAuthorizationHeader()` return an optional (current token only, refresh in `authFailed()`), and add `clearAllCache()` to logout.
-4. Await `setMTLS`, switch to `HMTLS` with `hosts:` and a password provider.
+4. Await `setMTLS`, switch from `HmTLS` to `HMTLS(p12FileUrl:hosts:passwordProvider:)`.
 5. Regenerate SSL pins as `base64(SHA256(SPKI))`.
 6. Rename error cases and handle the new ones.
-7. Make JSON-RPC calls `try await`, wrap parameters in `HJRPCParams`, and `try` `HarborJRPC.batch`.
+7. Replace `HarborJRPC.setURL` / `setJRPCVersion` with `HarborJRPC.configure(url:jrpcVersion:)`, rename JSON-RPC `headers` to `headerParameters`, make calls `try await`, wrap parameters in `HJRPCParams`, and `try` `HarborJRPC.batch`.
 8. Make `debugType` a get-only `let` (or drop it) in `HDebugRequestProtocol` conformances.
-9. Run `swift build` and fix the remaining compiler errors. Run the test suite.
+9. Replace `Harbor.remove(mock:)` with `Harbor.removeMock(for:)` and `setMocksOnlyInDebug(false)` with `setMocksEnabled(true)` (drop `setMocksOnlyInDebug(true)`).
+10. Run `swift build` and fix the remaining compiler errors. Run the test suite.

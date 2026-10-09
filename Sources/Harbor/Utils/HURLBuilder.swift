@@ -102,24 +102,19 @@ enum HURLBuilder {
                     urlRequest.httpBody = try multipartDataBody(fields: multipartBody, boundary: boundary)
                 }
             } else if let parameters = request.bodyParameters {
-                switch request.bodyType {
-                case .json:
-                    urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
-                    urlRequest.httpBody = try dataBody(params: parameters, type: .json, boundary: nil)
-                case .multipart:
-                    let boundary = "Boundary-\(UUID().uuidString)"
-                    urlRequest.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
-                    urlRequest.httpBody = try dataBody(params: parameters, type: .multipart, boundary: boundary)
-                }
+                urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                urlRequest.httpBody = try jsonBody(params: parameters)
             }
         }
 
-        if let defaultHeaderParameters = await HConfig.shared.defaultHeaderParameters {
-            urlRequest.allHTTPHeaderFields = mergeHeaderParameters(currentHeaders: urlRequest.allHTTPHeaderFields, newHeaders: defaultHeaderParameters)
+        // `setValue` matches header names case-insensitively, so a `content-type` header
+        // replaces the `Content-Type` set above instead of being sent alongside it.
+        for (key, value) in await HConfig.shared.defaultHeaderParameters ?? [:] {
+            urlRequest.setValue(value, forHTTPHeaderField: key)
         }
 
-        if let requestHeaderParameters = request.headerParameters {
-            urlRequest.allHTTPHeaderFields = mergeHeaderParameters(currentHeaders: urlRequest.allHTTPHeaderFields, newHeaders: requestHeaderParameters)
+        for (key, value) in request.headerParameters ?? [:] {
+            urlRequest.setValue(value, forHTTPHeaderField: key)
         }
 
         if let authHeader {
@@ -159,32 +154,21 @@ enum HURLBuilder {
         return HPreparedRequest(urlRequest: urlRequest, bodyFileURL: bodyFileURL, injectedConditionalValidators: injectedConditionalValidators)
     }
 
-    /// Creates request body data from parameters.
-    /// - Parameters:
-    ///   - params: Dictionary of parameters to include in the body.
-    ///   - type: The data type (json or multipart).
-    ///   - boundary: Optional boundary for multipart form data.
+    /// Encodes body parameters as a JSON object.
+    /// - Parameter params: The body parameters.
     /// - Returns: The encoded body data.
-    /// - Throws: `HRequestError.malformedRequest` when the parameters cannot be encoded.
-    static func dataBody(params: [String: Any], type: HRequestDataType, boundary: String? = nil) throws -> Data {
-        switch type {
-        case .multipart:
-            guard let boundary else {
-                throw HRequestError.malformedRequest(reason: "Multipart body requires a boundary")
-            }
-            return try handleFormData(with: params, boundary: boundary)
-        case .json:
-            // `JSONSerialization` raises an uncatchable Objective-C exception for values JSON
-            // cannot represent (Date, Data, NaN/infinite numbers, custom types): validate first.
-            guard JSONSerialization.isValidJSONObject(params) else {
-                let invalidKeys = params.keys.filter { !JSONSerialization.isValidJSONObject(["value": params[$0]!]) }.sorted()
-                throw HRequestError.malformedRequest(reason: "Request body cannot be serialized as JSON: unsupported value for \(invalidKeys.map { "\"\($0)\"" }.joined(separator: ", "))")
-            }
-            do {
-                return try JSONSerialization.data(withJSONObject: params)
-            } catch {
-                throw HRequestError.malformedRequest(reason: "Request body cannot be serialized as JSON: \(error.localizedDescription)")
-            }
+    /// - Throws: `HRequestError.malformedRequest` when the parameters cannot be encoded as JSON.
+    static func jsonBody(params: [String: Any]) throws -> Data {
+        // `JSONSerialization` raises an uncatchable Objective-C exception for values JSON
+        // cannot represent (Date, Data, NaN/infinite numbers, custom types): validate first.
+        guard JSONSerialization.isValidJSONObject(params) else {
+            let invalidKeys = params.keys.filter { !JSONSerialization.isValidJSONObject(["value": params[$0]!]) }.sorted()
+            throw HRequestError.malformedRequest(reason: "Request body cannot be serialized as JSON: unsupported value for \(invalidKeys.map { "\"\($0)\"" }.joined(separator: ", "))")
+        }
+        do {
+            return try JSONSerialization.data(withJSONObject: params)
+        } catch {
+            throw HRequestError.malformedRequest(reason: "Request body cannot be serialized as JSON: \(error.localizedDescription)")
         }
     }
 
@@ -321,26 +305,6 @@ enum HURLBuilder {
         }
     }
 
-    /// Handles multipart form data encoding.
-    /// - Parameters:
-    ///   - params: Dictionary of form fields.
-    ///   - boundary: The multipart boundary string.
-    /// - Returns: The encoded form data.
-    /// - Throws: `HRequestError.malformedRequest` when a field is invalid. A single invalid
-    ///   field fails the whole body; a partial body is never produced.
-    static func handleFormData(with params: [String: Any], boundary: String) throws -> Data {
-        var body = Data()
-        for (key, value) in params.sorted(by: { $0.key < $1.key }) {
-            guard let value = formFieldValue(value) else {
-                throw HRequestError.malformedRequest(reason: "Multipart value for field \"\(key)\" cannot be represented as a string")
-            }
-            body.append(Data(try convertFormField(named: key, value: value, using: boundary).utf8))
-        }
-
-        body.append(Data("--\(boundary)--".utf8))
-        return body
-    }
-
     /// Converts a form field to its multipart representation.
     /// - Parameters:
     ///   - name: The field name.
@@ -362,24 +326,6 @@ enum HURLBuilder {
         fieldString += "\r\n"
         fieldString += "\(value)\r\n"
         return fieldString
-    }
-
-    /// Merges header parameters, with new values overriding existing ones.
-    /// - Parameters:
-    ///   - currentHeaders: Existing headers to merge into.
-    ///   - newHeaders: New headers to apply.
-    /// - Returns: The merged headers dictionary.
-    static func mergeHeaderParameters(currentHeaders: [String: String]?, newHeaders: [String: String]) -> [String: String] {
-        if let currentHeaders {
-            var headers: [String: String] = currentHeaders
-
-            if !newHeaders.isEmpty {
-                headers.merge(newHeaders, uniquingKeysWith: { (_, new) in new })
-            }
-            return headers
-        } else {
-            return newHeaders
-        }
     }
 
     /// Builds a composite URL from a base URL with optional path and query parameters.
@@ -451,31 +397,6 @@ enum HURLBuilder {
     /// - Parameter value: The raw name or value.
     static func percentEncodedQueryComponent(_ value: String) -> String {
         value.addingPercentEncoding(withAllowedCharacters: queryComponentAllowed) ?? value
-    }
-
-    /// String representation of a form field value. Non-string scalars (numbers, booleans)
-    /// are converted to their textual representation; any other type is rejected.
-    private static func formFieldValue(_ value: Any) -> String? {
-        switch value {
-        case let value as String:
-            return value
-        case let bool as Bool:
-            // Any NSNumber with a 0/1 value bridges to Bool, so a boolean is only
-            // recognized through a genuine CFBoolean; numeric values keep their
-            // numeric string form.
-            if let number = value as? NSNumber {
-                guard CFGetTypeID(number) == CFBooleanGetTypeID() else {
-                    return number.stringValue
-                }
-            }
-            return String(bool)
-        case let value as any BinaryInteger:
-            return String(describing: value)
-        case let value as any BinaryFloatingPoint:
-            return String(describing: value)
-        default:
-            return nil
-        }
     }
 
     /// Validates a multipart field or file name: no CR/LF (header injection) and no double

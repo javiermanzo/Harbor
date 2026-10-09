@@ -49,23 +49,24 @@ A request's own `cacheType` wins over the global default. The memory limit of th
 - **`.urlCache`**: `URLSession` applies HTTP caching itself, according to `requestCachePolicy`.
 - **`.custom`**: `request()` always contacts the server, so the custom cache is not a "cache-first" shortcut. Harbor uses it as follows:
   - **Conditional revalidation.** Stored `ETag` / `Last-Modified` values are sent as `If-None-Match` / `If-Modified-Since`, unless the request already sets either header (a caller-set validator is kept as-is). A `304` serves the cached body and refreshes the entry's lifetime and validators. If the `304` arrives but no cached body can be served (evicted, undecodable for this request, or another `Vary` variant), Harbor re-sends the request once without validators and uses that response. This only happens when Harbor injected the validators: a `304` answering caller-set validators is returned as `.api(statusCode: 304, data:)`.
-  - **Store.** Every 2xx response is stored according to its directives.
-  - **Offline.** When the connectivity monitor reports `.unsatisfied`, or the request fails with no connection, Harbor serves a fresh entry or a `stale-if-error` entry. For `needsAuth` requests it remembers the credential namespace used by the last online request for that URL and looks that entry up without calling the auth provider; the provider is only asked when nothing is remembered, and the entry stored without credentials is never served in its place. The remembered credentials are forgotten when the auth provider is replaced and when `Harbor.clearAllCache()` runs. With `.urlCache` it serves the stored 2xx response unless the policy ignores local data. With nothing to serve, the error is `.noConnection`.
+  - **Store.** Every 2xx response is stored according to its directives. A `needsAuth` response is stored only under the credential it was actually sent with (the provider is not asked again when storing); a `needsAuth` request sent without a credential (the provider returned `nil`) is neither stored nor served from cache. A response whose request started before `Harbor.clearAllCache()` or `Harbor.setAuthProvider(_:)` is returned to its caller but neither stored nor remembered for offline lookups.
+  - **Offline.** When the connectivity monitor reports `.unsatisfied`, or the request fails with no connection, Harbor serves a fresh entry or a `stale-if-error` entry. For `needsAuth` requests it remembers the credential used by the last successful online request for that URL and looks that entry up without calling the auth provider; when nothing is remembered the provider is asked for its current header, and the entry stored without credentials is never served in its place. The remembered credentials are forgotten when the auth provider is replaced and when `Harbor.clearAllCache()` runs. With `.urlCache` it serves the stored 2xx response unless the policy ignores local data. With nothing to serve, the error is `.noConnection`.
   - **Errors.** After retries are exhausted, a 5xx or a network error serves an expired entry that is still within its `stale-if-error` window.
 - For cache-first UX, read the cache explicitly (`cache()`) or use `requestStream(source: .cacheAndRemote)`.
 
 ## HTTP semantics (custom cache)
 
-- Lifetime: `s-maxage` > `max-age` > `Expires` (measured from the response `Date`) > `HCache.Configuration.expirationTime`. The response `Age` header is subtracted.
+- Lifetime: `max-age` > `Expires` (measured from the response `Date`) > `HCache.Configuration.expirationTime`. The response `Age` header is subtracted.
 - `no-store`: not stored, and any previous entry for the key is evicted. Bodies larger than `maxObjectSizeInMBs` are treated the same way.
 - `no-cache`: stored but always stale. It is never served without revalidation, and its validators are kept.
-- `must-revalidate` / `proxy-revalidate`: never served stale.
+- `must-revalidate`: never served stale.
+- `s-maxage` and `proxy-revalidate` are ignored: they only apply to shared caches, and Harbor's cache (like `URLCache`) is a private cache.
 - `stale-while-revalidate`: `cache()` and `.cacheAndRemote` may serve the entry within that window after expiry.
 - `stale-if-error`: served after network errors or 5xx responses within that window.
 - `Vary`: the varying request header values are stored as a SHA-256 digest (never in clear) and enforced on reads. `Vary: *` entries are never served directly.
-- Expired entries without validators are evicted. Expired entries with validators are kept as a source of `If-None-Match` / `If-Modified-Since`.
+- Expired entries without validators are evicted once their `stale-if-error` window (if any) has elapsed; until then they are kept (by reads and by the startup cleanup) so they can still be served after errors. Expired entries with validators are kept as a source of `If-None-Match` / `If-Modified-Since`.
 
-For `.urlCache`, `cache()` (and the cached leg of `requestStream(source: .cacheAndRemote)`) serves the stored 2xx response unless it is explicitly stale: `Cache-Control: no-cache` or `no-store`, an elapsed `max-age` / `s-maxage` / `Expires` lifetime (age from `Date` + `Age`, extended by `stale-while-revalidate`), or an elapsed 10% `Last-Modified` heuristic when a `Date` header is present. A response without freshness headers is served. A policy that explicitly prefers cached data (`.returnCacheDataElseLoad`, `.returnCacheDataDontLoad`) skips the check altogether.
+For `.urlCache`, `cache()` (and the cached leg of `requestStream(source: .cacheAndRemote)`) serves the stored 2xx response unless it is explicitly stale: `Cache-Control: no-cache` or `no-store`, an elapsed `max-age` / `Expires` lifetime (age from `Date` + `Age`, extended by `stale-while-revalidate`), or an elapsed 10% `Last-Modified` heuristic when a `Date` header is present. A response without freshness headers is served. A policy that explicitly prefers cached data (`.returnCacheDataElseLoad`, `.returnCacheDataDontLoad`) skips the check altogether.
 
 ## Cache keys and credentials
 
@@ -76,7 +77,7 @@ For `.urlCache`, `cache()` (and the cached leg of `requestStream(source: .cacheA
 ## Storage
 
 - L1: `NSCache` bounded by body bytes.
-- L2: `Library/Caches/HarborCache/`. Each entry is one file named `sha256(key).cache`, holding a length-prefixed JSON metadata header followed by the raw body (format version 2). Files in an older format, or from legacy versions, are deleted. Reads refresh the access time, and eviction is least-recently-used once `diskCacheCapacityInMBs` is exceeded. A background task at startup removes expired and outdated files.
+- L2: `Library/Caches/HarborCache/`. Each entry is one file named `sha256(key).cache`, holding a length-prefixed JSON metadata header followed by the raw body (format version 2). Files in an older format, or from legacy versions, are deleted. Reads refresh the access time, and eviction is least-recently-used once `diskCacheCapacityInMBs` is exceeded. A background task at startup removes expired (outside any `stale-if-error` window) and outdated files.
 - Cached bodies are decoded with the request's `parseData(data:model:)`, the same decoder as the network path. A body that does not decode for a request is a miss for that request but is kept, since request types with different models or parsers may share a URL. The next full response replaces it. On-disk access-time updates are throttled per entry (once per 60 s).
 
 ## API
@@ -106,7 +107,7 @@ func cacheAPI() async {
 }
 ```
 
-`cache(authHeader:)` takes an optional header so you can look up a credential other than the provider's current one.
+Only `cache()`, `cachedETag()` and `clearCache()` are public. For `needsAuth` requests they resolve the credential from the auth provider's current header.
 
 ## Streaming with cache
 

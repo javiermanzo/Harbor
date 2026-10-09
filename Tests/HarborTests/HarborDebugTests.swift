@@ -12,14 +12,14 @@ final class HarborDebugTests: XCTestCase {
 
     override func setUp() async throws {
         await Harbor.removeAllMocks()
-        await Harbor.setMocksOnlyInDebug(false)
-        await Harbor.setLogSensitiveHeaders(false)
+        await Harbor.setMocksEnabled(true)
+        await Harbor.setLogSensitiveValues(false)
         await Harbor.setCustomURLSession(URLSession.shared)
     }
 
     override func tearDown() async throws {
         await Harbor.removeAllMocks()
-        await Harbor.setLogSensitiveHeaders(false)
+        await Harbor.setLogSensitiveValues(false)
         await Harbor.setCustomURLSession(URLSession.shared)
     }
 
@@ -210,7 +210,7 @@ final class HarborDebugTests: XCTestCase {
     }
 
     func testGenerateCurlShowsSensitiveHeadersWhenEnabled() async {
-        await Harbor.setLogSensitiveHeaders(true)
+        await Harbor.setLogSensitiveValues(true)
 
         let request = TestDebugRequest(debugType: .request)
         var urlRequest = URLRequest(url: URL(string: "https://api.example.com/test")!)
@@ -273,7 +273,7 @@ final class HarborDebugTests: XCTestCase {
         cookieStorage.setCookie(cookie)
         addTeardownBlock { cookieStorage.deleteCookie(cookie) }
         await Harbor.setCustomURLSession(URLSession(configuration: configuration))
-        await Harbor.setLogSensitiveHeaders(true)
+        await Harbor.setLogSensitiveValues(true)
 
         let request = TestDebugRequest(debugType: .request)
         let urlRequest = URLRequest(url: URL(string: "https://api.example.com/test")!)
@@ -362,7 +362,7 @@ final class HarborDebugTests: XCTestCase {
 
         // When
         let redacted = await request.generateCurl(urlRequest: urlRequest)
-        await Harbor.setLogSensitiveHeaders(true)
+        await Harbor.setLogSensitiveValues(true)
         let unredacted = await request.generateCurl(urlRequest: urlRequest)
 
         // Then: the cookies Harbor's session would send (HTTPCookieStorage.shared) are included,
@@ -544,7 +544,7 @@ final class HarborDebugTests: XCTestCase {
     // MARK: - Response body redaction
 
     func testLogResponseRedactsSensitiveJSONBody() async {
-        await Harbor.setLogSensitiveHeaders(false)
+        await Harbor.setLogSensitiveValues(false)
         await Harbor.setLoggingEnabled(true)
         await HLogger.logger.clearLogs()
         addTeardownBlock { await HLogger.logger.clearLogs() }
@@ -571,11 +571,11 @@ final class HarborDebugTests: XCTestCase {
     }
 
     func testLogResponseDoesNotRedactBodyWhenSensitiveHeadersEnabled() async {
-        await Harbor.setLogSensitiveHeaders(true)
+        await Harbor.setLogSensitiveValues(true)
         await Harbor.setLoggingEnabled(true)
         await HLogger.logger.clearLogs()
         addTeardownBlock {
-            await Harbor.setLogSensitiveHeaders(false)
+            await Harbor.setLogSensitiveValues(false)
             await HLogger.logger.clearLogs()
         }
 
@@ -597,7 +597,7 @@ final class HarborDebugTests: XCTestCase {
     }
 
     func testRedactedResponseBodyLeavesNonJSONUnchanged() async {
-        await Harbor.setLogSensitiveHeaders(false)
+        await Harbor.setLogSensitiveValues(false)
         let request = TestDebugRequest(debugType: .response)
         let body = "plain-body-without-tokens"
         let data = body.data(using: .utf8)!
@@ -610,7 +610,7 @@ final class HarborDebugTests: XCTestCase {
     }
 
     func testLogResponseRedactsNestedSensitiveJSONBody() async {
-        await Harbor.setLogSensitiveHeaders(false)
+        await Harbor.setLogSensitiveValues(false)
         await Harbor.setLoggingEnabled(true)
         await HLogger.logger.clearLogs()
         addTeardownBlock { await HLogger.logger.clearLogs() }
@@ -650,7 +650,7 @@ final class HarborDebugTests: XCTestCase {
     }
 
     func testRedactedResponseBodyTruncatesLargeBodies() async {
-        await Harbor.setLogSensitiveHeaders(false)
+        await Harbor.setLogSensitiveValues(false)
         let request = TestDebugRequest(debugType: .response)
         let body = String(repeating: "a", count: 20 * 1024)
         let data = body.data(using: .utf8)!

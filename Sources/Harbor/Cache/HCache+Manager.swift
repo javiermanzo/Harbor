@@ -75,6 +75,7 @@ extension HCache {
         /// per-request configuration (no last-writer-wins).
         private var largestRequestedMemoryCapacity = 0
 
+        /// Creates the shared manager: sets up the cache directory and the memory cache.
         private init() {
             // 1. Setup cache directory safely in Library/Caches
             if let systemCacheDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first {
@@ -135,7 +136,7 @@ extension HCache {
             if let entry = memoryCache.object(forKey: nsKey) {
                 let metadata = entry.metadata
                 if metadata.isExpired(maxAge: config.expirationTime, grace: metadata.servableStaleWindow) {
-                    if !metadata.hasValidator { memoryCache.removeObject(forKey: nsKey) }
+                    if metadata.isDiscardable(maxAge: config.expirationTime) { memoryCache.removeObject(forKey: nsKey) }
                     return nil
                 }
                 guard metadata.matchesVary(Self.varyKey(for: metadata.vary, requestHeaders: requestHeaders)) else { return nil }
@@ -153,9 +154,9 @@ extension HCache {
                 return nil
             }
 
-            // Expiration: keep entries that can still be revalidated, evict the rest.
+            // Expiration: keep entries that can still be revalidated or served on error, evict the rest.
             if metadata.isExpired(maxAge: config.expirationTime, grace: metadata.servableStaleWindow) {
-                if !metadata.hasValidator {
+                if metadata.isDiscardable(maxAge: config.expirationTime) {
                     await removeDiskData(forKey: key)
                 }
                 return nil
@@ -269,7 +270,7 @@ extension HCache {
                 vary: vary,
                 varyKey: varyKey,
                 alwaysStale: directives?.noCache == true || varyKey == "*",
-                mustRevalidate: directives?.mustRevalidate == true || directives?.proxyRevalidate == true,
+                mustRevalidate: directives?.mustRevalidate == true,
                 staleIfError: directives?.staleIfError.map { TimeInterval($0) },
                 staleWhileRevalidate: directives?.staleWhileRevalidate.map { TimeInterval($0) }
             )
@@ -304,7 +305,7 @@ extension HCache {
             metadata.etag = response?.value(forHTTPHeaderField: "ETag") ?? entry.etag
             metadata.lastModified = response?.value(forHTTPHeaderField: "Last-Modified") ?? entry.lastModified
             metadata.alwaysStale = (directives?.noCache ?? entry.alwaysStale) || metadata.varyKey == "*"
-            metadata.mustRevalidate = directives.map { $0.mustRevalidate || $0.proxyRevalidate } ?? entry.metadata.mustRevalidate
+            metadata.mustRevalidate = directives.map(\.mustRevalidate) ?? entry.metadata.mustRevalidate
             metadata.staleIfError = directives?.staleIfError.map { TimeInterval($0) } ?? entry.metadata.staleIfError
             metadata.staleWhileRevalidate = directives?.staleWhileRevalidate.map { TimeInterval($0) } ?? entry.metadata.staleWhileRevalidate
 
@@ -424,6 +425,7 @@ extension HCache {
             updateMemoryCostLimit()
         }
 
+        /// Applies the larger of the default and the largest requested memory capacity to the memory cache.
         private func updateMemoryCostLimit() {
             memoryCache.totalCostLimit = max(defaultMemoryCapacity, largestRequestedMemoryCapacity)
         }
@@ -447,7 +449,7 @@ extension HCache {
         // MARK: - Expiration Logic
 
         /// Resolves the effective expiration time honoring the response cache directives
-        /// (`s-maxage` and `max-age` take precedence over `Expires`, which takes precedence
+        /// (`max-age` takes precedence over `Expires`, which takes precedence
         /// over the configured fallback).
         ///
         /// The lifetime is reduced by the response `Age` header (time already spent in upstream
@@ -463,12 +465,12 @@ extension HCache {
             return max(lifetime - Self.ageHeaderValue(of: response), 0)
         }
 
-        /// Explicit freshness lifetime of a response (`s-maxage`, `max-age`, or `Expires`
-        /// relative to `Date`), without accounting for its age.
+        /// Explicit freshness lifetime of a response (`max-age`, or `Expires` relative to `Date`),
+        /// without accounting for its age. `s-maxage` only applies to shared caches (RFC 9111,
+        /// section 5.2.2.10) and is ignored: Harbor's cache and `URLCache` are private caches.
         private static func freshnessLifetime(of response: HTTPURLResponse, now: Date = Date()) -> TimeInterval? {
             if let cacheControl = response.value(forHTTPHeaderField: "Cache-Control") {
                 let directives = Self.parseCacheControlDirectives(cacheControl)
-                if let sMaxAge = directives.sMaxAge { return TimeInterval(sMaxAge) }
                 if let maxAge = directives.maxAge { return TimeInterval(maxAge) }
             }
 
@@ -491,7 +493,7 @@ extension HCache {
         /// is servable unless its headers mark it as explicitly stale, applying the same
         /// directive parsing as the custom cache:
         /// - `Cache-Control: no-cache` / `no-store` are never served;
-        /// - an explicit lifetime (`s-maxage`, `max-age`, or `Expires` relative to `Date`) is
+        /// - an explicit lifetime (`max-age`, or `Expires` relative to `Date`) is
         ///   stale once the current age (time since `Date` plus `Age`) reaches it, extended by
         ///   `stale-while-revalidate` unless the response must be revalidated;
         /// - without an explicit lifetime, the 10% `Last-Modified` heuristic applies when a
@@ -519,8 +521,7 @@ extension HCache {
             }
 
             let currentAge = (date.map { max(now.timeIntervalSince($0), 0) } ?? 0) + Self.ageHeaderValue(of: response)
-            let mustRevalidate = directives.mustRevalidate || directives.proxyRevalidate
-            let grace = mustRevalidate ? 0 : TimeInterval(max(directives.staleWhileRevalidate ?? 0, 0))
+            let grace = directives.mustRevalidate ? 0 : TimeInterval(max(directives.staleWhileRevalidate ?? 0, 0))
             return currentAge < lifetime + grace
         }
 
@@ -645,6 +646,8 @@ extension HCache {
             }
         }
 
+        /// Removes the disk entry of a key and drops it from the disk index.
+        /// - Parameter key: The cache key of the entry.
         private func removeDiskData(forKey key: String) async {
             let dir = self.cacheDirectory
             await withCheckedContinuation { continuation in
@@ -921,6 +924,8 @@ extension HCache {
         /// Sum of the indexed file sizes.
         private(set) var totalSize: Int
 
+        /// Creates an index from existing records.
+        /// - Parameter records: Indexed files keyed by file name.
         init(records: [String: Record] = [:]) {
             self.records = records
             self.totalSize = records.values.reduce(0) { $0 + $1.size }
@@ -976,8 +981,11 @@ extension HCache {
 private extension HCache {
     /// Result of reading an entry file.
     enum DiskRead: Sendable {
+        /// No file exists for the key.
         case missing
+        /// The file exists but is not a valid entry (other format version, truncated or corrupted).
         case invalid
+        /// A valid entry: its metadata and body.
         case entry(EntryMetadata, Data)
     }
 
@@ -986,7 +994,9 @@ private extension HCache {
     struct FileStorage {
         /// A file the startup cleanup may delete, with the modification date seen by the scan.
         struct DiscardCandidate: Sendable {
+            /// The file to delete.
             let url: URL
+            /// The modification date seen by the scan; the file is kept if it changed since.
             let modificationDate: Date?
         }
 
@@ -1075,8 +1085,8 @@ private extension HCache {
                         candidates.append(DiscardCandidate(url: fileURL, modificationDate: modificationDate))
                         continue
                     }
-                    // Entries with validators are kept even when expired: they can still be revalidated.
-                    if !metadata.hasValidator, metadata.isExpired(maxAge: nil, grace: metadata.servableStaleWindow) {
+                    // Expired entries are kept while they can be revalidated or served on error.
+                    if metadata.isDiscardable(maxAge: nil) {
                         candidates.append(DiscardCandidate(url: fileURL, modificationDate: modificationDate))
                     }
                 case "meta":
@@ -1111,8 +1121,9 @@ private extension HCache {
 
 // MARK: - Supporting Types
 
-/// Recognized `Cache-Control` directives. `public`/`private` are parsed for completeness;
-/// they do not change behavior because Harbor's custom cache is a private cache.
+/// Recognized `Cache-Control` directives. `s-maxage`, `proxy-revalidate`, `public` and `private`
+/// are parsed for completeness; they do not change behavior because Harbor's custom cache and
+/// `URLCache` are private caches, to which the shared-cache directives do not apply.
 struct CacheControlDirectives {
     /// The maximum age in seconds specified by `max-age`.
     var maxAge: Int?

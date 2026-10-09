@@ -50,22 +50,25 @@ struct HConfig {
     /// Harbor's SSL pinning, mTLS and redirect policies only apply when its delegate is
     /// `HURLSessionDelegate` (see `Harbor.makeURLSessionDelegate()`) or forwards to one.
     var customURLSession: URLSession?
-    /// Whether mocks should only be enabled in DEBUG builds. Default is true.
-    var mocksOnlyInDebug: Bool = true
-    /// Explicit override for `mocksEnabled`. When non-nil it takes precedence over the
-    /// DEBUG/`mocksOnlyInDebug` computation, letting tests (or release builds) force mocks on/off.
-    var mocksEnabledOverride: Bool?
-    /// Whether debug logging is enabled. Default is true in DEBUG builds, false in RELEASE builds.
     #if DEBUG
+    /// Whether registered mocks answer requests. Default is true in DEBUG builds, false otherwise.
+    var mocksEnabled: Bool = true
+    #else
+    /// Whether registered mocks answer requests. Default is true in DEBUG builds, false otherwise.
+    var mocksEnabled: Bool = false
+    #endif
+    #if DEBUG
+    /// Whether debug logging is enabled. Default is true in DEBUG builds, false in RELEASE builds.
     var isLoggingEnabled: Bool = true
     #else
+    /// Whether debug logging is enabled. Default is true in DEBUG builds, false in RELEASE builds.
     var isLoggingEnabled: Bool = false
     #endif
     /// Whether sensitive values (headers, query values, body fields, error bodies) are printed
     /// unredacted in debug logs, generated cURL commands and `HRequestError` descriptions.
     /// Default is false (redacted). Backed by `HRedactionPolicy` so nonisolated code
     /// (e.g. `HRequestError.errorDescription`) reads the same value.
-    var logSensitiveHeaders: Bool {
+    var logSensitiveValues: Bool {
         get { HRedactionPolicy.logsSensitiveValues }
         set { HRedactionPolicy.logsSensitiveValues = newValue }
     }
@@ -94,19 +97,6 @@ struct HConfig {
     nonisolated static var jsonDecoder: JSONDecoder {
         get { HJSONDecoderStorage.decoder }
         set { HJSONDecoderStorage.decoder = newValue }
-    }
-
-    /// Whether mocks are currently enabled based on build configuration and `mocksOnlyInDebug`.
-    /// An explicit override (`mocksEnabledOverride`) takes precedence over the build rule.
-    var mocksEnabled: Bool {
-        if let override = mocksEnabledOverride {
-            return override
-        }
-        #if DEBUG
-        return true
-        #else
-        return !mocksOnlyInDebug
-        #endif
     }
 
     /// Logs a security warning (visible even with debug logging disabled) for every pin that

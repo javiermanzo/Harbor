@@ -12,11 +12,16 @@ import Foundation
 /// named types in different modules never collide.
 @HRequestManagerActor
 enum HMocker {
+    /// Single mocks, keyed by request type.
     private static var mocks: [ObjectIdentifier: HMock] = [:]
+    /// Mock sequences, keyed by request type.
     private static var sequences: [ObjectIdentifier: HMockSequence] = [:]
+    /// Index of the next response of each sequence.
     private static var sequenceIndexes: [ObjectIdentifier: Int] = [:]
+    /// Number of mocked attempts per request type.
     private static var callCounts: [ObjectIdentifier: Int] = [:]
 
+    /// The registry key of a request type.
     private static func key(for requestType: HRequestBaseRequestProtocol.Type) -> ObjectIdentifier {
         ObjectIdentifier(requestType)
     }
@@ -33,19 +38,19 @@ enum HMocker {
     /// Registers a scripted sequence of responses. Each resolution advances the sequence;
     /// after the last response is consumed it repeats indefinitely. A sequence with no
     /// responses is ignored.
-    /// - Parameter sequence: The responses to play back for requests of `sequence.request`.
-    static func registerMockSequence(_ sequence: HMockSequence) {
-        guard !sequence.responses.isEmpty else { return }
-        let id = key(for: sequence.request)
-        sequences[id] = sequence
+    /// - Parameter mockSequence: The responses to play back for requests of `mockSequence.request`.
+    static func register(mockSequence: HMockSequence) {
+        guard !mockSequence.responses.isEmpty else { return }
+        let id = key(for: mockSequence.request)
+        sequences[id] = mockSequence
         sequenceIndexes[id] = 0
         mocks.removeValue(forKey: id)
     }
 
     /// Removes any registered mock or sequence for the given request type.
-    /// - Parameter mock: The mock whose request type stops being mocked.
-    static func remove(mock: HMock) {
-        let id = key(for: mock.request)
+    /// - Parameter requestType: The request type that stops being mocked.
+    static func removeMock(for requestType: HRequestBaseRequestProtocol.Type) {
+        let id = key(for: requestType)
         mocks.removeValue(forKey: id)
         sequences.removeValue(forKey: id)
         sequenceIndexes.removeValue(forKey: id)
@@ -61,6 +66,7 @@ enum HMocker {
 
     /// Resolves the mock for the given request instance, advancing any registered sequence.
     /// - Parameter request: The request instance whose type selects the mock.
+    /// - Returns: The mock answering this attempt, or `nil` when the request type is not mocked.
     static func mock(request: HRequestBaseRequestProtocol) -> HMock? {
         let id = ObjectIdentifier(type(of: request))
 

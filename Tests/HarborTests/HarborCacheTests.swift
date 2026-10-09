@@ -15,7 +15,7 @@ final class HarborCacheTests: XCTestCase {
         // Clear all cache before each test
         await Harbor.clearAllCache()
         await Harbor.removeAllMocks()
-        await Harbor.setMocksOnlyInDebug(false)
+        await Harbor.setMocksEnabled(true)
         // Set default cache to disabled (original behavior)
         await Harbor.setDefaultCacheType(.disabled)
     }

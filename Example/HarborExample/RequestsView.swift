@@ -58,7 +58,7 @@ struct RequestsView: View {
         await Harbor.setLoggingEnabled(true)
 
         // Configure JRpc
-        await HarborJRPC.setURL(URL(string: "https://ethereum.publicnode.com")!)
+        await HarborJRPC.configure(url: URL(string: "https://ethereum.publicnode.com")!)
 
         // Configure mTLS (optional - requires certificate)
         // guard let url = Bundle.main.url(forResource: "certificate", withExtension: "p12") else { return }

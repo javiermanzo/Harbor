@@ -77,7 +77,6 @@ final class HarborJRPCExtraTests: XCTestCase {
         let mappings: [(HRequestError, HJRPCRequestError)] = [
             (.api(statusCode: 404, data: Data()), .api(statusCode: 404, data: Data())),
             (.invalidHttpResponse, .invalidHttpResponse),
-            (.invalidRequest, .invalidRequest),
             (.authProviderNeeded, .authProviderNeeded),
             (.authNeeded, .authNeeded),
             (.codable(modelName: "Test", error: urlError), .codable(modelName: "Test", error: urlError)),
@@ -89,7 +88,7 @@ final class HarborJRPCExtraTests: XCTestCase {
             (.unknown(urlError), .unknown(urlError)),
             (.cancelled, .cancelled),
             (.certificate, .certificate),
-            (.noCachedDataFound, .noCachedDataFound),
+            (.noCachedDataFound, .unknown(HRequestError.noCachedDataFound)),
             (.networkFailure(urlError), .networkFailure(urlError))
         ]
         
@@ -100,7 +99,7 @@ final class HarborJRPCExtraTests: XCTestCase {
         
         // Test localized descriptions directly
         XCTAssertEqual(HJRPCRequestError.api(statusCode: 500, data: Data()).errorDescription, "The API returned an error with status code 500.")
-        XCTAssertEqual(HJRPCRequestError.urlNeeded.errorDescription, "The JSON-RPC URL is not set. Configure it with HarborJRPC.setURL(_:) or HarborJRPC.configure(url:jrpcVersion:).")
+        XCTAssertEqual(HJRPCRequestError.urlNeeded.errorDescription, "The JSON-RPC URL is not set. Configure it with HarborJRPC.configure(url:jrpcVersion:).")
         XCTAssertEqual(HJRPCRequestError.invalidResponse.errorDescription, "The server response is not a valid JSON-RPC response.")
         XCTAssertEqual(HJRPCRequestError.idMismatch(expected: .number(1), actual: .number(2)).errorDescription, "The response id (2) does not match the request id (1).")
         XCTAssertEqual(HJRPCRequestError.jrpcError(error: HJRPCError(code: 1, message: "msg", data: nil)).errorDescription, "JSON-RPC error 1: msg")

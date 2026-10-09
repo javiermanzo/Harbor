@@ -39,7 +39,7 @@ final class HarborManagerTests: XCTestCase {
         XCTAssertEqual(request.url?.absoluteString, "https://example.com")
         XCTAssertEqual(request.httpMethod, "POST")
         XCTAssertEqual(request.allHTTPHeaderFields?["Content-Type"], "application/json")
-        let httpBody = try HURLBuilder.dataBody(params: ["name": "John"], type: .json, boundary: nil)
+        let httpBody = try HURLBuilder.jsonBody(params: ["name": "John"])
         XCTAssertEqual(request.httpBody, httpBody)
     }
 

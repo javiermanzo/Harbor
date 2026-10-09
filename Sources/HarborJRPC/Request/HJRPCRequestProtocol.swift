@@ -10,13 +10,23 @@ import Harbor
 
 // MARK: - HJRPCRequestProtocol
 
-/// Protocol for defining JSON-RPC 2.0 requests.
+/// A typed JSON-RPC 2.0 call. Conform a `Sendable` struct to it, set `Model` and `method`, and
+/// call `request()`.
 ///
-/// Provides typed JSON-RPC requests that integrate with Harbor networking framework.
-/// Automatically handles JSON-RPC 2.0 specification requirements including request structure,
-/// unique ID generation, and error response handling.
+/// Harbor builds the request object (`jsonrpc`, `method`, `params`, a generated `id`), sends it
+/// as an HTTP `POST` through Harbor's pipeline (auth, retries, mocks, logging, pinning, mTLS)
+/// and validates the response envelope (version, matching `id`, `result` or `error`).
 ///
-/// All conforming types must be `Sendable` for thread safety.
+/// ```swift
+/// struct BalanceRequest: HJRPCRequestProtocol {
+///     typealias Model = String
+///     let address: String
+///     let method = "eth_getBalance"
+///     var parameters: HJRPCParams? { .positioned([address, "latest"]) }
+/// }
+///
+/// let balance = try await BalanceRequest(address: "0x0").request()
+/// ```
 public protocol HJRPCRequestProtocol: Sendable {
     /// The model type that this request returns. Must conform to `HModel`.
     associatedtype Model: HModel
@@ -40,29 +50,32 @@ public protocol HJRPCRequestProtocol: Sendable {
     /// ```
     var retryPolicy: HRetryPolicy? { get }
 
-    /// Additional HTTP headers to include in the request. Default: `nil`.
-    var headers: [String: String]? { get }
+    /// Additional HTTP headers to include in the request, on top of `Harbor`'s default headers.
+    /// Default: `nil`.
+    var headerParameters: [String: String]? { get }
 
     /// Parameters to send with the JSON-RPC request. Default: `nil`.
     var parameters: HJRPCParams? { get }
 
     /// Whether this request is a JSON-RPC notification. Notifications do not carry an `id`
-    /// and the server does not respond to them. Default: `false`.
+    /// and the server does not respond to them: send them with `notify()` (or in a batch, where
+    /// they produce no response element). Default: `false`.
     var isNotification: Bool { get }
 
-    /// The identifier to send with the request. Default: `nil` (a UUID-based identifier is generated).
+    /// The identifier to send with the request. Default: `nil` (a UUID-based identifier is
+    /// generated). Ignored for notifications.
     var requestID: HJRPCId? { get }
 
     /// The JSON-RPC endpoint this request is sent to. Default: `nil`, which uses the URL set with
-    /// `HarborJRPC.setURL(_:)` or `HarborJRPC.configure(url:jrpcVersion:)`. Set it to call a
+    /// `HarborJRPC.configure(url:jrpcVersion:)`. Set it to call a
     /// different endpoint (e.g. another chain's RPC node) without changing the global configuration.
     var endpoint: URL? { get }
 
-    /// Executes the JSON-RPC request asynchronously.
-    /// - Returns: An `HJRPCResponse<Model>` containing either the result or an error.
+    /// Sends the request and returns the outcome as a value instead of throwing.
+    /// - Returns: `.success` with the decoded `result`, or `.error` with the reason it failed.
     func requestResult() async -> HJRPCResponse<Model>
 
-    /// Executes the JSON-RPC request asynchronously.
+    /// Sends the request and returns the decoded `result`.
     /// - Returns: The decoded model on success.
     /// - Throws: An `HJRPCRequestError` when the request fails.
     func request() async throws -> Model
@@ -81,7 +94,7 @@ public extension HJRPCRequestProtocol {
     /// Default: `nil`, no retries are performed.
     var retryPolicy: HRetryPolicy? { nil }
     /// Default: `nil`, no additional HTTP headers.
-    var headers: [String: String]? { nil }
+    var headerParameters: [String: String]? { nil }
     /// Default: `nil`, the request carries no `params` member.
     var parameters: HJRPCParams? { nil }
     /// Default: `false`, the request carries an `id` and expects a response.
@@ -94,7 +107,7 @@ public extension HJRPCRequestProtocol {
 
 /// Default request method implementations.
 public extension HJRPCRequestProtocol {
-    /// Handles JSON-RPC request execution with automatic protocol handling.
+    /// Sends the request through `HJRPCRequestManager` and validates the response envelope.
     func requestResult() async -> HJRPCResponse<Model> {
         return await HJRPCRequestManager.request(model: Model.self, request: self)
     }
@@ -178,7 +191,7 @@ extension HJRPCRequestProtocol {
             throw .codable(modelName: "HJRPCRequest", error: error)
         }
 
-        return HJRPCRequestWrapper<RawModel>(requestedDebugType: requestedDebugType, jsonBody: jsonBody, rawBody: rawBody, jrpcID: jrpcID, url: url, needsAuth: needsAuth, retryPolicy: retryPolicy, headerParameters: headers)
+        return HJRPCRequestWrapper<RawModel>(requestedDebugType: requestedDebugType, jsonBody: jsonBody, rawBody: rawBody, jrpcID: jrpcID, url: url, needsAuth: needsAuth, retryPolicy: retryPolicy, headerParameters: headerParameters)
     }
 }
 
@@ -207,16 +220,24 @@ extension HJRPCTransportRequest {
 
 /// Internal wrapper that adapts JSON-RPC requests to Harbor's request protocol.
 struct HJRPCRequestWrapper<RawModel: HModel>: HJRPCTransportRequest {
+    /// The JSON-RPC response envelope wrapping the request's model.
     typealias Model = HJRPCResult<RawModel>
 
+    /// The debug type to log with, or `nil` when the request did not opt into logging.
     let requestedDebugType: HDebugRequestType?
+    /// The request object (`jsonrpc`, `method`, `id`, `params`).
     let jsonBody: [String: HJSONValue]
     /// The encoded body that is sent. `JSONEncoder` keeps big integers (`HJSONValue.decimal`) exact.
     let rawBody: Data?
+    /// The id sent with the request, or `nil` for a notification.
     let jrpcID: HJRPCId?
+    /// The endpoint the request is sent to.
     let url: String
+    /// Whether the request needs auth.
     let needsAuth: Bool
+    /// The retry policy of the JSON-RPC request.
     let retryPolicy: HRetryPolicy?
+    /// The headers of the JSON-RPC request.
     let headerParameters: [String: String]?
 
     /// The body as a dictionary, used by debug logs. The request itself is sent from `rawBody`.
@@ -237,18 +258,28 @@ struct HJRPCRequestWrapper<RawModel: HModel>: HJRPCTransportRequest {
 
 /// Internal wrapper that sends a JSON-RPC transport request with debug logging enabled.
 struct HJRPCDebugRequest<Base: HJRPCTransportRequest>: HPostRequestProtocol, HRequestWithResultProtocol, HDebugRequestProtocol {
+    /// The model of the wrapped request.
     typealias Model = Base.Model
 
+    /// The wrapped transport request.
     let base: Base
+    /// The debug type requested by the JSON-RPC request(s).
     let debugType: HDebugRequestType
 
+    /// Forwarded from `base`.
     var url: String { base.url }
+    /// Forwarded from `base`.
     var needsAuth: Bool { base.needsAuth }
+    /// Forwarded from `base`.
     var retryPolicy: HRetryPolicy? { base.retryPolicy }
+    /// Forwarded from `base`.
     var headerParameters: [String: String]? { base.headerParameters }
+    /// Forwarded from `base`.
     var bodyParameters: [String: Any]? { base.bodyParameters }
+    /// Forwarded from `base`.
     var rawBody: Data? { base.rawBody }
 
+    /// Forwarded from `base`.
     func parseData<T: Codable>(data: Data, model: T.Type) throws -> T {
         try base.parseData(data: data, model: model)
     }
@@ -256,6 +287,7 @@ struct HJRPCDebugRequest<Base: HJRPCTransportRequest>: HPostRequestProtocol, HRe
 
 // MARK: - Response Body Helpers
 
+/// Body inspection helpers for JSON-RPC responses.
 extension Data {
     /// Whether the body is empty or contains only JSON whitespace.
     var isBlankJSONBody: Bool {

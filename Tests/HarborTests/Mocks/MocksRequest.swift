@@ -33,16 +33,14 @@ struct MockPostRequest: HPostRequestProtocol, @unchecked Sendable {
     var pathParameters: [String: String]?
     var url: String = ""
     var bodyParameters: [String: Any]?
-    var bodyType: HRequestDataType
 
 
-    init(headerParameters: [String: String]? = nil, needsAuth: Bool = false, pathParameters: [String: String]? = nil, url: String, bodyParameters: [String: Any]? = nil, bodyType: HRequestDataType = .json) {
+    init(headerParameters: [String: String]? = nil, needsAuth: Bool = false, pathParameters: [String: String]? = nil, url: String, bodyParameters: [String: Any]? = nil) {
         self.headerParameters = headerParameters
         self.needsAuth = needsAuth
         self.pathParameters = pathParameters
         self.url = url
         self.bodyParameters = bodyParameters
-        self.bodyType = bodyType
     }
 }
 
@@ -52,16 +50,14 @@ struct MockPostBodyRequest: HPostRequestProtocol, @unchecked Sendable {
     var pathParameters: [String: String]?
     var url: String
     var bodyParameters: [String: Any]?
-    var bodyType: HRequestDataType
     var multipartBody: [String: HFormValue]?
 
-    init(headerParameters: [String: String]? = nil, needsAuth: Bool = false, pathParameters: [String: String]? = nil, url: String, bodyParameters: [String: Any]? = nil, bodyType: HRequestDataType = .multipart, multipartBody: [String: HFormValue]? = nil) {
+    init(headerParameters: [String: String]? = nil, needsAuth: Bool = false, pathParameters: [String: String]? = nil, url: String, bodyParameters: [String: Any]? = nil, multipartBody: [String: HFormValue]? = nil) {
         self.headerParameters = headerParameters
         self.needsAuth = needsAuth
         self.pathParameters = pathParameters
         self.url = url
         self.bodyParameters = bodyParameters
-        self.bodyType = bodyType
         self.multipartBody = multipartBody
     }
 }
@@ -108,15 +104,13 @@ struct MockPutRequest<T: HModel>: HPutRequestProtocol, @unchecked Sendable {
     var url: String
     var pathParameters: [String: String]?
     var bodyParameters: [String: Any]?
-    var bodyType: HRequestDataType
 
-    init(headerParameters: [String: String]? = nil, needsAuth: Bool = false, url: String, pathParameters: [String: String]? = nil, bodyParameters: [String: Any]? = nil, bodyType: HRequestDataType = .json) {
+    init(headerParameters: [String: String]? = nil, needsAuth: Bool = false, url: String, pathParameters: [String: String]? = nil, bodyParameters: [String: Any]? = nil) {
         self.headerParameters = headerParameters
         self.needsAuth = needsAuth
         self.url = url
         self.pathParameters = pathParameters
         self.bodyParameters = bodyParameters
-        self.bodyType = bodyType
     }
 }
 
@@ -127,14 +121,12 @@ struct MockPatchRequest<T: HModel>: HPatchRequestProtocol, @unchecked Sendable {
     var url: String
     var pathParameters: [String: String]?
     var bodyParameters: [String: Any]?
-    var bodyType: HRequestDataType
 
-    init(headerParameters: [String: String]? = nil, needsAuth: Bool = false, url: String, pathParameters: [String: String]? = nil, bodyParameters: [String: Any]? = nil, bodyType: HRequestDataType = .json) {
+    init(headerParameters: [String: String]? = nil, needsAuth: Bool = false, url: String, pathParameters: [String: String]? = nil, bodyParameters: [String: Any]? = nil) {
         self.headerParameters = headerParameters
         self.needsAuth = needsAuth
         self.url = url
         self.pathParameters = pathParameters
         self.bodyParameters = bodyParameters
-        self.bodyType = bodyType
     }
 }

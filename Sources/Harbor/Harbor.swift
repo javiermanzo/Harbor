@@ -118,15 +118,6 @@ public extension Harbor {
         warnIfCustomURLSessionBypassesSecurity(afterSecurityChange: true)
     }
 
-    /// Enables SSL pinning with SHA256 hashes of the certificate's SubjectPublicKeyInfo (SPKI),
-    /// base64 encoded. Provide multiple keys to support key rotation (backup pins).
-    /// Use `Harbor.computePin(for:)` to generate pins from a certificate.
-    /// - Parameter sslPinningKeys: The `base64(SHA256(SPKI))` pins to accept, or `nil` to disable global pinning.
-    @available(*, deprecated, renamed: "setSSLPinningKeys(_:)")
-    static func setSSlPinningKeys(_ sslPinningKeys: [String]?) {
-        setSSLPinningKeys(sslPinningKeys)
-    }
-
     /// Computes the SSL pin for a certificate: `base64(SHA256(SPKI))`.
     /// This matches the output of:
     /// `openssl x509 -in cert.pem -pubkey -noout | openssl pkey -pubin -outform der | openssl dgst -sha256 -binary | openssl base64`
@@ -212,24 +203,23 @@ public extension Harbor {
         HRequestManager.invalidateURLSession()
     }
 
-    /// Configures whether mocks are only active in DEBUG builds.
-    /// - Note: This is a method rather than a `get set` property to allow cross-actor mutation, as Swift forbids mutating actor-isolated static properties from outside the actor's context.
-    /// - Parameter value: `true` (default) keeps mocks off in release builds; `false` lets registered mocks answer requests in any build.
-    static func setMocksOnlyInDebug(_ value: Bool) {
-        HConfig.shared.mocksOnlyInDebug = value
-    }
-
-    /// Returns whether mocks are currently enabled.
+    /// Whether registered mocks currently answer requests.
+    ///
+    /// Default: `true` in DEBUG builds and `false` otherwise. Change it with `setMocksEnabled(_:)`.
     static var mocksEnabled: Bool {
         HConfig.shared.mocksEnabled
     }
 
-    /// Forces mocks on or off regardless of build configuration. Pass `nil` to restore the
-    /// default behavior (enabled in DEBUG, gated by `mocksOnlyInDebug` elsewhere).
+    /// Turns mocks on or off. While mocks are off, registered mocks are kept but ignored and
+    /// every request reaches the network.
+    ///
+    /// By default mocks are on in DEBUG builds and off in release builds, so a mock left
+    /// registered by mistake never answers in production. Call `setMocksEnabled(true)` to use
+    /// them in a release build (e.g. a UI-test or demo configuration).
     /// - Note: This is a method rather than a `get set` property to allow cross-actor mutation, as Swift forbids mutating actor-isolated static properties from outside the actor's context.
-    /// - Parameter enabled: `true` or `false` to force mocks on or off, or `nil` for the build-based default.
-    static func setMocksEnabled(_ enabled: Bool?) {
-        HConfig.shared.mocksEnabledOverride = enabled
+    /// - Parameter enabled: Whether registered mocks answer requests.
+    static func setMocksEnabled(_ enabled: Bool) {
+        HConfig.shared.mocksEnabled = enabled
     }
 
     /// Configures whether debug logs are enabled.
@@ -258,19 +248,19 @@ public extension Harbor {
     /// `HRequestError.api` descriptions. On top of them Harbor always redacts its built-in
     /// HTTP credential keys (`authorization`, `cookie`, `set-cookie`, `x-api-key`, `password`,
     /// `token`, `secret`, `session_id`, …) and the header key the auth provider's credential
-    /// is sent under, even after `.set` or `.clear`; use `setLogSensitiveHeaders(true)` to
+    /// is sent under, even after `.set` or `.clear`; use `setLogSensitiveValues(true)` to
     /// print every value.
     ///
     /// Examples:
     /// ```swift
-    /// await Harbor.loggingSensitiveKeys(.set(["signature", "otp"])) // replace the full set
-    /// await Harbor.loggingSensitiveKeys(.add(["signature"]))          // extend the current set
-    /// await Harbor.loggingSensitiveKeys(.reset)                       // restore the defaults
-    /// await Harbor.loggingSensitiveKeys(.clear)                       // drop the configurable keys
+    /// await Harbor.updateLogSensitiveKeys(.set(["signature", "otp"])) // replace the full set
+    /// await Harbor.updateLogSensitiveKeys(.add(["signature"]))          // extend the current set
+    /// await Harbor.updateLogSensitiveKeys(.reset)                       // restore the defaults
+    /// await Harbor.updateLogSensitiveKeys(.clear)                       // drop the configurable keys
     /// ```
     ///
     /// - Parameter action: The update to apply to the sensitive-key set.
-    static func loggingSensitiveKeys(_ action: HLoggingSensitiveKeyAction) {
+    static func updateLogSensitiveKeys(_ action: HLoggingSensitiveKeyAction) {
         HLogger.sensitiveKeys(action)
     }
 
@@ -278,11 +268,11 @@ public extension Harbor {
     /// headers (Authorization, Cookie, Set-Cookie, X-API-Key, the auth provider's header, …),
     /// query values, body fields (e.g. `password`, `access_token`) in logged parameters, cURL
     /// commands and response bodies, and `HRequestError.api` body previews.
-    /// See `loggingSensitiveKeys(_:)` for which keys are sensitive.
+    /// See `updateLogSensitiveKeys(_:)` for which keys are sensitive.
     /// - Parameter enabled: If true, real values are printed. If false (default), values are redacted as `<redacted>`.
     /// - Note: This is a method rather than a `get set` property to allow cross-actor mutation, as Swift forbids mutating actor-isolated static properties from outside the actor's context.
-    static func setLogSensitiveHeaders(_ enabled: Bool) {
-        HConfig.shared.logSensitiveHeaders = enabled
+    static func setLogSensitiveValues(_ enabled: Bool) {
+        HConfig.shared.logSensitiveValues = enabled
     }
 
     /// Configures whether requests handle cookies through the shared cookie storage.
@@ -336,10 +326,10 @@ extension Harbor {
 
 // MARK: - Network Monitoring
 
-public extension Harbor {
+extension Harbor {
 
     /// Stops the internal network connectivity monitor and resets its state.
-    /// The monitor restarts lazily on the next connectivity check. Useful for tests and resets.
+    /// The monitor restarts lazily on the next connectivity check. Used by tests.
     static func stopNetworkMonitor() {
         HRequestManager.connectivityMonitor.stop()
     }
@@ -349,41 +339,47 @@ public extension Harbor {
 
 public extension Harbor {
 
-    /// Registers a mock response for testing. Any existing mock or sequence for the same
+    /// Registers a mock that answers every request of `mock.request` while mocks are enabled
+    /// (see `setMocksEnabled(_:)`). Any mock or mock sequence already registered for that
     /// request type is replaced.
     /// - Parameter mock: The response to answer requests of `mock.request` with.
     static func register(mock: HMock) {
         HMocker.register(mock: mock)
     }
 
-    /// Registers a scripted sequence of mock responses for a request type. Each request of the
-    /// given type resolves to the next response in order; the last one repeats thereafter.
-    /// A sequence with no responses is ignored.
-    /// - Parameter sequence: The responses to play back for requests of `sequence.request`.
-    static func registerMockSequence(_ sequence: HMockSequence) {
-        HMocker.registerMockSequence(sequence)
+    /// Registers a scripted sequence of mock responses for a request type. Each attempt of a
+    /// request of that type (retries included) resolves to the next response in order; the last
+    /// one repeats thereafter. Any mock or mock sequence already registered for that request
+    /// type is replaced. A sequence with no responses is ignored.
+    /// - Parameter mockSequence: The responses to play back for requests of `mockSequence.request`.
+    static func register(mockSequence: HMockSequence) {
+        HMocker.register(mockSequence: mockSequence)
     }
 
-    /// Removes a specific mock.
-    /// - Parameter mock: The mock whose request type stops being mocked (its sequence, if any, is removed too).
-    static func remove(mock: HMock) {
-        HMocker.remove(mock: mock)
+    /// Removes the mock or mock sequence registered for a request type, so its requests reach
+    /// the network again.
+    /// - Parameter requestType: The request type that stops being mocked.
+    static func removeMock(for requestType: HRequestBaseRequestProtocol.Type) {
+        HMocker.removeMock(for: requestType)
     }
 
-    /// Removes all registered mocks.
+    /// Removes every registered mock and mock sequence, and resets the mock call counts.
     static func removeAllMocks() {
         HMocker.removeAll()
     }
 
-    /// Number of times requests of the given type have been resolved through a mock.
+    /// The number of times requests of the given type have been answered by a mock. Every
+    /// attempt counts, so a request retried twice adds 3.
     /// - Parameter requestType: The request type whose mock resolutions are counted.
+    /// - Returns: The number of mocked attempts since launch or the last `removeAllMocks()`.
     static func mockCallCount(for requestType: HRequestBaseRequestProtocol.Type) -> Int {
         HMocker.callCount(for: requestType)
     }
 
-    /// Whether a mock (single or sequenced) is currently registered for the request type.
+    /// Whether a mock or mock sequence is currently registered for the request type.
     /// - Parameter requestType: The request type to look up.
-    static func isMockRegistered(_ requestType: HRequestBaseRequestProtocol.Type) -> Bool {
+    /// - Returns: `true` when requests of that type are answered by a mock while mocks are enabled.
+    static func isMockRegistered(for requestType: HRequestBaseRequestProtocol.Type) -> Bool {
         HMocker.isRegistered(requestType)
     }
 }

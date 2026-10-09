@@ -15,10 +15,10 @@ import LogBird
 /// A key (header name, query item name, JSON field, form field) is sensitive when, after
 /// normalization (lowercased, `-`, `_` and whitespace stripped), it contains any needle from:
 /// - Harbor's built-in HTTP credential keys (``defaultSensitiveKeys``), always applied;
-/// - the logger's configurable keys (`Harbor.loggingSensitiveKeys(_:)`);
+/// - the logger's configurable keys (`Harbor.updateLogSensitiveKeys(_:)`);
 /// - the header keys the auth provider's headers were sent under.
 ///
-/// `Harbor.setLogSensitiveHeaders(true)` disables redaction entirely, so every value is shown.
+/// `Harbor.setLogSensitiveValues(true)` disables redaction entirely, so every value is shown.
 ///
 /// The policy is a value snapshot. ``current`` reads the latest configuration under a lock, so
 /// it can be used from nonisolated, synchronous contexts such as `HRequestError.errorDescription`.
@@ -28,8 +28,8 @@ struct HRedactionPolicy: Sendable {
     static let placeholder = "<redacted>"
 
     /// Built-in sensitive key needles, matched as normalized substrings. They are a floor:
-    /// `Harbor.loggingSensitiveKeys(.set/.clear)` only changes the configurable keys on top of
-    /// them; use `Harbor.setLogSensitiveHeaders(true)` to show every value.
+    /// `Harbor.updateLogSensitiveKeys(.set/.clear)` only changes the configurable keys on top of
+    /// them; use `Harbor.setLogSensitiveValues(true)` to show every value.
     static let defaultSensitiveKeys: Set<String> = Set([
         "authorization", "proxy-authorization", "cookie", "set-cookie",
         "x-api-key", "api_key", "apikey",
@@ -64,7 +64,7 @@ struct HRedactionPolicy: Sendable {
         }
     }
 
-    /// Whether sensitive values are printed unredacted (`Harbor.setLogSensitiveHeaders(_:)`).
+    /// Whether sensitive values are printed unredacted (`Harbor.setLogSensitiveValues(_:)`).
     static var logsSensitiveValues: Bool {
         get { storage.withLock { $0.logsSensitiveValues } }
         set { storage.withLock { $0.logsSensitiveValues = newValue } }
@@ -96,8 +96,11 @@ struct HRedactionPolicy: Sendable {
 
     /// Mutable configuration backing ``current``.
     private struct State {
+        /// Whether sensitive values are printed unredacted.
         var logsSensitiveValues = false
+        /// The configurable sensitive keys (see `Harbor.updateLogSensitiveKeys(_:)`).
         var configuredKeys: Set<String> = LogBird.defaultSensitiveKeys
+        /// Header keys auth providers sent credentials under, normalized.
         var authHeaderKeys: Set<String> = []
     }
 

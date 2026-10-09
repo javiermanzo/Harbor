@@ -348,7 +348,7 @@ final class HarborCacheHardeningTests: XCTestCase {
         let request = EnvelopeRequest(url: "https://cache-stub.test/envelope-stale-format")
         let url = try XCTUnwrap(URL(string: request.url))
         let storeResponse = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: ["Cache-Control": "max-age=0", "ETag": "\"old\""])
-        await request.saveCache(Data("{\"legacy\":true}".utf8), response: storeResponse)
+        await request.saveCache(Data("{\"legacy\":true}".utf8), response: storeResponse, authHeader: nil)
 
         CacheStubProtocol.handler = { request in
             if request.value(forHTTPHeaderField: "If-None-Match") != nil {
@@ -380,7 +380,7 @@ final class HarborCacheHardeningTests: XCTestCase {
         // Given an entry stored by a request type that decodes the body as is
         let url = "https://cache-stub.test/shared-url"
         let plain = CacheStubRequest(url: url, cacheType: .custom(HCache.Configuration(expirationTime: .oneHour)))
-        await plain.saveCache(Self.body("plain"), response: nil)
+        await plain.saveCache(Self.body("plain"), response: nil, authHeader: nil)
         await HCache.Manager.shared.waitForPendingDiskOperations()
         let key = try XCTUnwrap(URL(string: url)).absoluteString
         XCTAssertTrue(FileManager.default.fileExists(atPath: fileURL(forKey: key).path))
@@ -400,7 +400,7 @@ final class HarborCacheHardeningTests: XCTestCase {
         // Given an entry only on disk (memory dropped), stored by a type that decodes it
         let url = "https://cache-stub.test/shared-url-disk"
         let plain = CacheStubRequest(url: url, cacheType: .custom(HCache.Configuration(expirationTime: .oneHour)))
-        await plain.saveCache(Self.body("plain"), response: nil)
+        await plain.saveCache(Self.body("plain"), response: nil, authHeader: nil)
         await HCache.Manager.shared.waitForPendingDiskOperations()
         HCache.Manager.shared.simulateRelaunch()
 
@@ -418,7 +418,7 @@ final class HarborCacheHardeningTests: XCTestCase {
     func testMemoryHitsDoNotTouchTheDiskBeforeTheIndexExists() async throws {
         // Given a stored entry, read back after a relaunch (no memory, no disk index yet)
         let request = CacheStubRequest(url: "https://cache-stub.test/touch-throttle", cacheType: .custom(HCache.Configuration(expirationTime: .oneHour)))
-        await request.saveCache(Self.body("touch"), response: nil)
+        await request.saveCache(Self.body("touch"), response: nil, authHeader: nil)
         await HCache.Manager.shared.waitForPendingDiskOperations()
         HCache.Manager.shared.simulateRelaunch()
         let touchesBefore = HCache.Manager.shared.diskAccessTouchCount
@@ -688,4 +688,94 @@ final class HarborCacheHardeningTests: XCTestCase {
         Harbor.setDefaultCacheType(.custom(HCache.Configuration(memoryCacheCapacityInMBs: 10)))
         XCTAssertEqual(HCache.Manager.shared.memoryCacheCostLimit, 10 * 1024 * 1024)
     }
+
+    // MARK: - Review Follow-ups
+
+    func testExpiredStaleIfErrorEntryWithoutValidatorIsKeptForErrors() async throws {
+        // Given an expired entry without validators, still inside its stale-if-error window
+        let key = "https://cache-stub.test/stale-if-error-kept"
+        let metadata = HCache.EntryMetadata(timestamp: Date().addingTimeInterval(-120), expirationTime: 60, staleIfError: 86_400)
+        try HCache.DiskCodec.encode(metadata, body: Self.body("stale")).write(to: fileURL(forKey: key))
+
+        // When a regular read misses it
+        let fresh: MockModel? = await HCache.Manager.shared.getCachedData(forKey: key, type: MockModel.self, config: HCache.Configuration())
+        XCTAssertNil(fresh)
+
+        // Then it is not evicted and can still be served on error
+        let stale: MockModel? = await HCache.Manager.shared.getStaleOnErrorData(forKey: key, type: MockModel.self)
+        XCTAssertEqual(stale?.quote, "stale")
+        XCTAssertFalse(metadata.isDiscardable(maxAge: nil))
+    }
+
+    func testExpiredEntryWithoutValidatorOrStaleWindowIsDiscardable() async {
+        let metadata = HCache.EntryMetadata(timestamp: Date().addingTimeInterval(-120), expirationTime: 60)
+        XCTAssertTrue(metadata.isDiscardable(maxAge: nil))
+
+        let outsideWindow = HCache.EntryMetadata(timestamp: Date().addingTimeInterval(-600), expirationTime: 60, staleIfError: 60)
+        XCTAssertTrue(outsideWindow.isDiscardable(maxAge: nil))
+
+        let mustRevalidate = HCache.EntryMetadata(timestamp: Date().addingTimeInterval(-120), expirationTime: 60, mustRevalidate: true, staleIfError: 86_400)
+        XCTAssertTrue(mustRevalidate.isDiscardable(maxAge: nil))
+    }
+
+    func testSharedCacheDirectivesAreIgnored() async throws {
+        // s-maxage and proxy-revalidate only apply to shared caches (RFC 9111)
+        let url = try XCTUnwrap(URL(string: "https://cache-stub.test/s-maxage"))
+        let response = try XCTUnwrap(HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: ["Cache-Control": "max-age=0, s-maxage=600"]))
+
+        XCTAssertEqual(HCache.Manager.shared.calculateEffectiveExpirationTime(fromResponse: response, fallbackTime: nil), 0)
+        XCTAssertFalse(HCache.Manager.isFresh(urlCacheResponse: response))
+    }
+
+    func testNeedsAuthResponseSentWithoutCredentialIsNotCached() async throws {
+        // Given a provider without credentials, so the request is sent without a header
+        CacheStubProtocol.handler = { _ in
+            CacheStubProtocol.Reply(status: 200, headers: ["Cache-Control": "max-age=3600"], body: Self.body("anonymous"))
+        }
+        Harbor.setAuthProvider(NoCredentialProvider())
+        let request = CacheStubRequest(url: "https://cache-stub.test/anonymous", needsAuth: true)
+
+        guard case .success = await request.request() else {
+            return XCTFail("Expected the request to succeed without credentials")
+        }
+
+        // Then nothing is cached, neither namespaced nor under the plain URL
+        let plain: MockModel? = await HCache.Manager.shared.getCachedData(forKey: request.url, type: MockModel.self, config: HCache.Configuration())
+        XCTAssertNil(plain)
+
+        // And a credential issued later never sees the anonymous body
+        Harbor.setAuthProvider(FixedTokenProvider("Bearer LATER"))
+        let cached = await request.cache()
+        XCTAssertNil(cached)
+    }
+
+    func testClearAllCacheDuringAnInFlightRequestDiscardsItsResponse() async throws {
+        // Given a slow response for an authenticated request
+        CacheStubProtocol.handler = { _ in
+            Thread.sleep(forTimeInterval: 0.4)
+            return CacheStubProtocol.Reply(status: 200, headers: ["Cache-Control": "max-age=3600"], body: Self.body("previous-user"))
+        }
+        Harbor.setAuthProvider(FixedTokenProvider("Bearer ALICE"))
+        let request = CacheStubRequest(url: "https://cache-stub.test/logout-race", needsAuth: true)
+
+        // When the cache is cleared (logout) while it is in flight
+        let inFlight = Task { await request.request() }
+        try await Task.sleep(nanoseconds: 100_000_000)
+        await Harbor.clearAllCache()
+        let response = await inFlight.value
+
+        // Then the caller still gets the response, but it is not written back to the cache
+        guard case .success(let model) = response else {
+            return XCTFail("Expected the in-flight request to succeed but got: \(response)")
+        }
+        XCTAssertEqual(model.quote, "previous-user")
+        let cached = await request.cache()
+        XCTAssertNil(cached, "A response started before clearAllCache() must not repopulate the cache")
+    }
+}
+
+/// Auth provider that has no credentials.
+private final class NoCredentialProvider: HAuthProviderProtocol {
+    func getAuthorizationHeader() async -> HAuthorizationHeader? { nil }
+    func authFailed() async {}
 }

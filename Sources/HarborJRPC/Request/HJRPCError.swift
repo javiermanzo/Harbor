@@ -21,9 +21,13 @@ public struct HJRPCError: HModel {
     /// in a 2xx response. Not part of the JSON-RPC error object, so it is never encoded.
     public internal(set) var httpStatusCode: Int?
 
+    /// The members of a JSON-RPC error object. `httpStatusCode` is not one of them.
     private enum CodingKeys: String, CodingKey {
+        /// The `code` member.
         case code
+        /// The `message` member.
         case message
+        /// The `data` member.
         case data
     }
 

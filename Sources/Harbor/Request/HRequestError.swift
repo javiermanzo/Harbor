@@ -8,22 +8,21 @@
 import Foundation
 import Network
 
-/// Errors that can occur during network requests.
+/// The reason a request failed. Returned in `HResponse.error` and `HResponseWithResult.error`
+/// (REST requests never throw) and thrown by `requestStream(source:)`.
 public enum HRequestError: Error, Sendable {
-    /// API returned an error with status code and response data.
+    /// The server answered with a non-2xx status code. Carries the status code and the response body.
     case api(statusCode: Int, data: Data)
     /// Invalid HTTP response received.
     case invalidHttpResponse
-    /// Not produced by Harbor's REST pipeline (kept for source compatibility and for
-    /// `HJRPCRequestError` mapping); see `.malformedRequest(reason:)`.
-    case invalidRequest
-    /// Authentication provider is required but not set.
+    /// The request has `needsAuth` set but no provider was configured with `Harbor.setAuthProvider(_:)`.
     case authProviderNeeded
-    /// Authentication is required for this request.
+    /// The server rejected the credentials (`401`) and they could not be refreshed through
+    /// `HAuthProviderProtocol.authFailed()`.
     case authNeeded
-    /// Error occurred while encoding/decoding the model.
+    /// The response body could not be decoded into the model, or a body could not be encoded.
     case codable(modelName: String, error: Error)
-    /// No internet connection available.
+    /// The device is offline (and no usable cached response was found for a GET request).
     case noConnection
     /// The request is malformed and cannot be processed. The reason describes what failed.
     case malformedRequest(reason: String? = nil)
@@ -33,12 +32,12 @@ public enum HRequestError: Error, Sendable {
     case cannotFindHost
     /// The host was resolved but a connection to it could not be established.
     case cannotConnectToHost
-    /// Request was cancelled.
+    /// The request was cancelled, e.g. because its `Task` was cancelled.
     case cancelled
     /// The TLS handshake failed: SSL pinning rejected the server, its certificate chain is
     /// invalid, or the client certificate was missing or rejected.
     case certificate
-    /// No cached data found for cache-only request.
+    /// `requestStream(source: .cacheOnly)` found no usable cached response.
     case noCachedDataFound
     /// A network error that does not map to a more specific case. Wraps the original `URLError`.
     case networkFailure(URLError)
@@ -90,6 +89,8 @@ extension HRequestError {
 
 // MARK: - Error Description
 extension HRequestError: LocalizedError {
+    /// A human-readable description of the error. The body preview of `.api` is redacted with
+    /// the same policy as debug logs (see `Harbor.setLogSensitiveValues(_:)`).
     public var errorDescription: String? {
         switch self {
         case .api(let statusCode, let data):
@@ -102,8 +103,6 @@ extension HRequestError: LocalizedError {
             return description
         case .invalidHttpResponse:
             return "Invalid HTTP response received"
-        case .invalidRequest:
-            return "Invalid request"
         case .authProviderNeeded:
             return "Authentication provider is required"
         case .authNeeded:
@@ -144,7 +143,6 @@ extension HRequestError: Equatable {
         case let (.api(lhsStatus, lhsData), .api(rhsStatus, rhsData)):
             return lhsStatus == rhsStatus && lhsData == rhsData
         case (.invalidHttpResponse, .invalidHttpResponse),
-             (.invalidRequest, .invalidRequest),
              (.authProviderNeeded, .authProviderNeeded),
              (.authNeeded, .authNeeded),
              (.noConnection, .noConnection),

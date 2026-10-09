@@ -99,7 +99,7 @@ final class HarborJRPCHardeningTests: XCTestCase {
     override func setUp() async throws {
         previousCustomURLSession = HConfig.shared.customURLSession
         Harbor.removeAllMocks()
-        Harbor.setMocksOnlyInDebug(false)
+        Harbor.setMocksEnabled(true)
         // Stubbing relies on Harbor's internally built session; another suite may have left a custom one.
         HConfig.shared.customURLSession = nil
         Harbor.setProtocolClasses([JRPCStubProtocol.self])
@@ -609,7 +609,7 @@ private struct StringRequest: HJRPCRequestProtocol {
     let method: String
     let parameters: HJRPCParams?
     let requestID: HJRPCId?
-    let headers: [String: String]?
+    let headerParameters: [String: String]?
     let retryPolicy: HRetryPolicy?
     let endpoint: URL?
 
@@ -622,7 +622,7 @@ private struct StringRequest: HJRPCRequestProtocol {
         self.method = method
         self.parameters = parameters
         self.requestID = requestID
-        self.headers = headers
+        self.headerParameters = headers
         self.retryPolicy = retryPolicy
         self.endpoint = endpoint
     }
@@ -634,13 +634,13 @@ private struct DebugStringRequest: HJRPCRequestProtocol, HDebugRequestProtocol {
     let method: String
     let debugType: HDebugRequestType
     let requestID: HJRPCId?
-    let headers: [String: String]?
+    let headerParameters: [String: String]?
 
     init(method: String, debugType: HDebugRequestType, requestID: HJRPCId? = nil, headers: [String: String]? = nil) {
         self.method = method
         self.debugType = debugType
         self.requestID = requestID
-        self.headers = headers
+        self.headerParameters = headers
     }
 }
 

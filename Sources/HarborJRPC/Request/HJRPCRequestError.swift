@@ -8,25 +8,30 @@
 import Foundation
 import Harbor
 
-/// Errors that can occur during JSON-RPC requests.
+/// The reason a JSON-RPC call failed. Thrown by `request()`, `notify()` and `HarborJRPC.batch(_:)`,
+/// and returned in `HJRPCResponse.error` by `requestResult()`.
+///
+/// Transport failures mirror `HRequestError`; `.jrpcError`, `.invalidResponse`, `.idMismatch`,
+/// `.urlNeeded` and `.invalidRequest` are specific to JSON-RPC.
 public enum HJRPCRequestError: Error, Sendable {
-    /// API returned an error with status code and response data.
+    /// The server answered with a non-2xx status code and a body that is not a JSON-RPC error
+    /// object. Carries the status code and the response body.
     case api(statusCode: Int, data: Data)
-    /// JSON-RPC specific error returned by the server.
+    /// The server returned a JSON-RPC error object (with any HTTP status; see `HJRPCError.httpStatusCode`).
     case jrpcError(error: HJRPCError)
-    /// Base URL is required but not set.
+    /// No endpoint: `HarborJRPC.configure(url:jrpcVersion:)` was not called and the request has no `endpoint`.
     case urlNeeded
     /// Invalid HTTP response received.
     case invalidHttpResponse
-    /// The request is invalid or malformed.
+    /// `notify()` was called on a request whose `isNotification` is `false`.
     case invalidRequest
     /// The server response is not a valid JSON-RPC response.
     case invalidResponse
     /// The response identifier does not match the request identifier.
     case idMismatch(expected: HJRPCId?, actual: HJRPCId?)
-    /// Authentication provider is required but not set.
+    /// The request has `needsAuth` set but no provider was configured with `Harbor.setAuthProvider(_:)`.
     case authProviderNeeded
-    /// Authentication is required for this request.
+    /// The server rejected the credentials (`401`) and they could not be refreshed.
     case authNeeded
     /// Error occurred while encoding/decoding the model.
     case codable(modelName: String, error: Error)
@@ -44,8 +49,6 @@ public enum HJRPCRequestError: Error, Sendable {
     case certificate
     /// Request was cancelled.
     case cancelled
-    /// No cached data found for cache-only request.
-    case noCachedDataFound
     /// A network error that does not map to a more specific case. Wraps the original `URLError`.
     case networkFailure(URLError)
     /// An unexpected error that is not a `URLError`. Wraps the original error.
@@ -61,8 +64,6 @@ extension HJRPCRequestError {
             return .api(statusCode: statusCode, data: data)
         case .invalidHttpResponse:
             return .invalidHttpResponse
-        case .invalidRequest:
-            return .invalidRequest
         case .authProviderNeeded:
             return .authProviderNeeded
         case .authNeeded:
@@ -84,7 +85,8 @@ extension HJRPCRequestError {
         case .certificate:
             return .certificate
         case .noCachedDataFound:
-            return .noCachedDataFound
+            // Only produced by cache reads of GET requests, never by a JSON-RPC call.
+            return .unknown(hRequestError)
         case .networkFailure(let error):
             return .networkFailure(error)
         case .unknown(let error):
@@ -96,6 +98,7 @@ extension HJRPCRequestError {
 // MARK: - LocalizedError
 
 extension HJRPCRequestError: LocalizedError {
+    /// A human-readable description of the error.
     public var errorDescription: String? {
         switch self {
         case .api(let statusCode, _):
@@ -103,11 +106,11 @@ extension HJRPCRequestError: LocalizedError {
         case .jrpcError(let error):
             return "JSON-RPC error \(error.code): \(error.message)"
         case .urlNeeded:
-            return "The JSON-RPC URL is not set. Configure it with HarborJRPC.setURL(_:) or HarborJRPC.configure(url:jrpcVersion:)."
+            return "The JSON-RPC URL is not set. Configure it with HarborJRPC.configure(url:jrpcVersion:)."
         case .invalidHttpResponse:
             return "The server returned an invalid HTTP response."
         case .invalidRequest:
-            return "The request is invalid or malformed."
+            return "notify() was called on a request whose isNotification is false."
         case .invalidResponse:
             return "The server response is not a valid JSON-RPC response."
         case .idMismatch(let expected, let actual):
@@ -134,8 +137,6 @@ extension HJRPCRequestError: LocalizedError {
             return "The SSL/TLS certificate validation failed."
         case .cancelled:
             return "The request was cancelled."
-        case .noCachedDataFound:
-            return "No cached data found for a cache-only request."
         case .networkFailure(let error):
             return "Network request failed (\(error.code.rawValue)): \(error.localizedDescription)"
         case .unknown(let error):

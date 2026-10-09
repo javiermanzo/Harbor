@@ -9,13 +9,9 @@ import HarborJRPC
 ## Setup
 
 ```swift
-func configureRPC() async throws {
-    // URL overload: non-throwing
+func configureRPC() async {
+    // Endpoint and protocol version (jrpcVersion defaults to "2.0")
     await HarborJRPC.configure(url: URL(string: "https://rpc.example.com")!, jrpcVersion: "2.0")
-
-    // Or separately; the String overload throws HJRPCConfigurationError.invalidURL
-    try await HarborJRPC.setURL("https://rpc.example.com")
-    await HarborJRPC.setJRPCVersion("2.0")
 
     // Network settings (timeouts, auth, pinning, mTLS, logging) come from Harbor
     await Harbor.setDefaultTimeoutInterval(20)
@@ -44,7 +40,7 @@ struct GetBalanceRequest: HJRPCRequestProtocol {
 | `parameters: HJRPCParams?` | `nil` (no `params` member) |
 | `needsAuth: Bool` | `false` |
 | `retryPolicy: HRetryPolicy?` | `nil` |
-| `headers: [String: String]?` | `nil` |
+| `headerParameters: [String: String]?` | `nil` |
 | `isNotification: Bool` | `false` |
 | `requestID: HJRPCId?` | `nil`: a UUID string id is generated |
 | `endpoint: URL?` | `nil`: the configured URL |
@@ -154,7 +150,7 @@ struct BlockHashRequest: HJRPCRequestProtocol {
 struct AuthenticatedNodeRequest: HJRPCRequestProtocol {
     typealias Model = Int
     let method = "getblockcount"
-    let headers: [String: String]? = ["Authorization": "Basic dXNlcjpwYXNz"]
+    let headerParameters: [String: String]? = ["Authorization": "Basic dXNlcjpwYXNz"]
 }
 ```
 
@@ -201,7 +197,7 @@ func sendNotification() async throws {
 }
 ```
 
-`notify()` throws `.invalidRequest` when `isNotification` is `false`. A 2xx response with an empty body counts as delivered. A 2xx body that isn't JSON-RPC throws `.codable`, and a JSON-RPC error object throws `.jrpcError`.
+`notify()` throws `HJRPCRequestError.invalidRequest` when `isNotification` is `false` (the only case that produces it). A 2xx response with an empty body counts as delivered. A 2xx body that isn't JSON-RPC throws `.codable`, and a JSON-RPC error object throws `.jrpcError`.
 
 ## Batches
 
@@ -255,7 +251,7 @@ func handle(_ error: HJRPCRequestError) {
     case .invalidResponse:
         print("Not a JSON-RPC response (or wrong jsonrpc version)")
     case .urlNeeded:
-        print("Call HarborJRPC.setURL / configure first")
+        print("Call HarborJRPC.configure(url:) first")
     case .noConnection, .timeout, .cannotFindHost, .cannotConnectToHost, .networkFailure:
         print("Network problem")
     case .certificate:
@@ -264,7 +260,7 @@ func handle(_ error: HJRPCRequestError) {
         print("Auth problem")
     case .codable(let model, let underlying):
         print("Coding error in \(model): \(underlying)")
-    case .malformedRequest, .invalidRequest, .invalidHttpResponse, .cancelled, .noCachedDataFound, .unknown:
+    case .malformedRequest, .invalidRequest, .invalidHttpResponse, .cancelled, .unknown:
         print(error.localizedDescription)
     }
 }

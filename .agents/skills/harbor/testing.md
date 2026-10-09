@@ -12,7 +12,7 @@ Consequences:
 - Mocks are keyed by request type identity: one mock (or sequence) per type.
 - `HJRPCRequestProtocol` requests can't be mocked with `HMock`, because they are sent through internal wrapper types. Use a `URLProtocol` stub on a custom session instead (see below).
 
-Mocks are enabled by default in DEBUG builds. `Harbor.setMocksEnabled(true/false)` forces them on or off, and `nil` restores the default. `Harbor.setMocksOnlyInDebug(false)` allows mocks in release builds when no override is set.
+Mocks are on by default in DEBUG builds and off in release builds. `Harbor.setMocksEnabled(true/false)` turns them on or off (`setMocksEnabled(true)` also enables them in release, e.g. for a UI-test or demo configuration); read the current value with `Harbor.mocksEnabled`.
 
 ## API
 
@@ -49,22 +49,21 @@ func mockAPI() async {
     await Harbor.register(mock: HMock(request: GetTodoRequest.self, statusCode: 0, error: .timeout))
 
     // Scripted sequence: one response per attempt, the last one repeats
-    await Harbor.registerMockSequence(HMockSequence(request: GetTodoRequest.self, responses: [
+    await Harbor.register(mockSequence: HMockSequence(request: GetTodoRequest.self, responses: [
         .init(statusCode: 503, headers: ["Retry-After": "0"]),
         .init(statusCode: 200, jsonResponse: #"{"id":1,"title":"Recovered"}"#)
     ]))
 
     let calls = await Harbor.mockCallCount(for: GetTodoRequest.self)
-    let registered = await Harbor.isMockRegistered(GetTodoRequest.self)
+    let registered = await Harbor.isMockRegistered(for: GetTodoRequest.self)
     print(calls, registered)
 
-    await Harbor.remove(mock: mock)      // removes the mock or sequence registered for GetTodoRequest
-    await Harbor.removeAllMocks()        // also resets call counts
-    await Harbor.setMocksEnabled(nil)
+    await Harbor.removeMock(for: GetTodoRequest.self) // removes the mock or sequence registered for GetTodoRequest
+    await Harbor.removeAllMocks()                     // also resets call counts
 }
 ```
 
-Registering a mock replaces any mock or sequence for the same type, and vice versa. `HMockSequence(request:mocks:)` builds a sequence from `HMock` values.
+Registering a mock replaces any mock or sequence for the same type, and vice versa. `HMockSequence(request:responses:)` takes `HMockSequence.Response` values (`.init(statusCode:jsonResponse:error:headers:delay:)`). `Harbor.mockCallCount(for:)` counts every mocked attempt for the type, retries included, since the last `removeAllMocks()`.
 
 ## XCTest patterns
 
@@ -79,7 +78,6 @@ final class TodoTests: XCTestCase {
 
     override func tearDown() async throws {
         await Harbor.removeAllMocks()
-        await Harbor.setMocksEnabled(nil)
     }
 
     func testDecodesTodo() async {
@@ -113,7 +111,7 @@ final class TodoTests: XCTestCase {
             let url = "https://api.example.com/todos/1"
             let retryPolicy: HRetryPolicy? = HRetryPolicy(maxRetries: 2, baseDelay: 0, jitter: 0...0)
         }
-        await Harbor.registerMockSequence(HMockSequence(request: RetryingTodoRequest.self, responses: [
+        await Harbor.register(mockSequence: HMockSequence(request: RetryingTodoRequest.self, responses: [
             .init(statusCode: 503),
             .init(statusCode: 200, jsonResponse: #"{"id":1,"title":"ok"}"#)
         ]))
@@ -164,7 +162,7 @@ func authRefreshScenario() async -> Int {
     let provider = RotatingAuthProvider()
     await Harbor.setAuthProvider(provider)
     await Harbor.setMocksEnabled(true)
-    await Harbor.registerMockSequence(HMockSequence(request: SecureTodoRequest.self, responses: [
+    await Harbor.register(mockSequence: HMockSequence(request: SecureTodoRequest.self, responses: [
         .init(statusCode: 401),
         .init(statusCode: 200, jsonResponse: #"{"id":2,"title":"secret"}"#)
     ]))

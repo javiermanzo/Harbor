@@ -222,7 +222,6 @@ struct PartialUpdateUserWithJSONRequest: HPatchRequestProtocol, @unchecked Senda
     var bodyParameters: [String: Any]?
 
     var url: String { "https://api.example.com/users/\(id)" }
-    var bodyType: HRequestDataType { .json }
 
     init(id: Int, email: String) {
         self.id = id

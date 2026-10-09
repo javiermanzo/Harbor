@@ -351,11 +351,11 @@ struct TracedTimelineRequest: HGetRequestProtocol, HDebugRequestProtocol {
 
 func enableLogs() async {
     await Harbor.setLoggingEnabled(true)                 // works in release builds too
-    await Harbor.loggingSensitiveKeys(.add(["otp"]))     // redact extra fields
+    await Harbor.updateLogSensitiveKeys(.add(["otp"]))   // redact extra fields
 }
 ```
 
-Logged values (headers, query, body, cURL, response body, `.api` error previews) are redacted. `Harbor.setLogSensitiveHeaders(true)` shows them in clear, for local debugging only.
+Logged values (headers, query, body, cURL, response body, `.api` error previews) are redacted. `Harbor.setLogSensitiveValues(true)` shows them in clear, for local debugging only.
 
 ## Related files
 

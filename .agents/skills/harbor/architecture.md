@@ -19,7 +19,7 @@ HRequestBaseRequestProtocol            url, httpMethod, needsAuth, retryPolicy,
 ├── HRequestWithResultProtocol         associatedtype Model: HModel; parseData; request() -> HResponseWithResult<Model>
 │   └── HGetRequestProtocol            queryParameters, cacheType, cache(), requestStream(source:)
 └── HRequestWithEmptyResponseProtocol  request() -> HResponse
-    ├── HRequestWithBodyProtocol       bodyType, bodyParameters, multipartBody, rawBody
+    ├── HRequestWithBodyProtocol       bodyParameters, multipartBody, rawBody (first non-nil of rawBody, multipartBody, bodyParameters)
     │   ├── HPostRequestProtocol
     │   ├── HPutRequestProtocol
     │   └── HPatchRequestProtocol
@@ -49,15 +49,18 @@ request()
  │       so an HMockSequence advances across retries and 401 re-attempts)
  ├─ offline (NWPathMonitor path is .unsatisfied)?
  │    └─ GET: serve a fresh custom-cache entry / URLCache response / stale-if-error entry,
- │       else fail with .noConnection (needsAuth: the credential namespace remembered from
- │       the last online request for that URL is used; the provider is only asked when
- │       nothing is remembered, and the un-namespaced entry is never served)
+ │       else fail with .noConnection (needsAuth: the credential remembered from the last
+ │       online success for that URL is used without asking the provider; when nothing is
+ │       remembered the provider is asked for its current header; the un-namespaced entry
+ │       is never served)
  ├─ needsAuth? → authProvider.getAuthorizationHeader()  (no provider → .authProviderNeeded)
  └─ attempt loop (runAttempts)
       ├─ HURLBuilder.prepareRequest: URL + path/query encoding, timeout, cookies, body,
       │  default headers → request headers → auth header, conditional validators (custom cache)
       ├─ URLSession data/upload task with a per-task HTaskContext delegate
-      ├─ 2xx  → decode off-actor, store in cache (GET) → .success
+      ├─ 2xx  → decode off-actor, store in cache (GET; needsAuth: only under the credential it
+      │         was sent with, never when sent without one; skipped if the request started
+      │         before clearAllCache() / setAuthProvider(_:)) → .success
       ├─ 304  → serve + refresh the cached entry; if no cached body and Harbor injected the
       │         validators: re-send once without them (caller-set validators: .api(304))
       ├─ 401  → provider already rotated the header? retry with it without authFailed();
@@ -78,7 +81,7 @@ Notes:
 
 ## Connectivity
 
-`HRequestManagerMonitor` wraps `NWPathMonitor` and starts lazily. Only a definitive `.unsatisfied` path blocks a request. `.requiresConnection` and "no update received yet" let the request through. In DEBUG/simulator builds requests are always allowed unless `Harbor.setAssumeNetworkAvailableInDebug(false)` is set. `Harbor.stopNetworkMonitor()` resets it.
+`HRequestManagerMonitor` wraps `NWPathMonitor` and starts lazily. Only a definitive `.unsatisfied` path blocks a request. `.requiresConnection` and "no update received yet" let the request through. In DEBUG/simulator builds requests are always allowed unless `Harbor.setAssumeNetworkAvailableInDebug(false)` is set. The internal `Harbor.stopNetworkMonitor()` (tests only, via `@testable import`) resets it.
 
 ## URLSession management
 

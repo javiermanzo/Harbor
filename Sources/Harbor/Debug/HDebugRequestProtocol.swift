@@ -26,6 +26,7 @@ public protocol HDebugRequestProtocol: Sendable {
 /// Default implementation providing `.requestAndResponse` as the default debug type.
 /// This ensures comprehensive logging by default while allowing customization.
 public extension HDebugRequestProtocol {
+    /// Default: `.requestAndResponse`.
     var debugType: HDebugRequestType { .requestAndResponse }
 }
 
@@ -53,7 +54,7 @@ extension HDebugRequestProtocol {
     ///
     /// Every printed value goes through `HRedactionPolicy`: sensitive headers, query values
     /// and path/query/body parameters are replaced with `<redacted>` unless
-    /// `Harbor.setLogSensitiveHeaders(true)` is set.
+    /// `Harbor.setLogSensitiveValues(true)` is set.
     /// - Parameter urlRequest: The URL request to debug.
     func logRequest(urlRequest: URLRequest) async {
         // Gate before building the payload: serializing parameters and
@@ -183,7 +184,7 @@ extension HDebugRequestProtocol {
     /// Generates a cURL command string equivalent to the given URL request.
     /// This is useful for debugging and reproducing requests outside of the application.
     /// Sensitive headers, cookies, query values and body fields are redacted with
-    /// `HRedactionPolicy` unless `Harbor.setLogSensitiveHeaders(true)` is set; multipart
+    /// `HRedactionPolicy` unless `Harbor.setLogSensitiveValues(true)` is set; multipart
     /// bodies are omitted while redaction is enabled.
     /// Cookies (`-b`) are those the request's session would send: the custom session's cookie
     /// storage when one is set, otherwise `HTTPCookieStorage.shared` only when
@@ -268,7 +269,7 @@ extension HDebugRequestProtocol {
     }
 
     /// Returns the value to print for a header in debug output, redacting sensitive ones
-    /// (see `HRedactionPolicy`) unless `HConfig.logSensitiveHeaders` is enabled.
+    /// (see `HRedactionPolicy`) unless `HConfig.logSensitiveValues` is enabled.
     internal func redactedHeaderValue(name: String, value: String) async -> String {
         HRedactionPolicy.current.redactedHeaderValue(name: name, value: value)
     }
@@ -297,7 +298,7 @@ extension HDebugRequestProtocol {
     /// The body is decoded as UTF-8; non-UTF-8 (binary) content is represented as
     /// `<binary N bytes>`. Values of sensitive keys (e.g. login/refresh tokens) are replaced
     /// with `<redacted>` at any nesting depth in JSON bodies and in form-encoded bodies, unless
-    /// `HConfig.logSensitiveHeaders` is enabled; a JSON body that cannot be parsed is omitted.
+    /// `HConfig.logSensitiveValues` is enabled; a JSON body that cannot be parsed is omitted.
     /// Bodies longer than 16 K characters are truncated.
     internal func redactedResponseBody(data: Data, httpResponse: HTTPURLResponse) async -> String? {
         guard let raw = String(data: data, encoding: .utf8) else {

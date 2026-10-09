@@ -68,7 +68,7 @@ final class HarborRealServiceTests: XCTestCase {
         await Harbor.setProtocolClasses([LocalStubURLProtocol.self])
         await Harbor.removeAllMocks()
         await Harbor.clearAllCache()
-        await Harbor.setMocksOnlyInDebug(false)
+        await Harbor.setMocksEnabled(true)
         await Harbor.setDefaultCacheType(.disabled)
     }
 

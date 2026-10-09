@@ -32,10 +32,11 @@ Override `parseData` for custom decoding (date strategies, envelopes). The same 
 
 | Property | Type | Default | Notes |
 |---|---|---|---|
-| `bodyType` | `HRequestDataType` | `.json` | `.json` or `.multipart` (applies to `bodyParameters`). |
 | `bodyParameters` | `[String: Any]?` | required | Serialized with `JSONSerialization`. Values JSON can't represent (`Date`, `Data`, NaN, custom types) fail with `.malformedRequest`. Implement it as a computed property so the struct stays `Sendable`. |
-| `multipartBody` | `[String: HFormValue]?` | `nil` | Takes precedence over `bodyParameters`. A body with files is streamed from a temporary file. |
-| `rawBody` | `Data?` | `nil` | Takes precedence over everything. Sent as-is with `Content-Type: application/json` (override it in `headerParameters`). |
+| `multipartBody` | `[String: HFormValue]?` | `nil` | Sent as `multipart/form-data`; takes precedence over `bodyParameters`. The only way to send multipart. A body with files is streamed from a temporary file. |
+| `rawBody` | `Data?` | `nil` | Takes precedence over everything. Sent as-is with `Content-Type: application/json` unless `headerParameters` sets a `Content-Type` (header names match case-insensitively, so `content-type` also replaces it). |
+
+The body is the first non-nil of `rawBody`, `multipartBody` and `bodyParameters`; a request with none of them is sent without a body.
 
 ## Method protocols
 
@@ -164,7 +165,7 @@ struct UploadAvatarRequest: HPostRequestProtocol {
 }
 ```
 
-`.file(url:mimeType:fileName:)`: if `mimeType` is `nil`, no part `Content-Type` is sent. If `fileName` is `nil`, the URL's last path component is used. Field names or values containing CR/LF or the boundary fail with `.malformedRequest`. `bodyType = .multipart` with `bodyParameters` also works for string-convertible values; prefer `multipartBody`.
+`.file(url:mimeType:fileName:)`: if `mimeType` is `nil`, no part `Content-Type` is sent. If `fileName` is `nil`, the URL's last path component is used. Field names or values containing CR/LF or the boundary fail with `.malformedRequest`.
 
 ## `HDebugRequestProtocol`
 
@@ -223,7 +224,7 @@ func handle(_ response: HResponseWithResult<Article>) {
             print("Bad request: \(reason ?? "-")")
         case .cancelled:
             break
-        case .invalidHttpResponse, .invalidRequest, .noCachedDataFound, .unknown:
+        case .invalidHttpResponse, .noCachedDataFound, .unknown:
             print(error.localizedDescription)
         }
     }
@@ -247,10 +248,10 @@ func handle(_ response: HResponse) {
 | `parameters` | `HJRPCParams?` (`.named([String: any Encodable & Sendable])` / `.positioned([any Encodable & Sendable])`) | `nil` |
 | `needsAuth` | `Bool` | `false` |
 | `retryPolicy` | `HRetryPolicy?` | `nil` (calls are POST, so see `retryNonIdempotentRequests`) |
-| `headers` | `[String: String]?` | `nil` |
+| `headerParameters` | `[String: String]?` | `nil` |
 | `isNotification` | `Bool` | `false` |
 | `requestID` | `HJRPCId?` | `nil` (a UUID string is generated) |
-| `endpoint` | `URL?` | `nil` (uses `HarborJRPC.setURL` / `configure`) |
+| `endpoint` | `URL?` | `nil` (uses the URL from `HarborJRPC.configure(url:jrpcVersion:)`) |
 
 Methods: `request() async throws -> Model`, `requestResult() async -> HJRPCResponse<Model>` and `notify() async throws`. See `examples/jrpc.md`.
 

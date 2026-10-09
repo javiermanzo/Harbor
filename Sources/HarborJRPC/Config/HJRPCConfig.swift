@@ -7,18 +7,18 @@
 
 import Foundation
 
-/// Configuration for the HarborJRPC module.
-public struct HJRPCConfig: Sendable {
+/// Global configuration of the HarborJRPC module, set with `HarborJRPC.configure(url:jrpcVersion:)`.
+struct HJRPCConfig: Sendable {
     /// The base URL of the JSON-RPC endpoint.
-    public var url: String
+    var url: String
     /// The JSON-RPC protocol version sent in every request.
-    public var jrpcVersion: String
+    var jrpcVersion: String
 
     /// Creates a new configuration.
     /// - Parameters:
     ///   - url: The base URL of the JSON-RPC endpoint.
     ///   - jrpcVersion: The JSON-RPC protocol version (default: "2.0").
-    public init(url: String = "", jrpcVersion: String = "2.0") {
+    init(url: String = "", jrpcVersion: String = "2.0") {
         self.url = url
         self.jrpcVersion = jrpcVersion
     }

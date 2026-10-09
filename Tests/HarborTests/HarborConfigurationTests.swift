@@ -17,7 +17,7 @@ final class HarborConfigurationTests: XCTestCase {
         await Harbor.setCustomURLSession(URLSession.shared)
         await Harbor.setSSLPinningKeys(nil)
         await Harbor.clearMTLS()
-        await Harbor.setMocksOnlyInDebug(true)
+        await Harbor.setMocksEnabled(true)
         await Harbor.removeAllMocks()
     }
 
@@ -28,7 +28,7 @@ final class HarborConfigurationTests: XCTestCase {
         await Harbor.setCustomURLSession(URLSession.shared)
         await Harbor.setSSLPinningKeys(nil)
         await Harbor.clearMTLS()
-        await Harbor.setMocksOnlyInDebug(true)
+        await Harbor.setMocksEnabled(true)
         await Harbor.removeAllMocks()
     }
 
@@ -228,27 +228,9 @@ final class HarborConfigurationTests: XCTestCase {
 
     // MARK: - Mock Configuration Tests
 
-    func testSetMocksOnlyInDebugTrue() async throws {
-        // When
-        await Harbor.setMocksOnlyInDebug(true)
-
-        // Then the build rule remains in effect (override stays cleared)
-        let override = await mocksEnabledOverrideValue()
-        XCTAssertNil(override)
-    }
-
-    func testSetMocksOnlyInDebugFalse() async throws {
-        // When
-        await Harbor.setMocksOnlyInDebug(false)
-
-        // Then the override is still unset; only the build rule flag flipped
-        let override = await mocksEnabledOverrideValue()
-        XCTAssertNil(override)
-    }
-
     func testMocksOnlyInDebugConfiguration() async throws {
         // Given
-        await Harbor.setMocksOnlyInDebug(false) // Allow mocks in all modes
+        await Harbor.setMocksEnabled(true) // Allow mocks in all modes
 
         let mockResponse = TestConfigData(value: "mock-config-test")
         let jsonData = try JSONEncoder().encode(mockResponse)
@@ -283,7 +265,7 @@ final class HarborConfigurationTests: XCTestCase {
         let customSession = URLSession(configuration: .default)
         await Harbor.setCustomURLSession(customSession)
 
-        await Harbor.setMocksOnlyInDebug(false)
+        await Harbor.setMocksEnabled(true)
 
         let mockResponse = TestConfigData(value: "combined-config-test")
         let jsonData = try JSONEncoder().encode(mockResponse)
@@ -312,28 +294,26 @@ final class HarborConfigurationTests: XCTestCase {
         await Harbor.setDefaultHeaderParameters(["X-Test": "value"])
         await Harbor.setAuthProvider(TestAuthProvider())
         await Harbor.setCustomURLSession(URLSession(configuration: .default))
-        await Harbor.setMocksOnlyInDebug(false)
         await Harbor.setMocksEnabled(false)
 
         // When - Reset all configurations
         await Harbor.setDefaultHeaderParameters(nil)
         await Harbor.setAuthProvider(nil)
         await Harbor.setCustomURLSession(URLSession.shared)
-        await Harbor.setMocksOnlyInDebug(true)
-        await Harbor.setMocksEnabled(nil)
+        await Harbor.setMocksEnabled(true)
 
         // Then the cleared defaults are observable on a built request
         let request = TestConfigRequest()
         let urlRequest = try await HURLBuilder.buildUrlRequest(request: request)
         XCTAssertNil(urlRequest.value(forHTTPHeaderField: "X-Test"))
-        let override = await mocksEnabledOverrideValue()
-        XCTAssertNil(override)
+        let mocksEnabled = await mocksEnabledValue()
+        XCTAssertTrue(mocksEnabled)
     }
 
-    // MARK: - Mocks Enabled Override
+    // MARK: - Mocks Enabled
 
-    func testMocksEnabledOverrideTakesPrecedence() async throws {
-        // Given mocks would otherwise be enabled in DEBUG
+    func testSetMocksEnabledTogglesMocks() async throws {
+        // Given mocks are enabled by default in DEBUG
         await Harbor.setMocksEnabled(false)
         let disabled = await mocksEnabledValue()
         XCTAssertEqual(disabled, false)
@@ -342,9 +322,6 @@ final class HarborConfigurationTests: XCTestCase {
         await Harbor.setMocksEnabled(true)
         let enabled = await mocksEnabledValue()
         XCTAssertEqual(enabled, true)
-
-        // And clearing the override falls back to the build rule
-        await Harbor.setMocksEnabled(nil)
     }
 }
 
@@ -355,10 +332,6 @@ private func clearCustomURLSession() {
     HConfig.shared.customURLSession = nil
 }
 
-@HRequestManagerActor
-private func mocksEnabledOverrideValue() -> Bool? {
-    HConfig.shared.mocksEnabledOverride
-}
 
 @HRequestManagerActor
 private func mocksEnabledValue() -> Bool {

@@ -209,7 +209,7 @@ final class HarborOfflineCacheFallbackTests: XCTestCase {
     private func storeCustomEntry(_ body: String, for request: OfflineGetRequest, cacheControl: String) async throws {
         let url = try XCTUnwrap(URL(string: request.url))
         let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: "HTTP/1.1", headerFields: ["Cache-Control": cacheControl])
-        await request.saveCache(Data(body.utf8), response: response)
+        await request.saveCache(Data(body.utf8), response: response, authHeader: nil)
     }
 
     private func storeURLCacheResponse(_ body: String, for request: OfflineGetRequest, in urlCache: URLCache) async throws {

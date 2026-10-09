@@ -14,6 +14,8 @@ import Foundation
     public static let shared = HRequestManagerActor()
 }
 
+/// Runs Harbor's REST request pipeline: mocks, connectivity pre-check, authentication,
+/// retries, caching, decoding and logging. Also owns the internally built `URLSession`s.
 @HRequestManagerActor
 enum HRequestManager {
     /// Connectivity monitor used as a pre-check before executing requests.
@@ -40,6 +42,12 @@ enum HRequestManager {
 
     /// Bound of `rememberedAuthHeaders`; past it the map is reset before recording a new entry.
     private static let maxRememberedAuthHeaders = 512
+
+    /// Incremented whenever cached content must not be written back by requests already in
+    /// flight: when the cache is cleared or the auth provider is replaced (e.g. on logout). A
+    /// response whose attempt started under an earlier generation is returned to its caller
+    /// but neither stored nor remembered, so it cannot resurrect a previous user's data.
+    private(set) static var cacheGeneration = 0
 }
 
 // MARK: - Request With Result
@@ -112,6 +120,7 @@ extension HRequestManager {
     ///   - canRetry: Whether further retry attempts are available.
     /// - Returns: `HAttemptOutcome` carrying the response or next loop action.
     private static func executeMockAttempt<Model: HModel, Request: HRequestWithResultProtocol>(model: Model.Type, request: Request, canRetry: Bool) async -> HAttemptOutcome<HResponseWithResult<Model>> {
+        let generation = cacheGeneration
         let mock: HMock
         switch await resolveMock(for: request) {
         case .failure(let hError):
@@ -130,7 +139,8 @@ extension HRequestManager {
                                      statusCode: mock.statusCode,
                                      data: mock.responseBody,
                                      httpResponse: mockResponse,
-                                     canRetry: canRetry)
+                                     canRetry: canRetry,
+                                     generation: generation)
     }
 
     /// Executes a single network attempt: builds the URLRequest, performs the call and
@@ -148,6 +158,7 @@ extension HRequestManager {
     ///   - canRetry: Whether further retry attempts are available.
     /// - Returns: `HAttemptOutcome` carrying the response or next loop action.
     private static func executeOnce<Model: HModel, Request: HRequestWithResultProtocol>(model: Model.Type, request: Request, authHeader: HAuthorizationHeader?, canRetry: Bool) async -> HAttemptOutcome<HResponseWithResult<Model>> {
+        let generation = cacheGeneration
         let prepared: HURLBuilder.HPreparedRequest
         do {
             prepared = try await HURLBuilder.prepareRequest(request: request, authHeader: authHeader)
@@ -202,7 +213,8 @@ extension HRequestManager {
                                                     httpResponse: httpResponse,
                                                     canRetry: canRetry,
                                                     authHeader: authHeader,
-                                                    canRefetchUnconditionally: prepared.injectedConditionalValidators && hasConditionalValidators(urlRequest))
+                                                    canRefetchUnconditionally: prepared.injectedConditionalValidators && hasConditionalValidators(urlRequest),
+                                                    generation: generation)
                 if case .refetchUnconditionally = outcome {
                     removeConditionalValidators(from: &urlRequest)
                     continue
@@ -227,7 +239,7 @@ extension HRequestManager {
                     let fallback: Any?
                     if hError == .noConnection {
                         let offlineHeader = authHeader ?? rememberedAuthHeader(for: getRequest)
-                        fallback = await getRequest.offlineCache(authHeader: offlineHeader, resolvingAuthHeader: true)
+                        fallback = await getRequest.offlineCache(authHeader: offlineHeader, resolvingAuthHeader: false)
                     } else {
                         fallback = await getRequest.staleCacheOnError(authHeader: authHeader)
                     }
@@ -257,16 +269,20 @@ extension HRequestManager {
     ///   - authHeader: Optional authorization header used for vary keying.
     ///   - canRefetchUnconditionally: Whether a `304` without a cached body may be answered by
     ///     re-issuing the request without conditional validators (only when Harbor injected them).
+    ///   - generation: The `cacheGeneration` when the attempt started. The response is only
+    ///     cached when it is still current.
     /// - Returns: `HAttemptOutcome` carrying the response or next loop action.
-    private static func processResponse<Model: HModel, Request: HRequestWithResultProtocol>(model: Model.Type, request: Request, statusCode: Int, data: Data, httpResponse: HTTPURLResponse? = nil, canRetry: Bool = false, authHeader: HAuthorizationHeader? = nil, canRefetchUnconditionally: Bool = false) async -> HAttemptOutcome<HResponseWithResult<Model>> {
+    private static func processResponse<Model: HModel, Request: HRequestWithResultProtocol>(model: Model.Type, request: Request, statusCode: Int, data: Data, httpResponse: HTTPURLResponse? = nil, canRetry: Bool = false, authHeader: HAuthorizationHeader? = nil, canRefetchUnconditionally: Bool = false, generation: Int) async -> HAttemptOutcome<HResponseWithResult<Model>> {
         switch statusCode {
         case 200 ... 299:
             do {
                 let parsedResponse = try await decode(data, as: model, using: request)
 
-                if let request = request as? any HGetRequestProtocol {
+                if let request = request as? any HGetRequestProtocol, generation == cacheGeneration {
                     await request.saveCache(data, response: httpResponse, authHeader: authHeader)
-                    rememberAuthHeader(authHeader, for: request)
+                    if generation == cacheGeneration {
+                        rememberAuthHeader(authHeader, for: request)
+                    }
                 }
 
                 return .finish(.success(parsedResponse))
@@ -281,7 +297,9 @@ extension HRequestManager {
             if let getRequest = request as? any HGetRequestProtocol,
                let cachedAny = await getRequest.revalidatedCache(response: httpResponse, authHeader: authHeader),
                let cachedModel = cachedAny as? Model {
-                rememberAuthHeader(authHeader, for: getRequest)
+                if generation == cacheGeneration {
+                    rememberAuthHeader(authHeader, for: getRequest)
+                }
                 return .finish(.success(cachedModel))
             }
             // The validators matched but the body is gone (evicted, or another vary variant):
@@ -595,9 +613,11 @@ extension HRequestManager {
 
     /// Forgets the credentials remembered for offline lookups. Called when the auth provider
     /// is replaced and when the cache is cleared, so a previous user's credential never keys a
-    /// lookup for the next one.
+    /// lookup for the next one. Also starts a new `cacheGeneration`, so responses of requests
+    /// already in flight are not written back to the cache.
     static func forgetRememberedAuthHeaders() {
         rememberedAuthHeaders.removeAll()
+        cacheGeneration &+= 1
     }
 
     /// Handles a 401 for a request that needs auth. While an auth retry remains, the provider's
@@ -871,8 +891,11 @@ extension HRequestManager {
     /// signatures need different sessions. Timeouts are not part of it: they are set on each
     /// `URLRequest`, so requests with different timeouts share a session.
     private struct SessionSignature: Hashable {
+        /// The cache configuration a session is built for.
         enum CacheSignature: Hashable {
+            /// No `URLCache` (requests using `.custom` or `.disabled`).
             case isolated
+            /// A `URLCache` (by identity) and the request cache policy.
             case urlCache(ObjectIdentifier, URLRequest.CachePolicy)
         }
         /// The cache configuration for the session.
@@ -888,7 +911,9 @@ extension HRequestManager {
 
     /// An internally built session and the last time it was handed out (a monotonic tick).
     private struct CachedSession {
+        /// The session.
         let session: URLSession
+        /// The tick of the last time it was handed out.
         var lastUse: UInt64
     }
 

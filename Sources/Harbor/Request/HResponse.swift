@@ -7,7 +7,7 @@
 
 import Foundation
 
-/// Response for requests that don't return data.
+/// The outcome of a request whose body is not decoded (POST, PUT, PATCH, DELETE).
 public enum HResponse: Sendable {
     /// The request completed successfully.
     case success
@@ -15,7 +15,7 @@ public enum HResponse: Sendable {
     case error(HRequestError)
 }
 
-/// Response for requests that return typed data models.
+/// The outcome of a request decoded into `Model` (GET).
 public enum HResponseWithResult<Model: Sendable>: Sendable {
     /// The request completed successfully with the parsed model.
     case success(Model)

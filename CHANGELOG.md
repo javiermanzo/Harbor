@@ -5,6 +5,7 @@
 Fixes from the v4 review. Changes marked **[Breaking]** affect code written against the 4.0.0 notes below.
 
 ### Added
+- `HGetRequestProtocol.shouldCache(statusCode:)` (default `true`): return `false` for a success status that is not the resource yet, such as `202 Accepted`, so it does not replace the good cached copy.
 - `Harbor.makeURLSessionDelegate()` and the public `HURLSessionDelegate`, so a session passed to `Harbor.setCustomURLSession(_:)` can enforce SSL pinning, mTLS and the redirect policy. A warning is logged (even with logging disabled) when pins or mTLS are configured and the custom session bypasses them.
 - `HMTLS(p12FileUrl:hosts:passwordProvider:)`: the client identity is only presented to the given hosts.
 - `Harbor.setDefaultResourceTimeoutInterval(_:)` for the whole-transfer timeout of Harbor's sessions.
@@ -17,6 +18,7 @@ Fixes from the v4 review. Changes marked **[Breaking]** affect code written agai
 - `network-tests.yml` workflow (manual and weekly) running the real-service tests with `HARBOR_RUN_NETWORK_TESTS=1`.
 
 ### Changed
+- `requestStream(source:)` tags a cached copy that stood in for the network as `HOriginType.cache` (offline, or `stale-if-error` after a failing server), where it used to say `.remote`. With `.cacheAndRemote` that copy is yielded once, not once as the cached element and again as the remote one. **[Breaking]** for code that treated every second element as the server's answer.
 - `headerParameters` and `bodyParameters` are get-only protocol requirements; implement them as `let` constants or computed properties. **[Breaking]**
 - Retries only cover transient failures: retryable status codes and transient `URLError`s. Other statuses (e.g. 400, 404, 422) and non-`URLError` failures are returned immediately; cancellation and certificate errors are never retried. `Retry-After` on 429/503 is honored up to `HRetryPolicy.maxDelay` (60 seconds); a longer `Retry-After` is not waited for and the request returns `.api(429/503)` immediately. POST and PATCH are only retried after pre-connection failures unless `retryNonIdempotentRequests` is `true`; this also applies to JSON-RPC calls, which are POSTs. **[Breaking]**
 - `HarborJRPC.batch(_:)` is `async throws`: it throws when the batch as a whole fails, and an empty batch returns `[]` without a network call. Batched requests must share an endpoint; their headers, auth, retry policy and debug settings are merged. **[Breaking]**

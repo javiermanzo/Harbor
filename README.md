@@ -437,7 +437,7 @@ struct UploadAvatarRequest: HPostRequestProtocol {
 
 ### Streaming Requests
 
-`requestStream(source:)` returns an `AsyncThrowingStream` that yields the cached model and/or the remote model, each tagged with its origin. It yields at most one cached element and one remote element.
+`requestStream(source:)` returns an `AsyncThrowingStream` that yields the cached model and/or the remote model, each tagged with its origin. It yields at most one cached element and one remote element. An answer served from the cache because the network could not answer (offline, or `stale-if-error` after a failing server) is tagged `.cache`: it is the device's copy, not the server's word. A GET request can keep a status out of the cache with `shouldCache(statusCode:)` (for example a `202 Accepted`).
 
 ```swift
 func streamUser() async {

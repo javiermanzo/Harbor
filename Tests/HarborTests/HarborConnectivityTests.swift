@@ -139,6 +139,72 @@ final class HarborOfflineCacheFallbackTests: XCTestCase {
         XCTAssertEqual(model.quote, "fresh")
     }
 
+    func testStreamTagsACachedCopyThatStoodInForTheNetworkAsCache() async throws {
+        // Given a fresh custom-cache entry and an offline monitor
+        let request = OfflineGetRequest(url: "https://example.com/offline-stream", cacheType: .custom(HCache.Configuration(expirationTime: .oneHour)))
+        try await storeCustomEntry(#"{"quote":"offline"}"#, for: request, cacheControl: "max-age=3600")
+        HRequestManager.connectivityMonitor = FakeConnectivityMonitor(connected: false)
+
+        // When the request is read with the network as its only source
+        var remoteOnly: [(MockModel, HOriginType)] = []
+        for try await element in request.requestStream(source: .remoteOnly) { remoteOnly.append((element.response, element.origin)) }
+
+        // Then the copy is the device's, not the server's word
+        XCTAssertEqual(remoteOnly.map(\.0.quote), ["offline"])
+        XCTAssertEqual(remoteOnly.map(\.1), [.cache])
+
+        // And cache-then-network yields that one copy once, as cache (not again as if the server had answered)
+        var both: [(MockModel, HOriginType)] = []
+        for try await element in request.requestStream(source: .cacheAndRemote) { both.append((element.response, element.origin)) }
+        XCTAssertEqual(both.map(\.1), [.cache])
+    }
+
+    func testStreamTagsAStaleCopyServedAfterAServerErrorAsCache() async throws {
+        // Given an expired entry that stale-if-error still allows, and a server answering 503
+        let request = OfflineGetRequest(url: "https://example.com/stale-stream", cacheType: .custom(HCache.Configuration(expirationTime: .oneHour)))
+        try await storeCustomEntry(#"{"quote":"stale"}"#, for: request, cacheControl: "max-age=0, stale-if-error=3600")
+        Harbor.setMocksEnabled(true)
+        Harbor.register(mock: HMock(request: OfflineGetRequest.self, statusCode: 503, jsonResponse: "{}"))
+        defer { Harbor.setMocksEnabled(false) }
+
+        var elements: [(MockModel, HOriginType)] = []
+        for try await element in request.requestStream(source: .remoteOnly) { elements.append((element.response, element.origin)) }
+
+        XCTAssertEqual(elements.map(\.0.quote), ["stale"])
+        XCTAssertEqual(elements.map(\.1), [.cache])
+    }
+
+    func testStreamTagsARealNetworkAnswerAsRemote() async throws {
+        Harbor.setMocksEnabled(true)
+        Harbor.register(mock: HMock(request: OfflineGetRequest.self, statusCode: 200, jsonResponse: #"{"quote":"live"}"#))
+        defer { Harbor.setMocksEnabled(false) }
+        let request = OfflineGetRequest(url: "https://example.com/live-stream", cacheType: .disabled)
+
+        var elements: [(MockModel, HOriginType)] = []
+        for try await element in request.requestStream() { elements.append((element.response, element.origin)) }
+
+        XCTAssertEqual(elements.map(\.0.quote), ["live"])
+        XCTAssertEqual(elements.map(\.1), [.remote])
+    }
+
+    func testAResponseTheRequestRefusesToCacheDoesNotReplaceTheStoredCopy() async throws {
+        // Given a good stored copy, and a request that does not cache 202 answers
+        let request = NoAcceptedCacheRequest(url: "https://example.com/accepted", cacheType: .custom(HCache.Configuration(expirationTime: .oneHour)))
+        try await storeCustomEntry(#"{"quote":"good"}"#, for: request.asOffline, cacheControl: "max-age=0, stale-if-error=3600")
+        Harbor.setMocksEnabled(true)
+        Harbor.register(mock: HMock(request: NoAcceptedCacheRequest.self, statusCode: 202, jsonResponse: #"{"quote":"preparing"}"#))
+        defer { Harbor.setMocksEnabled(false) }
+
+        // When the server answers 202
+        guard case .success(let accepted) = await request.request() else { return XCTFail("expected the 202 body") }
+        XCTAssertEqual(accepted.quote, "preparing")
+        Harbor.removeAllMocks()
+
+        // Then the stored copy is still the good one
+        let stored = await request.offlineCache(authHeader: nil, resolvingAuthHeader: false) as? MockModel
+        XCTAssertEqual(stored?.quote, "good")
+    }
+
     func testURLCacheResponseIsServedWhenMonitorReportsOffline() async throws {
         // Given a response stored in the request's URLCache and an offline monitor
         let urlCache = URLCache(memoryCapacity: 1024 * 1024, diskCapacity: 0)
@@ -220,8 +286,18 @@ final class HarborOfflineCacheFallbackTests: XCTestCase {
     }
 }
 
+/// A request that does not cache `202 Accepted` answers (the resource is still being prepared).
+private struct NoAcceptedCacheRequest: HGetRequestProtocol {
+    typealias Model = MockModel
+    var url: String
+    var cacheType: HCache.CacheType?
+    func shouldCache(statusCode: Int) -> Bool { statusCode != 202 }
+    /// The same endpoint as a plain request, to store a copy under the same key.
+    var asOffline: OfflineGetRequest { OfflineGetRequest(url: url, cacheType: cacheType) }
+}
+
 /// GET request with an explicit cache type, used by the offline fallback tests.
-private struct OfflineGetRequest: HGetRequestProtocol {
+struct OfflineGetRequest: HGetRequestProtocol {
     typealias Model = MockModel
     var url: String
     var cacheType: HCache.CacheType?

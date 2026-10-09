@@ -88,6 +88,7 @@ extension HRequestManager {
                     authHeader = await cacheAuthHeader(for: request)
                 }
                 if let cached = await getRequest.offlineCache(authHeader: authHeader, resolvingAuthHeader: false) as? Model {
+                    HCacheFallbackProbe.markServedFromCache()
                     return .success(cached)
                 }
             }
@@ -244,6 +245,7 @@ extension HRequestManager {
                         fallback = await getRequest.staleCacheOnError(authHeader: authHeader)
                     }
                     if let cached = fallback as? Model {
+                        HCacheFallbackProbe.markServedFromCache()
                         return .finish(.success(cached))
                     }
                 }
@@ -277,8 +279,10 @@ extension HRequestManager {
         case 200 ... 299:
             do {
                 let parsedResponse = try await decode(data, as: model, using: request)
+                HCacheFallbackProbe.markServedFromNetwork()
 
-                if let request = request as? any HGetRequestProtocol, generation == cacheGeneration {
+                if let request = request as? any HGetRequestProtocol, generation == cacheGeneration,
+                   request.shouldCache(statusCode: statusCode) {
                     await request.saveCache(data, response: httpResponse, authHeader: authHeader)
                     if generation == cacheGeneration {
                         rememberAuthHeader(authHeader, for: request)
@@ -321,6 +325,7 @@ extension HRequestManager {
             if statusCode >= 500,
                let getRequest = request as? any HGetRequestProtocol,
                let stale = await getRequest.staleCacheOnError(authHeader: authHeader) as? Model {
+                HCacheFallbackProbe.markServedFromCache()
                 return .finish(.success(stale))
             }
             let hError: HRequestError = .api(statusCode: statusCode, data: data)

@@ -22,7 +22,7 @@ Upgrading from 3.0.0: items tagged **[Breaking]** need code changes. See the [mi
 - GET requests gain `cache()`, `cachedETag()` and `clearCache()` (all work with `.custom` and `.urlCache`), and `shouldCache(statusCode:)` (default `true`) to keep a non-final success such as `202 Accepted` out of the cache.
 - The custom cache honors `Cache-Control` (including `stale-while-revalidate` and `stale-if-error`), `Expires`, `Age`, `Date` and `Vary`; private-cache semantics apply (`s-maxage` and `proxy-revalidate` are ignored). It revalidates with `If-None-Match` / `If-Modified-Since` and serves the cached body on `304 Not Modified`; validators you set yourself are kept and a `304` answering them is returned as `.api(statusCode: 304, data:)`. Expired and outdated files are cleaned up in the background.
 - `Harbor.clearAllCache()` (`async`) clears the custom cache, `URLCache.shared` and the `URLCache` of the configured `.urlCache` type or custom session. A response whose request started before `clearAllCache()` or `setAuthProvider(_:)` is returned but not cached.
-- Cached responses of `needsAuth` requests are namespaced by a hash of the credential they were sent with; call `Harbor.clearAllCache()` on logout. A `needsAuth` request sent without a credential is neither cached nor served from cache.
+- Custom-cache entries are namespaced by a hash of the credential a request is sent with: the auth provider's header of `needsAuth` requests and sensitive headers such as `Authorization`, `Proxy-Authorization`, `Cookie` or `X-API-Key` set in the default or request headers. Call `Harbor.clearAllCache()` on logout. A `needsAuth` request sent without a credential is neither cached nor served from cache. `.urlCache` keys entries by URL only and is not namespaced.
 - Offline, GET requests fall back to a fresh, `stale-if-error` or `URLCache` response; other requests fail with `.noConnection` only when the network path is unsatisfied. `Harbor.setAssumeNetworkAvailableInDebug(_:)` skips the check in DEBUG builds.
 
 **Security**
@@ -60,6 +60,7 @@ Upgrading from 3.0.0: items tagged **[Breaking]** need code changes. See the [mi
 - `HAuthProviderProtocol.getAuthorizationHeader()` returns `HAuthorizationHeader?`; `nil` sends the request without an authorization header. **[Breaking]**
 - On a `401`, Harbor re-sends the request with the provider's current header without calling `authFailed()` when it already differs from the rejected one; otherwise `authFailed()` is called once per request (coalesced across concurrent requests) and the request is re-sent once if the header changed. A request that still fails with `.authNeeded` has always triggered `authFailed()`.
 - `Harbor.setCustomURLSession(_:)` takes an optional `URLSession` and uses it as-is.
+- Only `http` and `https` URLs are accepted (scheme compared case-insensitively); any other scheme, such as `file://`, or a URL without scheme fails with `.malformedRequest(reason:)`. **[Breaking]**
 - Mocks are resolved per attempt (retries and sequences interact as expected), and a mock's `error` goes through the retry policy like the real failure. `Harbor.setMocksEnabled(_:)` replaces `setMocksOnlyInDebug(_:)`: mocks are on by default in DEBUG and off in release, and `setMocksEnabled(true)` enables them in release builds. `Harbor.remove(mock:)` is now `Harbor.removeMock(for:)`, taking the request type. **[Breaking]**
 - Network monitoring uses `NWPathMonitor` and SHA256 uses `CryptoKit`.
 
@@ -73,6 +74,7 @@ Upgrading from 3.0.0: items tagged **[Breaking]** need code changes. See the [mi
 - `HJRPCRequestProtocol.request()` is `async throws` and returns the model; use `requestResult()` for the previous `HJRPCResponse`. **[Breaking]**
 - `HarborJRPC.batch(_:)` is `async throws` (an empty batch returns `[]` without a network call); batched requests must share an endpoint, and their headers, auth, retry policy and debug settings are merged. **[Breaking]**
 - JSON-RPC error objects returned with a 4xx/5xx status surface as `.jrpcError` instead of `.api`. **[Breaking]**
+- Each element of a 2xx `HarborJRPC.batch(_:)` response must carry the configured `jsonrpc` version, like a single request: otherwise that element is an `.error` with `.invalidResponse`. **[Breaking]**
 
 **Package**
 - The LogBird dependency is `from: "2.1.0"` (was exactly 1.0.0), and the package builds in Swift 6 language mode only. **[Breaking]** for projects still on LogBird 1.x.

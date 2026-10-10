@@ -47,7 +47,8 @@ enum HURLBuilder {
     ///     top of the request's own headers. Injecting it here keeps the caller's request
     ///     object untouched, which matters when the conformer is a reference type.
     /// - Returns: A configured URLRequest.
-    /// - Throws: `HRequestError.malformedRequest` when the URL or the body cannot be built.
+    /// - Throws: `HRequestError.malformedRequest` when the URL (including a scheme other than
+    ///   `http`/`https`) or the body cannot be built.
     static func buildUrlRequest<P: HRequestBaseRequestProtocol>(request: P, authHeader: HAuthorizationHeader? = nil) async throws -> URLRequest {
         try await build(request: request, authHeader: authHeader, streamFileParts: false).urlRequest
     }
@@ -149,8 +150,9 @@ enum HURLBuilder {
             }
 
             if case .custom = cacheType {
-                // Same key as the cache reads and writes: credential-namespaced for requests that need auth.
-                let cacheKey = HCache.Manager.cacheKey(for: url, authHeader: request.needsAuth ? authHeader : nil)
+                // Same key as the cache reads and writes: namespaced by the credentials sent (the
+                // provider's header of a request that needs auth and any sensitive header).
+                let cacheKey = HCache.Manager.cacheKey(for: url, credentialHeaders: urlRequest.allHTTPHeaderFields, authHeader: request.needsAuth ? authHeader : nil)
                 let validators = await HCache.Manager.shared.getValidators(forKey: cacheKey, requestHeaders: urlRequest.allHTTPHeaderFields)
                 if let etag = validators.etag {
                     urlRequest.setValue(etag, forHTTPHeaderField: "If-None-Match")
@@ -351,7 +353,8 @@ enum HURLBuilder {
     ///   - queryParameters: Query parameters to append to the URL.
     /// - Returns: The composite URL.
     /// - Throws: `HRequestError.malformedRequest` when a path parameter contains a `..`
-    ///   path segment or the resulting URL is invalid.
+    ///   path segment, the resulting URL is invalid, or its scheme is not `http` or `https`
+    ///   (compared case-insensitively; a URL without scheme is rejected too).
     static func compositeURL(url: String, pathParameters: [String: String]? = nil, queryParameters: [String: String]? = nil) throws -> URL {
         var compositeUrl = url
 
@@ -390,6 +393,15 @@ enum HURLBuilder {
 
         guard let url = urlComponents.url else {
             throw HRequestError.malformedRequest(reason: "Invalid URL \"\(compositeUrl)\"")
+        }
+
+        // Only HTTP(S) is sent: `URLSession` would also load `file://` and other schemes. The
+        // reason names the scheme only, never the URL, which may carry credentials.
+        guard let scheme = url.scheme?.lowercased() else {
+            throw HRequestError.malformedRequest(reason: "URL has no scheme; only http and https are supported")
+        }
+        guard scheme == "http" || scheme == "https" else {
+            throw HRequestError.malformedRequest(reason: "Unsupported URL scheme \"\(scheme)\"; only http and https are supported")
         }
         return url
     }

@@ -25,8 +25,9 @@ public enum HarborJRPC {
     /// - Parameters:
     ///   - url: The JSON-RPC endpoint.
     ///   - jrpcVersion: The JSON-RPC version string sent with every request and expected in the
-    ///     response of `request()` and `requestResult()` (otherwise `.invalidResponse`). The elements
-    ///     of a batch response are not checked against it. Default: `"2.0"`.
+    ///     response of `request()` and `requestResult()` (otherwise `.invalidResponse`), and in every
+    ///     element of a 2xx batch response (otherwise that element is an `.error` with
+    ///     `.invalidResponse`). Default: `"2.0"`.
     public static func configure(url: URL, jrpcVersion: String = "2.0") {
         HJRPCRequestManager.config = HJRPCConfig(url: url.absoluteString, jrpcVersion: jrpcVersion)
     }
@@ -42,7 +43,9 @@ public enum HarborJRPC {
     /// retry policy's `retryNonIdempotentRequests` is only kept when every request in the batch
     /// opts in.
     /// - Parameter requests: The requests to send in the batch. An empty array returns `[]` without a network call.
-    /// - Returns: One `HJRPCBatchResponse` per response element returned by the server.
+    /// - Returns: One `HJRPCBatchResponse` per response element returned by the server. An element
+    ///   of a 2xx response whose `jsonrpc` member is missing or differs from the configured version is an
+    ///   `.error` with `.invalidResponse`, as for a single request.
     /// - Throws: An `HJRPCRequestError` when the batch as a whole fails (no endpoint, transport or
     ///   HTTP error, an invalid response body, or a JSON-RPC error rejecting the whole batch).
     public static func batch(_ requests: [any HJRPCRequestProtocol]) async throws -> [HJRPCBatchResponse] {

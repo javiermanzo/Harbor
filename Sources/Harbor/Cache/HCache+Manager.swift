@@ -110,9 +110,47 @@ extension HCache {
         ///     for requests that do not need auth or are sent without credentials.
         /// - Returns: The cache key string.
         nonisolated static func cacheKey(for url: URL, authHeader: HAuthorizationHeader?) -> String {
-            guard let authHeader else { return url.absoluteString }
-            let credential = "\(authHeader.key.lowercased()):\(authHeader.value)"
+            cacheKey(for: url, credentialHeaders: nil, authHeader: authHeader)
+        }
+
+        /// Builds the cache key for a request URL, namespaced by every credential the request
+        /// is sent with: the authorization header of the auth provider and any header whose name
+        /// is one of Harbor's built-in sensitive names (`HRedactionPolicy.defaultSensitiveKeys`,
+        /// e.g. `Authorization`, `Proxy-Authorization`, `Cookie`, `X-API-Key`) among the
+        /// effective request headers (default headers merged with the request's own). Names are
+        /// compared case-insensitively. A request with no credential keeps the plain URL key,
+        /// and a request whose only credential is the provider's header keeps the key of
+        /// `cacheKey(for:authHeader:)`. Only a SHA-256 digest of the credentials is part of the
+        /// key, never the raw values.
+        /// - Parameters:
+        ///   - url: The composite request URL.
+        ///   - credentialHeaders: The effective request headers, or `nil` for none. Only the
+        ///     credential headers among them are used.
+        ///   - authHeader: The provider's authorization header of a `needsAuth` request, or `nil`.
+        /// - Returns: The cache key string.
+        nonisolated static func cacheKey(for url: URL, credentialHeaders: [String: String]?, authHeader: HAuthorizationHeader?) -> String {
+            var credentials: [String: String] = [:]
+            for (name, value) in credentialHeaders ?? [:] where isCredentialHeader(name) {
+                credentials[name.lowercased()] = value
+            }
+            if let authHeader {
+                credentials[authHeader.key.lowercased()] = authHeader.value
+            }
+            guard !credentials.isEmpty else { return url.absoluteString }
+
+            let credential = credentials
+                .sorted { $0.key < $1.key }
+                .map { "\($0.key):\($0.value)" }
+                .joined(separator: "\n")
             return "\(url.absoluteString)#harbor-auth=\(credential.sha256Hex)"
+        }
+
+        /// Whether a header name carries a credential: it is one of Harbor's built-in sensitive
+        /// names. The log-redaction switches and configurable keys are deliberately not
+        /// consulted, so a cache key never changes with the logging configuration.
+        /// - Parameter name: The header name.
+        nonisolated private static func isCredentialHeader(_ name: String) -> Bool {
+            HJSONRedactor.isSensitiveKey(name, needles: HRedactionPolicy.defaultSensitiveKeys)
         }
 
         // MARK: - Public API

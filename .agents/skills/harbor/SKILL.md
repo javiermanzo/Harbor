@@ -61,7 +61,7 @@ func load() async {
 - A POST/PUT/PATCH that must decode a response also conforms to `HRequestWithResultProtocol`, and the call site annotates the result type (`protocols.md`).
 - `retryPolicy` retries transient failures only. POST and PATCH (and every JSON-RPC call) are retried after pre-connection failures only, unless `retryNonIdempotentRequests: true`.
 - `request()` on a GET always contacts the server. For cache-first behavior call `cache()` or use `requestStream(source:)`, which yields at most one `.cache` and one `.remote` element (`cache.md`).
-- Cached `needsAuth` responses are namespaced per credential and never deleted automatically: call `await Harbor.clearAllCache()` on logout.
+- Cached `.custom` responses are namespaced per credential (provider header or sensitive headers such as `Authorization`/`X-API-Key` in `headerParameters`/default headers; `.urlCache` is not) and never deleted automatically: call `await Harbor.clearAllCache()` on logout.
 - A custom `URLSession` is used as-is: SSL pinning, mTLS and redirect credential stripping apply only when it uses the delegate from `Harbor.makeURLSessionDelegate()`, created after configuring pins and mTLS (`security.md`).
 - Pins must be `base64(SHA256(SPKI))`. Pin mismatches, mTLS rejections and certificate-specific `URLError`s are `HRequestError.certificate` and are never retried.
 - Mocks (`HMock`, `HMockSequence`) are on in DEBUG and off in release; `await Harbor.setMocksEnabled(true)` enables them in release. They can't target JSON-RPC requests (`testing.md`).

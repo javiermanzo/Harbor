@@ -24,7 +24,9 @@ public extension HGetRequestProtocol {
     /// - `.disabled`: always `nil`.
     ///
     /// For requests that need auth, the entry stored for the credential currently issued by
-    /// the auth provider is returned; an entry stored for another credential never is.
+    /// the auth provider is returned; an entry stored for another credential never is. The same
+    /// holds for a credential sent through the default or request headers (`Authorization`,
+    /// `Proxy-Authorization`, `Cookie`, `X-API-Key`, ...) with `.custom`.
     /// - Returns: The cached model, or `nil` when there is no usable entry or it cannot be decoded.
     func cache() async -> Model? {
         await cachedModel(authHeader: nil)
@@ -51,9 +53,10 @@ public extension HGetRequestProtocol {
     }
 
     /// Removes the cached response of this request. Works with the `.custom` and `.urlCache`
-    /// cache types; use `Harbor.clearAllCache()` to remove everything. For requests that need auth, the
-    /// entry of the credential currently issued by the auth provider is removed, together
-    /// with any entry stored without credentials.
+    /// cache types; use `Harbor.clearAllCache()` to remove everything. For requests that send a
+    /// credential (the auth provider's header, or a sensitive header such as `Authorization`
+    /// or `X-API-Key` in the default or request headers), the entry of that credential is
+    /// removed, together with any entry stored without credentials.
     func clearCache() async {
         switch await effectiveCacheType() {
         case .urlCache(let urlCache, _):
@@ -64,8 +67,9 @@ public extension HGetRequestProtocol {
         case .custom:
             // Remove from custom cache
             guard let url = compositeURL() else { return }
-            await HCache.Manager.shared.removeCachedData(for: HCache.Manager.cacheKey(for: url, authHeader: nil))
-            if needsAuth, let lookup = await cacheLookup(authHeader: nil) {
+            let plainKey = HCache.Manager.cacheKey(for: url, authHeader: nil)
+            await HCache.Manager.shared.removeCachedData(for: plainKey)
+            if let lookup = await cacheLookup(authHeader: nil), lookup.key != plainKey {
                 await HCache.Manager.shared.removeCachedData(for: lookup.key)
             }
 
@@ -263,11 +267,13 @@ private extension HGetRequestProtocol {
     ///
     /// When `authHeader` is nil and the request needs auth, the header is resolved from the
     /// configured auth provider (once) so the key matches the one the network flow uses. Pass
-    /// `resolvingAuthHeader: false` to skip the provider entirely. For requests that need
-    /// auth, the key is namespaced by a SHA-256 digest of the credential (see
-    /// `HCache.Manager.cacheKey(for:authHeader:)`), and there is no lookup at all without a
-    /// credential: the entry of a request sent without one is never stored nor served. The
-    /// credential is never logged nor stored.
+    /// `resolvingAuthHeader: false` to skip the provider entirely. The key is namespaced by a
+    /// SHA-256 digest of every credential the request is sent with: the provider's header of a
+    /// `needsAuth` request and any sensitive header (`Authorization`, `Proxy-Authorization`,
+    /// `Cookie`, `X-API-Key`, ...) of the effective default and request headers (see
+    /// `HCache.Manager.cacheKey(for:credentialHeaders:authHeader:)`). A request that needs auth
+    /// has no lookup at all without a credential: the entry of a request sent without one is
+    /// never stored nor served. The credential is never logged nor stored.
     /// - Parameters:
     ///   - authHeader: The authorization header sent with the request, or `nil` to resolve it.
     ///   - resolvingAuthHeader: Whether a `nil` header is resolved from the auth provider.
@@ -279,7 +285,8 @@ private extension HGetRequestProtocol {
         let resolvedAuthHeader = await resolveAuthHeader(authHeader, enabled: resolvingAuthHeader)
         if needsAuth, resolvedAuthHeader == nil { return nil }
 
-        var headers = await HConfig.shared.defaultHeaderParameters ?? [:]
+        let defaultHeaders = await HConfig.shared.defaultHeaderParameters ?? [:]
+        var headers = defaultHeaders
         if let own = headerParameters {
             headers.merge(own) { _, new in new }
         }
@@ -287,7 +294,13 @@ private extension HGetRequestProtocol {
             headers[resolvedAuthHeader.key] = resolvedAuthHeader.value
         }
 
-        let key = HCache.Manager.cacheKey(for: url, authHeader: needsAuth ? resolvedAuthHeader : nil)
+        // Header names are case-insensitive on the wire: the request's own headers replace the
+        // default ones of the same name, whatever their case, before the key is computed.
+        var effectiveHeaders: [String: String] = [:]
+        for (name, value) in defaultHeaders { effectiveHeaders[name.lowercased()] = value }
+        for (name, value) in headerParameters ?? [:] { effectiveHeaders[name.lowercased()] = value }
+
+        let key = HCache.Manager.cacheKey(for: url, credentialHeaders: effectiveHeaders, authHeader: needsAuth ? resolvedAuthHeader : nil)
         return (key, headers.isEmpty ? nil : headers)
     }
 

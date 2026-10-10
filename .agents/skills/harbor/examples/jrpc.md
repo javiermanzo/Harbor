@@ -18,7 +18,7 @@ func configureRPC() async {
 }
 ```
 
-For single calls (`request()` / `requestResult()`), the `jsonrpc` member of the response must equal the configured version, otherwise the call fails with `.invalidResponse`; notifications and batches don't check it. A request can target another endpoint without changing the global URL through `endpoint: URL?`.
+For single calls (`request()` / `requestResult()`), the `jsonrpc` member of the response must equal the configured version, otherwise the call fails with `.invalidResponse`; notifications don't check it. Every element of a 2xx batch response is checked the same way: a missing or different `jsonrpc` makes that element `.error(id:error: .invalidResponse)` without failing the others (a 2xx single object rejecting the whole batch throws `.invalidResponse`); elements of a non-2xx response are not checked. A request can target another endpoint without changing the global URL through `endpoint: URL?`.
 
 ## The protocol
 

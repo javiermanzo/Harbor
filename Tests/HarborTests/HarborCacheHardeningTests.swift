@@ -125,6 +125,7 @@ private struct CacheStubRequest: HGetRequestProtocol {
     var url: String
     var cacheType: HCache.CacheType?
     var needsAuth: Bool = false
+    var headerParameters: [String: String]?
 }
 
 @HRequestManagerActor
@@ -142,6 +143,7 @@ final class HarborCacheHardeningTests: XCTestCase {
 
     override func tearDown() async throws {
         Harbor.setAuthProvider(nil)
+        Harbor.setDefaultHeaderParameters(nil)
         Harbor.setProtocolClasses(nil)
         Harbor.setDefaultCacheType(.urlCache())
         HRequestManager.connectivityMonitor = HRequestManagerMonitor()
@@ -270,6 +272,135 @@ final class HarborCacheHardeningTests: XCTestCase {
         // Then the entry is shared regardless of the credential
         let cached = await request.cache()
         XCTAssertEqual(cached?.quote, "public")
+    }
+
+    func testCacheKeyIncludesCredentialHeadersOfTheEffectiveRequest() async throws {
+        let url = try XCTUnwrap(URL(string: "https://cache-stub.test/me"))
+        let plain = url.absoluteString
+
+        // No credential header: the plain URL key, whatever other headers are sent.
+        XCTAssertEqual(HCache.Manager.cacheKey(for: url, credentialHeaders: ["Accept": "application/json"], authHeader: nil), plain)
+        XCTAssertEqual(HCache.Manager.cacheKey(for: url, credentialHeaders: nil, authHeader: nil), plain)
+
+        // Auth-like headers set manually namespace the key, case-insensitively, without the raw value.
+        for name in ["Authorization", "Proxy-Authorization", "X-API-Key", "Cookie"] {
+            let alice = HCache.Manager.cacheKey(for: url, credentialHeaders: [name: "ALICE-SECRET"], authHeader: nil)
+            let bob = HCache.Manager.cacheKey(for: url, credentialHeaders: [name: "BOB-SECRET"], authHeader: nil)
+            XCTAssertNotEqual(alice, plain, name)
+            XCTAssertNotEqual(alice, bob, name)
+            XCTAssertTrue(alice.hasPrefix(plain), name)
+            XCTAssertFalse(alice.contains("ALICE-SECRET"), "The raw credential must never be part of the key")
+            XCTAssertEqual(alice, HCache.Manager.cacheKey(for: url, credentialHeaders: [name.lowercased(): "ALICE-SECRET"], authHeader: nil), name)
+        }
+
+        // A provider header alone keeps the key it always had, also when it is repeated in the headers.
+        let provider = HAuthorizationHeader(key: "Authorization", value: "Bearer ALICE-SECRET")
+        let providerKey = HCache.Manager.cacheKey(for: url, authHeader: provider)
+        XCTAssertEqual(HCache.Manager.cacheKey(for: url, credentialHeaders: nil, authHeader: provider), providerKey)
+        XCTAssertEqual(HCache.Manager.cacheKey(for: url, credentialHeaders: ["authorization": "Bearer ALICE-SECRET"], authHeader: provider), providerKey)
+
+        // An extra credential header changes the key of a needsAuth request.
+        XCTAssertNotEqual(HCache.Manager.cacheKey(for: url, credentialHeaders: ["X-API-Key": "k"], authHeader: provider), providerKey)
+    }
+
+    func testCredentialSentThroughHeaderParametersNeverServesAnotherCredentialsCache() async throws {
+        // Given a server that tags each body with the credential it was fetched with, without Vary,
+        // and a request that does not need auth but carries the credential in its own headers
+        CacheStubProtocol.handler = { request in
+            CacheStubProtocol.Reply(status: 200,
+                                    headers: ["Cache-Control": "max-age=3600", "ETag": "\"etag\""],
+                                    body: Self.body(request.value(forHTTPHeaderField: "X-API-Key") ?? "none"))
+        }
+        let alice = CacheStubRequest(url: "https://cache-stub.test/keyed", headerParameters: ["X-API-Key": "ALICE"])
+        let bob = CacheStubRequest(url: "https://cache-stub.test/keyed", headerParameters: ["x-api-key": "BOB"])
+
+        guard case .success(let aliceResponse) = await alice.request() else {
+            return XCTFail("Expected ALICE's response")
+        }
+        XCTAssertEqual(aliceResponse.quote, "ALICE")
+
+        // Then BOB never reads ALICE's entry, and the entry is not stored under the plain URL
+        let aliceCached = await alice.cache()
+        XCTAssertEqual(aliceCached?.quote, "ALICE")
+        let bobCached = await bob.cache()
+        XCTAssertNil(bobCached, "BOB must never be served ALICE's cached body")
+        let aliceETag = await alice.cachedETag()
+        XCTAssertEqual(aliceETag, "\"etag\"")
+        let bobETag = await bob.cachedETag()
+        XCTAssertNil(bobETag)
+        let anonymous = CacheStubRequest(url: "https://cache-stub.test/keyed")
+        let anonymousCached = await anonymous.cache()
+        XCTAssertNil(anonymousCached)
+
+        // And BOB's fetch is sent without ALICE's validators and keeps its own entry
+        let requestsBefore = CacheStubProtocol.receivedRequests.count
+        guard case .success(let bobResponse) = await bob.request() else {
+            return XCTFail("Expected BOB's response")
+        }
+        XCTAssertEqual(bobResponse.quote, "BOB")
+        let bobRequest = try XCTUnwrap(CacheStubProtocol.receivedRequests.dropFirst(requestsBefore).first)
+        XCTAssertNil(bobRequest.value(forHTTPHeaderField: "If-None-Match"), "ALICE's validators must not be sent with BOB's credential")
+        let bobAfter = await bob.cache()
+        XCTAssertEqual(bobAfter?.quote, "BOB")
+        let aliceAfter = await alice.cache()
+        XCTAssertEqual(aliceAfter?.quote, "ALICE")
+
+        // And clearCache() removes only the entry of the request's own credential
+        await alice.clearCache()
+        let aliceCleared = await alice.cache()
+        XCTAssertNil(aliceCleared)
+        let bobKept = await bob.cache()
+        XCTAssertEqual(bobKept?.quote, "BOB")
+    }
+
+    func testCredentialInDefaultHeadersNamespacesTheCacheAndOfflineFallback() async throws {
+        // Given a credential set through the default headers
+        CacheStubProtocol.handler = { request in
+            CacheStubProtocol.Reply(status: 200,
+                                    headers: ["Cache-Control": "max-age=3600"],
+                                    body: Self.body(request.value(forHTTPHeaderField: "Authorization") ?? "none"))
+        }
+        let request = CacheStubRequest(url: "https://cache-stub.test/default-header")
+        Harbor.setDefaultHeaderParameters(["Authorization": "Bearer ALICE"])
+        guard case .success(let alice) = await request.request() else {
+            return XCTFail("Expected ALICE's response")
+        }
+        XCTAssertEqual(alice.quote, "Bearer ALICE")
+
+        // When the default credential changes
+        Harbor.setDefaultHeaderParameters(["Authorization": "Bearer BOB"])
+
+        // Then the cache and the offline fallback do not serve ALICE's body
+        let bobCached = await request.cache()
+        XCTAssertNil(bobCached)
+        HRequestManager.connectivityMonitor = FakeConnectivityMonitor(connected: false)
+        let offline = await request.request()
+        HRequestManager.connectivityMonitor = HRequestManagerMonitor()
+        guard case .error(let offlineError) = offline else {
+            return XCTFail("Expected no offline content for BOB but got: \(offline)")
+        }
+        XCTAssertEqual(offlineError, .noConnection)
+
+        // And ALICE's credential finds her entry again, offline too
+        Harbor.setDefaultHeaderParameters(["Authorization": "Bearer ALICE"])
+        HRequestManager.connectivityMonitor = FakeConnectivityMonitor(connected: false)
+        let aliceOffline = await request.request()
+        HRequestManager.connectivityMonitor = HRequestManagerMonitor()
+        guard case .success(let aliceServed) = aliceOffline else {
+            return XCTFail("Expected ALICE's offline content but got: \(aliceOffline)")
+        }
+        XCTAssertEqual(aliceServed.quote, "Bearer ALICE")
+    }
+
+    func testRequestsWithoutCredentialHeadersKeepThePlainKey() async throws {
+        // Given a request with only non-credential headers
+        let request = CacheStubRequest(url: "https://cache-stub.test/plain", headerParameters: ["Accept": "application/json"])
+        let url = try XCTUnwrap(URL(string: request.url))
+        await HCache.Manager.shared.storeData(Self.body("plain"), forKey: url.absoluteString, config: HCache.Configuration(), response: nil)
+
+        // Then its entry lives under the plain URL key
+        let cached = await request.cache()
+        XCTAssertEqual(cached?.quote, "plain")
     }
 
     // MARK: - F9: Hashed Vary Key

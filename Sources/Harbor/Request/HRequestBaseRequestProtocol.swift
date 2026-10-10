@@ -14,6 +14,8 @@ import Foundation
 /// `bodyParameters` for body requests) has no default.
 public protocol HRequestBaseRequestProtocol: Sendable {
     /// The endpoint URL. It may contain `{name}` placeholders replaced by `pathParameters`.
+    /// Only the `http` and `https` schemes are accepted (compared case-insensitively); any
+    /// other scheme, such as `file://`, or a URL without scheme fails with `.malformedRequest(reason:)`.
     var url: String { get }
     /// The HTTP method. Provided by the method protocol the request conforms to.
     var httpMethod: HHttpMethod { get }

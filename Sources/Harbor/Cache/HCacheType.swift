@@ -13,6 +13,11 @@ public extension HCache {
     enum CacheType: Sendable, Equatable {
         /// Foundation's `URLCache`, which stores and revalidates responses (`ETag`/`304`)
         /// transparently following the response's HTTP caching headers.
+        ///
+        /// `URLCache` keys entries by URL only: unlike `.custom`, entries are not namespaced by
+        /// credential, neither for `needsAuth` requests nor for credentials sent in headers
+        /// (`Authorization`, `X-API-Key`, ...). Use `.custom` when responses depend on the
+        /// credential, and call `Harbor.clearAllCache()` on logout.
         /// - Parameters:
         ///   - urlCache: The URLCache to use. Defaults to `URLCache.shared`.
         ///   - requestCachePolicy: The cache policy of the requests. Defaults to `.useProtocolCachePolicy`.
@@ -20,7 +25,10 @@ public extension HCache {
 
         /// Harbor's own memory + disk cache (LRU), with a fallback expiration and size limits. It
         /// honors `Cache-Control`, `Expires`, `Age`, `Vary`, `stale-while-revalidate` and
-        /// `stale-if-error`, and revalidates entries with their `ETag`/`Last-Modified`.
+        /// `stale-if-error`, and revalidates entries with their `ETag`/`Last-Modified`. Entries are
+        /// namespaced by the credential a request is sent with: the auth provider's header and any
+        /// sensitive header (`Authorization`, `Proxy-Authorization`, `Cookie`, `X-API-Key`, ...)
+        /// set in the default or request headers.
         case custom(Configuration)
 
         /// No caching: every request reaches the network.

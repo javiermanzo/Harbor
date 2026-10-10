@@ -132,7 +132,9 @@ Exhaustive `switch`es need the new cases. Pin mismatches, mTLS rejections and ce
 
 ## 8. Cache
 
-v3 had no cache module. v4 adds `HCache.Configuration`, the `.custom`, `.urlCache()` and `.disabled` cache types (`Harbor.setDefaultCacheType(_:)`, per-request `cacheType`, default `.urlCache()`), `cache()`, `cachedETag()`, `clearCache()`, `requestStream(source:)` and the `async` `Harbor.clearAllCache()`. See `../harbor/cache.md`. Nothing needs to be migrated, but add `await Harbor.clearAllCache()` to your logout flow if you cache `needsAuth` requests.
+v3 had no cache module. v4 adds `HCache.Configuration`, the `.custom`, `.urlCache()` and `.disabled` cache types (`Harbor.setDefaultCacheType(_:)`, per-request `cacheType`, default `.urlCache()`), `cache()`, `cachedETag()`, `clearCache()`, `requestStream(source:)` and the `async` `Harbor.clearAllCache()`. See `../harbor/cache.md`. Nothing needs to be migrated, but add `await Harbor.clearAllCache()` to your logout flow if you cache `needsAuth` requests or send credentials in headers.
+
+Request URLs must now use `http` or `https` (any case); `file://`, other schemes and scheme-less URLs fail with `.malformedRequest(reason:)`.
 
 ## 9. Multipart bodies
 

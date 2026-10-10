@@ -80,7 +80,7 @@ Harbor is protocol-oriented: you declare each request as a `struct` conforming t
 | `HPatchRequestProtocol` | PATCH | `HResponse` |
 | `HDeleteRequestProtocol` | DELETE | `HResponse` |
 
-Every property except `url` (and `bodyParameters` for body requests) has a default: `needsAuth` (`false`), `retryPolicy` (`nil`), `pathParameters`, `headerParameters`, `queryParameters`, `cacheType`, `timeoutInterval` (all `nil`). All requirements are get-only, so you can implement them as `let` constants or computed properties.
+Every property except `url` (and `bodyParameters` for body requests) has a default: `needsAuth` (`false`), `retryPolicy` (`nil`), `pathParameters`, `headerParameters`, `queryParameters`, `cacheType`, `timeoutInterval` (all `nil`). All requirements are get-only, so you can implement them as `let` constants or computed properties. The `url` must use the `http` or `https` scheme; anything else (such as `file://`) fails with `.malformedRequest(reason:)`.
 
 ### Making Requests
 
@@ -264,7 +264,7 @@ struct SecureRequest: HGetRequestProtocol {
 
 On a 401, Harbor asks the provider for its current header. If it already differs from the rejected one (another request's refresh finished meanwhile), the request is sent again with it without calling `authFailed()`. Otherwise Harbor calls `authFailed()` exactly once per request (concurrent requests rejected with the same credential share a single call) and, if the provider then returns a different header, sends the request once more with it. When no re-send is possible, or the re-sent request is rejected again, the request fails with `.authNeeded`; by then `authFailed()` has been called exactly once.
 
-Cached responses of requests with `needsAuth` are namespaced by a hash of the credential they were actually sent with, so one user never reads another user's entries. A `needsAuth` request sent without a credential (the provider returned `nil`) is neither cached nor served from cache. Replacing the provider does not delete existing entries: **call `await Harbor.clearAllCache()` on logout.** A response whose request started before `Harbor.clearAllCache()` or `Harbor.setAuthProvider(_:)` is still returned to its caller, but it is not written to the cache nor remembered for offline lookups.
+Cached responses (`.custom` cache) of requests that send a credential are namespaced by a hash of it, so one user never reads another user's entries: the auth provider's header of `needsAuth` requests and sensitive headers such as `Authorization`, `Proxy-Authorization`, `Cookie` or `X-API-Key` set in the default headers or in `headerParameters`. `.urlCache` keys entries by URL only and is not namespaced: use `.custom` for credential-dependent responses. A `needsAuth` request sent without a credential (the provider returned `nil`) is neither cached nor served from cache. Replacing the provider does not delete existing entries: **call `await Harbor.clearAllCache()` on logout.** A response whose request started before `Harbor.clearAllCache()` or `Harbor.setAuthProvider(_:)` is still returned to its caller, but it is not written to the cache nor remembered for offline lookups.
 
 ### Retry Policies
 
@@ -380,7 +380,7 @@ The custom cache:
 - keeps expired entries without validators while their `stale-if-error` window still allows serving them;
 - ignores the shared-cache-only directives `s-maxage` and `proxy-revalidate` (it is a private cache);
 - evicts least-recently-used entries when the disk capacity is exceeded;
-- namespaces entries of `needsAuth` requests by credential (see [Authentication](#authentication)).
+- namespaces entries by the credential a request is sent with, whether from the auth provider or from sensitive headers such as `Authorization` or `X-API-Key` (see [Authentication](#authentication)).
 
 A GET request can keep a success status out of the cache by overriding `shouldCache(statusCode:)` (for example to return `false` for a `202 Accepted`, so it doesn't replace the good copy).
 
@@ -496,7 +496,7 @@ func readChain() async throws {
 }
 ```
 
-Batches send several requests in one HTTP call. `HarborJRPC.batch(_:)` is `async throws`: it throws when the batch as a whole fails, and returns one `HJRPCBatchResponse` per response element (paired by id, results as `HJSONValue`). An empty batch returns `[]` without a network call.
+Batches send several requests in one HTTP call. `HarborJRPC.batch(_:)` is `async throws`: it throws when the batch as a whole fails, and returns one `HJRPCBatchResponse` per response element (paired by id, results as `HJSONValue`). An empty batch returns `[]` without a network call. As with a single call, every element of a 2xx response must carry the configured `jsonrpc` version; an element that does not is an `.error` with `.invalidResponse` and does not fail the rest of the batch.
 
 ```swift
 func batchCalls() async throws {

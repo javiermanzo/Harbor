@@ -81,6 +81,92 @@ final class HURLBuilderTests: XCTestCase {
         }
     }
 
+    // MARK: - URL Scheme
+
+    func testCompositeURLAcceptsHTTPAndHTTPSInAnyCase() throws {
+        let accepted = [("http://api.example.com/x", "http"), ("https://api.example.com/x", "https"),
+                        ("HTTPS://api.example.com/x", "https"), ("HtTp://api.example.com/x", "http")]
+        for (base, expectedScheme) in accepted {
+            let url = try HURLBuilder.compositeURL(url: base)
+            XCTAssertEqual(url.scheme?.lowercased(), expectedScheme, base)
+        }
+    }
+
+    func testCompositeURLRejectsOtherSchemes() throws {
+        let rejected = ["file:///etc/passwd", "FILE:///etc/passwd", "ftp://example.com/x", "data:text/plain,hi", "javascript:alert(1)", "ws://example.com/socket"]
+        for base in rejected {
+            XCTAssertThrowsError(try HURLBuilder.compositeURL(url: base), base) { error in
+                guard case HRequestError.malformedRequest(let reason) = error else {
+                    return XCTFail("Expected malformedRequest for \(base) but got: \(error)")
+                }
+                XCTAssertTrue(reason?.contains("http") ?? false, "The reason should name the supported schemes")
+            }
+        }
+    }
+
+    func testCompositeURLRejectsAURLWithoutScheme() throws {
+        for base in ["invalid-url-format", "api.example.com/users", "/users", ""] {
+            XCTAssertThrowsError(try HURLBuilder.compositeURL(url: base), base) { error in
+                guard case HRequestError.malformedRequest = error else {
+                    return XCTFail("Expected malformedRequest for \(base) but got: \(error)")
+                }
+            }
+        }
+    }
+
+    func testSchemeRejectionReasonDoesNotLeakTheURL() throws {
+        XCTAssertThrowsError(try HURLBuilder.compositeURL(url: "ftp://user:hunter2@example.com/x")) { error in
+            guard case HRequestError.malformedRequest(let reason) = error else {
+                return XCTFail("Expected malformedRequest but got: \(error)")
+            }
+            XCTAssertFalse(reason?.contains("hunter2") ?? true)
+        }
+    }
+
+    func testBuildUrlRequestRejectsFileURLsForEveryMethod() async {
+        let requests: [any HRequestBaseRequestProtocol] = [
+            MockGetRequest<MockModel>(url: "file:///etc/passwd"),
+            MockPostRequest(url: "file:///etc/passwd"),
+            MockPutRequest<MockModel>(url: "file:///etc/passwd"),
+        ]
+        for request in requests {
+            do {
+                _ = try await HURLBuilder.buildUrlRequest(request: request)
+                XCTFail("Expected buildUrlRequest to throw for \(request.httpMethod)")
+            } catch HRequestError.malformedRequest(let reason) {
+                XCTAssertFalse(reason?.isEmpty ?? true)
+            } catch {
+                XCTFail("Expected malformedRequest but got: \(error)")
+            }
+        }
+    }
+
+    func testPathParameterCannotChangeTheScheme() async {
+        let request = MockGetRequest<MockModel>(url: "{base}/users", pathParameters: ["base": "file:///etc"])
+        do {
+            _ = try await HURLBuilder.buildUrlRequest(request: request)
+            XCTFail("Expected buildUrlRequest to throw")
+        } catch HRequestError.malformedRequest {
+            // Expected.
+        } catch {
+            XCTFail("Expected malformedRequest but got: \(error)")
+        }
+    }
+
+    func testMockedRequestsWithHTTPSURLsStillWork() async throws {
+        Harbor.setMocksEnabled(true)
+        Harbor.removeAllMocks()
+        defer { Harbor.removeAllMocks() }
+        Harbor.register(mock: HMock(request: MockGetRequest<MockModel>.self, statusCode: 200, jsonResponse: #"{"quote":"mocked"}"#))
+
+        let response = await MockGetRequest<MockModel>(url: "https://api.example.com/mocked").request()
+
+        guard case .success(let model) = response else {
+            return XCTFail("Expected the mocked response but got: \(response)")
+        }
+        XCTAssertEqual(model.quote, "mocked")
+    }
+
     // MARK: - Timeout
 
     func testBuiltRequestCarriesThePerRequestTimeout() async throws {

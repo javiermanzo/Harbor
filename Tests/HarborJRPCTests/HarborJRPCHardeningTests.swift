@@ -359,6 +359,65 @@ final class HarborJRPCHardeningTests: XCTestCase {
         XCTAssertEqual(error.httpStatusCode, 500)
     }
 
+    func testBatchElementWithWrongOrMissingVersionIsAnInvalidResponseError() async throws {
+        // Given a 2xx batch whose elements have a valid version, a wrong one, none, and a wrong one on an error object
+        respond(200, #"[{"jsonrpc":"2.0","id":"1","result":"0x1"},{"jsonrpc":"1.0","id":"2","result":"0x2"},{"id":"3","result":"0x3"},{"jsonrpc":"1.0","id":"4","error":{"code":-32000,"message":"Server error"}}]"#)
+        let requests: [any HJRPCRequestProtocol] = (1 ... 4).map { StringRequest(method: "m\($0)", requestID: .string("\($0)")) }
+
+        // When
+        let responses = try await HarborJRPC.batch(requests)
+
+        // Then only the valid element succeeds; the others fail individually, as a single request would
+        XCTAssertEqual(responses.count, 4)
+        guard case .success(.string("1"), .string("0x1")) = responses[0] else {
+            return XCTFail("Expected the first element to succeed but got: \(responses[0])")
+        }
+        for (index, id) in [(1, "2"), (2, "3"), (3, "4")] {
+            guard case .error(.string(let responseID), .invalidResponse) = responses[index] else {
+                return XCTFail("Expected an invalidResponse element error but got: \(responses[index])")
+            }
+            XCTAssertEqual(responseID, id)
+        }
+    }
+
+    func testBatchElementsUseTheConfiguredVersion() async throws {
+        HarborJRPC.configure(url: URL(string: "https://rpc.example.com/rpc")!, jrpcVersion: "3.0")
+        respond(200, #"[{"jsonrpc":"3.0","id":"1","result":"0x1"},{"jsonrpc":"2.0","id":"2","result":"0x2"}]"#)
+
+        let responses = try await HarborJRPC.batch([StringRequest(method: "a", requestID: .string("1")),
+                                                    StringRequest(method: "b", requestID: .string("2"))])
+
+        guard case .success(.string("1"), _) = responses[0] else {
+            return XCTFail("Expected the first element to succeed but got: \(responses[0])")
+        }
+        guard case .error(.string("2"), .invalidResponse) = responses[1] else {
+            return XCTFail("Expected the second element to be an invalidResponse error but got: \(responses[1])")
+        }
+    }
+
+    func testBatch2xxSingleObjectWithWrongVersionThrowsInvalidResponse() async throws {
+        respond(200, #"{"jsonrpc":"1.0","error":{"code":-32700,"message":"Parse error"},"id":null}"#)
+
+        do {
+            _ = try await HarborJRPC.batch([StringRequest(method: "a", requestID: .string("1"))])
+            XCTFail("Expected batch to throw")
+        } catch HJRPCRequestError.invalidResponse {
+            // Expected: like a single request, the version is checked before the error object.
+        }
+    }
+
+    func testBatchNon2xxElementsAreNotVersionChecked() async throws {
+        // As for a single request, the error objects of a non-2xx response are not version checked.
+        respond(500, #"[{"id":"1","error":{"code":-32000,"message":"Server error"}}]"#)
+
+        let responses = try await HarborJRPC.batch([StringRequest(method: "a", requestID: .string("1"))])
+
+        guard case .error(.string("1"), .jrpcError(let error))? = responses.first else {
+            return XCTFail("Expected a jrpcError element but got: \(responses)")
+        }
+        XCTAssertEqual(error.httpStatusCode, 500)
+    }
+
     func testBatch2xxWithSingleErrorObjectThrowsJRPCError() async throws {
         respond(200, #"{"jsonrpc":"2.0","error":{"code":-32700,"message":"Parse error"},"id":null}"#)
 

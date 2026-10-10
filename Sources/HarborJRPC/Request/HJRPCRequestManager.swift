@@ -121,10 +121,15 @@ extension HJRPCRequestManager {
     /// - Parameter requests: The list of JSON-RPC requests to include in the batch.
     /// - Returns: One `HJRPCBatchResponse` per response element returned by the server. An empty
     ///   `requests` array returns `[]` without a network call, as does a batch made only of
-    ///   notifications answered with an empty body.
+    ///   notifications answered with an empty body. Like a single request, every element of a
+    ///   2xx response must carry the configured `jsonrpc` version: an element that lacks it or
+    ///   differs is an `.error` with `.invalidResponse` (even when it holds an error object) and
+    ///   does not fail the other elements. Elements of a non-2xx response are not checked, as
+    ///   for a single request.
     /// - Throws: An `HJRPCRequestError` when the batch as a whole fails: no endpoint, encoding
     ///   failures, transport and HTTP errors, a body that is not a JSON-RPC batch response, or a
-    ///   single JSON-RPC error object rejecting the whole batch (`.jrpcError`).
+    ///   single JSON-RPC error object rejecting the whole batch (`.jrpcError`, or
+    ///   `.invalidResponse` when a 2xx single object does not carry the configured version).
     static func batch(requests: [any HJRPCRequestProtocol]) async throws -> [HJRPCBatchResponse] {
         guard !requests.isEmpty else {
             return []
@@ -183,6 +188,9 @@ extension HJRPCRequestManager {
         case .success(.responses(let envelopes)):
             return envelopes.map { batchResponse(for: $0, httpStatusCode: nil) }
         case .success(.single(let envelope)):
+            guard hasExpectedVersion(envelope) else {
+                throw HJRPCRequestError.invalidResponse
+            }
             throw batchLevelError(for: envelope, httpStatusCode: nil)
         case .error(.api(let statusCode, let data)):
             // A non-2xx response may still carry JSON-RPC response objects.
@@ -272,8 +280,14 @@ extension HJRPCRequestManager {
     /// - Parameters:
     ///   - envelope: The response object.
     ///   - httpStatusCode: The non-2xx HTTP status of the response carrying it, or `nil` for a 2xx.
-    /// - Returns: `.error` for an error object or a response with neither `result` nor `error`, `.success` otherwise.
+    /// - Returns: `.error` for an error object, a response with neither `result` nor `error`, or
+    ///   (2xx only, as for a single request) a response without the configured `jsonrpc` version;
+    ///   `.success` otherwise.
     private static func batchResponse(for envelope: HJRPCResult<HJSONValue>, httpStatusCode: Int?) -> HJRPCBatchResponse {
+        if httpStatusCode == nil, !hasExpectedVersion(envelope) {
+            return .error(id: envelope.id, error: .invalidResponse)
+        }
+
         if var error = envelope.error {
             error.httpStatusCode = httpStatusCode
             return .error(id: envelope.id, error: .jrpcError(error: error))
@@ -284,6 +298,13 @@ extension HJRPCRequestManager {
         }
 
         return .error(id: envelope.id, error: .invalidResponse)
+    }
+
+    /// Whether a response object carries the configured `jsonrpc` version, the rule a single
+    /// request applies to its 2xx response.
+    /// - Parameter envelope: The response object.
+    private static func hasExpectedVersion(_ envelope: HJRPCResult<HJSONValue>) -> Bool {
+        envelope.jsonrpc == config.jrpcVersion
     }
 
     /// The error for a single response object returned for a whole batch.

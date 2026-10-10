@@ -71,7 +71,8 @@ For `.urlCache`, `cache()` (and the cached leg of `requestStream(source: .cacheA
 ## Cache keys and credentials
 
 - The key is the composite URL (path parameters substituted, query items sorted by name and strictly percent-encoded).
-- For `needsAuth` requests, `#harbor-auth=<sha256(header key:value)>` is appended. Each credential gets its own entries, and the raw token is never stored in the key.
+- When the request is sent with a credential, `#harbor-auth=<sha256(credentials)>` is appended. Credentials are the auth provider's header (`needsAuth` requests) and every header of the effective request (default headers merged with `headerParameters`, names compared case-insensitively) whose name is a built-in sensitive name (`HRedactionPolicy.defaultSensitiveKeys`: `Authorization`, `Proxy-Authorization`, `Cookie`, `X-API-Key`, anything containing `token`, `secret`, `password`, ...). Each credential set gets its own entries, and the raw value is never stored in the key. A request without any such header keeps the plain URL key. Lookup, store, `clearCache()`, `cachedETag()`, conditional validators and offline fallback all build the key the same way.
+- `.urlCache` is not namespaced: `URLCache` keys entries by URL only, so responses that depend on a credential (provider or manual header) must use `.custom`, and `Harbor.clearAllCache()` is the only protection on logout.
 - Replacing the auth provider or the token does **not** delete old entries. **Call `await Harbor.clearAllCache()` on logout.**
 
 ## Storage

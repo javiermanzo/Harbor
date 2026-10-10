@@ -83,7 +83,7 @@ final class HURLBuilderTests: XCTestCase {
 
     // MARK: - URL Scheme
 
-    func testCompositeURLAcceptsHTTPAndHTTPSInAnyCase() throws {
+    func testCompositeURLAcceptsHTTPAndHTTPSInAnyCase() async throws {
         let accepted = [("http://api.example.com/x", "http"), ("https://api.example.com/x", "https"),
                         ("HTTPS://api.example.com/x", "https"), ("HtTp://api.example.com/x", "http")]
         for (base, expectedScheme) in accepted {
@@ -92,7 +92,7 @@ final class HURLBuilderTests: XCTestCase {
         }
     }
 
-    func testCompositeURLRejectsOtherSchemes() throws {
+    func testCompositeURLRejectsOtherSchemes() async throws {
         let rejected = ["file:///etc/passwd", "FILE:///etc/passwd", "ftp://example.com/x", "data:text/plain,hi", "javascript:alert(1)", "ws://example.com/socket"]
         for base in rejected {
             XCTAssertThrowsError(try HURLBuilder.compositeURL(url: base), base) { error in
@@ -104,7 +104,7 @@ final class HURLBuilderTests: XCTestCase {
         }
     }
 
-    func testCompositeURLRejectsAURLWithoutScheme() throws {
+    func testCompositeURLRejectsAURLWithoutScheme() async throws {
         for base in ["invalid-url-format", "api.example.com/users", "/users", ""] {
             XCTAssertThrowsError(try HURLBuilder.compositeURL(url: base), base) { error in
                 guard case HRequestError.malformedRequest = error else {
@@ -114,7 +114,7 @@ final class HURLBuilderTests: XCTestCase {
         }
     }
 
-    func testSchemeRejectionReasonDoesNotLeakTheURL() throws {
+    func testSchemeRejectionReasonDoesNotLeakTheURL() async throws {
         XCTAssertThrowsError(try HURLBuilder.compositeURL(url: "ftp://user:hunter2@example.com/x")) { error in
             guard case HRequestError.malformedRequest(let reason) = error else {
                 return XCTFail("Expected malformedRequest but got: \(error)")

@@ -16,22 +16,27 @@ struct GetUsersRequest: HGetRequestProtocol {
     let url: String = "\(JSONPlaceholderAPI.baseURL)/users"
 }
 
-/// GET with path parameter - fetching single user
+/// GET with path parameter - fetching single user.
+/// `{id}` is replaced by the percent-encoded value of `pathParameters`.
 struct GetUserRequest: HGetRequestProtocol {
     typealias Model = User
     let userId: Int
-    var url: String { "\(JSONPlaceholderAPI.baseURL)/users/\(userId)" }
+    let url: String = "\(JSONPlaceholderAPI.baseURL)/users/{id}"
+
+    var pathParameters: [String: String]? {
+        ["id": String(userId)]
+    }
 }
 
-/// GET with query parameters - search users
+/// GET with query parameters - filter users by username (JSONPlaceholder filters on any field)
 struct SearchUsersRequest: HGetRequestProtocol {
     typealias Model = [User]
     let url: String = "\(JSONPlaceholderAPI.baseURL)/users"
 
-    let query: String
+    let username: String
 
     var queryParameters: [String: String]? {
-        ["q": query]
+        ["username": username]
     }
 }
 
@@ -41,7 +46,8 @@ struct GetUserProfileRequest: HGetRequestProtocol {
     let userId: Int
     var url: String { "\(JSONPlaceholderAPI.baseURL)/users/\(userId)" }
 
-    // Cache for 1 hour using custom cache
+    // Harbor's custom cache (memory + disk). It follows the response's Cache-Control/Expires;
+    // `expirationTime` is the freshness used when the response carries no caching headers.
     var cacheType: HCache.CacheType? {
         .custom(HCache.Configuration(expirationTime: .oneHour))
     }
@@ -56,6 +62,14 @@ struct GetPostsRequest: HGetRequestProtocol {
     var cacheType: HCache.CacheType? {
         .urlCache()
     }
+}
+
+/// GET to the pinned host with the cache disabled, so every run performs a TLS handshake
+/// that the SSL pin is checked against (a cached response would skip it).
+struct GetPinnedUsersRequest: HGetRequestProtocol {
+    typealias Model = [User]
+    let url: String = "\(JSONPlaceholderAPI.baseURL)/users"
+    let cacheType: HCache.CacheType? = .disabled
 }
 
 /// GET with pagination

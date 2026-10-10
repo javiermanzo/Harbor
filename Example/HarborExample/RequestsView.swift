@@ -15,9 +15,16 @@ struct RequestsView: View {
     @State private var isLoading: Bool = false
     @State private var isSettingsPresented: Bool = false
 
+    // Values shown in the settings sheet (Harbor's defaults, or what the sheet applied last).
+    @State private var timeoutInterval: Double = 15
+    @State private var isLoggingEnabled: Bool = true
+    @State private var cacheTypeIndex: Int = 0
+
     // Static logger using LogBird
     private static let logger = LogBird(subsystem: "com.harbor.example", category: "RequestsView")
 
+    // Auth providers are actors (not `ObservableObject`s), so `@State` keeps one instance alive
+    // across SwiftUI render passes.
     // Auth provider for authenticated requests
     @State private var authProvider = TokenAuthProvider()
 
@@ -51,19 +58,16 @@ struct RequestsView: View {
             "X-Client-Platform": "iOS"
         ])
 
-        // Set default cache type
+        // Set default cache type (the settings sheet starts on `.urlCache()`)
         await Harbor.setDefaultCacheType(.urlCache())
 
-        // Enable debug logging
+        // Enable debug logging (the settings sheet starts with logging on)
         await Harbor.setLoggingEnabled(true)
 
         // Configure JRpc
         await HarborJRPC.configure(url: URL(string: "https://ethereum.publicnode.com")!)
 
-        // Configure mTLS (optional - requires certificate)
-        // guard let url = Bundle.main.url(forResource: "certificate", withExtension: "p12") else { return }
-        // let mTLS = HMTLS(p12FileUrl: url) { "notapassword" }
-        // try await Harbor.setMTLS(mTLS)
+        // mTLS is configured on demand by the "GET - With mTLS" demo.
     }
 
     var body: some View {
@@ -140,6 +144,7 @@ struct RequestsView: View {
                             ExampleSection(title: "JSON-RPC (Ethereum)") {
                                 ExampleButton(title: "JRPC - Block Number", icon: "bitcoinsign.circle") { performJRPCRequest() }
                                 ExampleButton(title: "JRPC - Get Balance", icon: "dollarsign.circle") { performJRPCBalanceRequest() }
+                                ExampleButton(title: "JRPC - Batch", icon: "square.stack.3d.up") { performJRPCBatchRequest() }
                             }
 
                             // MARK: - mTLS
@@ -206,7 +211,11 @@ struct RequestsView: View {
                 }
             )
             .sheet(isPresented: $isSettingsPresented) {
-                SettingsView()
+                SettingsView(
+                    timeoutInterval: $timeoutInterval,
+                    isLoggingEnabled: $isLoggingEnabled,
+                    cacheTypeIndex: $cacheTypeIndex
+                )
             }
         }
         .overlay {
@@ -272,11 +281,11 @@ struct RequestsView: View {
     func performGetWithQueryParams() {
         addResult("=== GET - Query Parameters ===")
         performWithLoading {
-            let response = await SearchUsersRequest(query: "Bret").request()
+            let response = await SearchUsersRequest(username: "Bret").request()
             await MainActor.run {
                 switch response {
                 case .success(let users):
-                    addResult("Found \(users.count) users")
+                    addResult("Found \(users.count) user(s) with username Bret")
                 case .error(let error):
                     addResult("Error: \(error.localizedDescription)")
                 }
@@ -448,12 +457,16 @@ struct RequestsView: View {
     func performCacheOnlyRequest() {
         addResult("=== GET - Cache Only ===")
         performWithLoading {
-            let cachedUser = await GetUserRequest(userId: 1).cache()
+            // Reads the entry of "GET - With Custom Cache" without touching the network.
+            let request = GetUserProfileRequest(userId: 1)
+            let cachedUser = await request.cache()
+            let eTag = await request.cachedETag()
             await MainActor.run {
                 if let user = cachedUser {
                     addResult("Successfully read from cache: \(user.name)")
+                    addResult("Cached ETag: \(eTag ?? "none")")
                 } else {
-                    addResult("Cache miss (run a standard GET first to populate it)")
+                    addResult("Cache miss (run \"GET - With Custom Cache\" first to populate it)")
                 }
             }
         }
@@ -558,9 +571,8 @@ struct RequestsView: View {
         addResult("=== GET - Authenticated ===")
         // Read the @State provider on the main actor before handing it to the task.
         let authProvider = authProvider
-        authProvider.setToken("demo_token_123", expiresIn: 3600)
         performWithLoading {
-            // Set auth provider
+            await authProvider.setToken("demo_token_123", expiresIn: 3600)
             await Harbor.setAuthProvider(authProvider)
 
             let response = await GetPrivateDataRequest().request()
@@ -580,16 +592,18 @@ struct RequestsView: View {
         addResult("=== Auth with Token Refresh ===")
         // Read the @State provider on the main actor before handing it to the task.
         let refreshAuthProvider = refreshAuthProvider
-        refreshAuthProvider.reset()
         performWithLoading {
-            // Route auth-demo.local through the local stub server (no network needed): the
+            await refreshAuthProvider.reset()
+
+            // Route auth-demo.local through the local stub server (no real network traffic): the
             // session's `protocolClasses` inject the stub, so no global registration is required.
             let config = URLSessionConfiguration.ephemeral
             config.protocolClasses = [AuthDemoStubProtocol.self] + (config.protocolClasses ?? [])
             // A custom session is used as-is: Harbor's delegate keeps SSL pinning, mTLS and the
             // cross-origin redirect policy active on it.
             let delegate = await Harbor.makeURLSessionDelegate()
-            await Harbor.setCustomURLSession(URLSession(configuration: config, delegate: delegate, delegateQueue: nil))
+            let session = URLSession(configuration: config, delegate: delegate, delegateQueue: nil)
+            await Harbor.setCustomURLSession(session)
 
             // The provider starts with an expired token that the stub server rejects with a 401.
             // Harbor calls `authFailed()` once, the provider refreshes the token, and Harbor
@@ -597,10 +611,11 @@ struct RequestsView: View {
             await Harbor.setAuthProvider(refreshAuthProvider)
 
             let response = await GetSecureDemoDataRequest().request()
-            let refreshCount = refreshAuthProvider.refreshCount
+            let refreshCount = await refreshAuthProvider.refreshCount
 
-            // Restore default Harbor session
+            // Restore the default Harbor sessions and release the demo session
             await Harbor.setCustomURLSession(nil)
+            session.finishTasksAndInvalidate()
 
             await MainActor.run {
                 switch response {
@@ -673,7 +688,7 @@ struct RequestsView: View {
     func performJRPCBalanceRequest() {
         addResult("=== JRPC - eth_getBalance ===")
         performWithLoading {
-            let request = GetBalanceRequest(address: "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb")
+            let request = GetBalanceRequest(address: "0x742d35cc6634c0532925a3b844bc454e4438f44e")
             let response = await request.requestResult()
 
             await MainActor.run {
@@ -682,6 +697,35 @@ struct RequestsView: View {
                     addResult("Balance: \(balance)")
                 case .error(let jrpcError):
                     addResult("JRPC Error: \(jrpcError.localizedDescription)")
+                }
+            }
+        }
+    }
+
+    func performJRPCBatchRequest() {
+        addResult("=== JRPC - Batch (blockNumber + getBalance) ===")
+        performWithLoading {
+            do {
+                // One HTTP call carrying both requests; each response is paired with its id.
+                let responses = try await HarborJRPC.batch([
+                    JRPCRequest(),
+                    GetBalanceRequest(address: "0x742d35cc6634c0532925a3b844bc454e4438f44e")
+                ])
+
+                await MainActor.run {
+                    addResult("Batch returned \(responses.count) responses")
+                    for response in responses {
+                        switch response {
+                        case .success(_, let result):
+                            addResult("Result: \(result)")
+                        case .error(_, let error):
+                            addResult("JRPC Error: \(error.localizedDescription)")
+                        }
+                    }
+                }
+            } catch {
+                await MainActor.run {
+                    addResult("JRPC Batch Error: \(error.localizedDescription)")
                 }
             }
         }
@@ -774,7 +818,7 @@ struct RequestsView: View {
                 await Harbor.setSSLPinningKeys([pin], forHosts: [host])
 
                 // Verify that a pinned request to the host succeeds.
-                let response = await GetUsersRequest().request()
+                let response = await GetPinnedUsersRequest().request()
                 await MainActor.run {
                     switch response {
                     case .success(let users):
@@ -803,11 +847,11 @@ struct RequestsView: View {
           }
         ]
         """
-        let mock = HMock(request: GetUsersRequest.self, statusCode: 200, jsonResponse: json)
+        let mock = HMock(request: GetUsersRequest.self, statusCode: 200, jsonResponse: json, delay: 1.0)
         Task {
             await Harbor.register(mock: mock)
             await MainActor.run {
-                addResult("Registered mock for GetUsersRequest. Toggle 'Enable Mocks' and fetch users to see it.")
+                addResult("Registered mock for GetUsersRequest. With 'Enable Mocks' on, run 'GET - Simple Request' to get the mocked user.")
             }
         }
     }
@@ -817,7 +861,6 @@ struct RequestsView: View {
     func performDebugRequest() {
         addResult("=== Debug Request ===")
         performWithLoading {
-            await Harbor.setLoggingEnabled(true)
             let response = await DebugGetUsersRequest().request()
 
             await MainActor.run {
@@ -844,205 +887,6 @@ struct RequestsView: View {
 
     func addResult(_ text: String) {
         results.append(text)
-    }
-}
-
-// MARK: - Supporting Views
-
-struct ExampleSection<Content: View>: View {
-    let title: String
-    @ViewBuilder let content: Content
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text(title)
-                .font(.headline)
-                .fontWeight(.bold)
-                .foregroundColor(.primary)
-                .padding(.horizontal, 4)
-
-            VStack(spacing: 12) {
-                content
-            }
-        }
-        .padding()
-        .background(
-            RoundedRectangle(cornerRadius: 16)
-                .fill(Color(UIColor.secondarySystemBackground))
-                .shadow(color: Color.black.opacity(0.05), radius: 8, x: 0, y: 4)
-        )
-    }
-}
-
-struct ExampleButton: View {
-    let title: String
-    let icon: String
-    var isDestructive: Bool = false
-    var action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 16) {
-                Image(systemName: icon)
-                    .font(.system(size: 20, weight: .medium))
-                    .frame(width: 32)
-                    .foregroundColor(isDestructive ? .red : .accentColor)
-                
-                Text(title)
-                    .font(.system(.body, design: .rounded))
-                    .fontWeight(.medium)
-                    .foregroundColor(.primary)
-                
-                Spacer()
-                
-                Image(systemName: "chevron.right")
-                    .font(.caption.weight(.bold))
-                    .foregroundColor(Color.gray.opacity(0.5))
-            }
-            .padding()
-            .background(Color(UIColor.tertiarySystemBackground))
-            .cornerRadius(12)
-            .overlay(
-                RoundedRectangle(cornerRadius: 12)
-                    .stroke(isDestructive ? Color.red.opacity(0.3) : Color.accentColor.opacity(0.2), lineWidth: 1)
-            )
-        }
-        .buttonStyle(SpringyButtonStyle())
-    }
-}
-
-struct SpringyButtonStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .scaleEffect(configuration.isPressed ? 0.96 : 1.0)
-            .animation(.spring(response: 0.3, dampingFraction: 0.6), value: configuration.isPressed)
-    }
-}
-
-/// Interactive configuration panel for Harbor settings.
-struct SettingsView: View {
-    @Environment(\.dismiss) private var dismiss
-
-    @State private var timeoutInterval: Double = 15.0
-    @State private var mocksEnabled: Bool = false
-    @State private var isLoggingEnabled: Bool = true
-    @State private var cacheTypeIndex: Int = 0 // 0: urlCache, 1: disabled
-
-    var body: some View {
-        NavigationView {
-            Form {
-                Section(header: Text("Network")) {
-                    Stepper("Timeout: \(Int(timeoutInterval))s", value: $timeoutInterval, in: 5...60)
-                        .onChange(of: timeoutInterval) { newValue in
-                            Task { await Harbor.setDefaultTimeoutInterval(newValue) }
-                        }
-                    
-                    Picker("Cache Type", selection: $cacheTypeIndex) {
-                        Text(".urlCache").tag(0)
-                        Text(".disabled").tag(1)
-                    }
-                    .pickerStyle(.segmented)
-                    .onChange(of: cacheTypeIndex) { newValue in
-                        Task {
-                            let cacheType: HCache.CacheType = newValue == 0 ? .urlCache() : .disabled
-                            await Harbor.setDefaultCacheType(cacheType)
-                        }
-                    }
-                }
-
-                Section(header: Text("Debug")) {
-                    Toggle("Enable Mocks", isOn: $mocksEnabled)
-                        .onChange(of: mocksEnabled) { newValue in
-                            Task { await Harbor.setMocksEnabled(newValue) }
-                        }
-                    
-                    Toggle("Enable Logging", isOn: $isLoggingEnabled)
-                        .onChange(of: isLoggingEnabled) { newValue in
-                            Task { await Harbor.setLoggingEnabled(newValue) }
-                        }
-                }
-            }
-            .navigationTitle("Global Settings")
-            .navigationBarItems(trailing: Button("Done") { dismiss() })
-            .onAppear {
-                Task {
-                    let currentMocks = await Harbor.mocksEnabled
-                    await MainActor.run {
-                        self.mocksEnabled = currentMocks
-                        // Timeout and Logging state are not currently exposed as getters by Harbor, 
-                        // so we display the defaults (or last set values).
-                    }
-                }
-            }
-        }
-    }
-}
-
-/// Console-style output panel pinned to the bottom of the screen.
-/// Shows example outputs and auto-scrolls to the newest entry.
-struct ResultsConsoleView: View {
-    let results: [String]
-    let onClear: () -> Void
-
-    var body: some View {
-        VStack(spacing: 0) {
-            HStack {
-                Text("Terminal Output")
-                    .font(.system(.subheadline, design: .monospaced).weight(.semibold))
-                    .foregroundColor(.white)
-                Spacer()
-                if !results.isEmpty {
-                    Button(action: onClear) {
-                        Image(systemName: "trash")
-                            .foregroundColor(.red)
-                            .font(.system(size: 16, weight: .bold))
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
-            .background(Color.black)
-
-            ScrollViewReader { proxy in
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 6) {
-                        if results.isEmpty {
-                            Text("> Ready")
-                                .foregroundColor(.green)
-                        } else {
-                            ForEach(Array(results.enumerated()), id: \.offset) { index, result in
-                                HStack(alignment: .top, spacing: 8) {
-                                    Text(">")
-                                        .foregroundColor(.green)
-                                    Text(result)
-                                        .foregroundColor(.white)
-                                }
-                                .id(index)
-                            }
-                        }
-                    }
-                    .font(.system(.caption, design: .monospaced))
-                    .multilineTextAlignment(.leading)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(16)
-                }
-                .onChange(of: results.count) { _ in
-                    if let lastIndex = results.indices.last {
-                        withAnimation {
-                            proxy.scrollTo(lastIndex, anchor: .bottom)
-                        }
-                    }
-                }
-            }
-            .frame(height: 180)
-            .background(Color(white: 0.1))
-        }
-        .clipShape(RoundedRectangle(cornerRadius: 16))
-        .shadow(color: Color.black.opacity(0.3), radius: 10, x: 0, y: -5)
-        .padding(.horizontal, 16)
-        .padding(.bottom, 16)
-        .background(Color(UIColor.systemGroupedBackground))
     }
 }
 

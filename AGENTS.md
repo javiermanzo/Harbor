@@ -175,6 +175,25 @@ func mocks() async {
 ```
 Mocks are on by default in DEBUG and off in release (`setMocksEnabled(true)` enables them in release). Use `HMockSequence(request:responses:)` / `Harbor.register(mockSequence:)` to script several responses, `Harbor.mockCallCount(for:)` to assert calls (every mocked attempt, retries included, since the last `removeAllMocks()`), `Harbor.isMockRegistered(for:)` and `Harbor.removeMock(for:)`. The test suite intercepts real traffic with `URLProtocol` stubs through an internal hook (`Harbor.setProtocolClasses`, `@testable import`). Real-service tests only run with `HARBOR_RUN_NETWORK_TESTS=1`.
 
+## Code Organization
+Every Swift file in `Sources/` follows the same layout:
+```swift
+{VISIBILITY} {ENTITY}                      // the type: declaration, stored properties, initializers
+
+// MARK: - {Feature}
+{VISIBILITY} extension {ENTITY}            // one extension per feature (no conformance)
+
+// MARK: - {Protocol}
+extension {ENTITY}: {PROTOCOL}             // one extension per protocol conformance
+```
+- `{VISIBILITY}` is `public`, `internal`, `private`, etc., and `{ENTITY}` is `enum`, `struct`, `class`, `actor` or `protocol`. Swift does not allow an access modifier on an extension that declares a conformance: there the conformance takes the lower visibility of the type and the protocol.
+- Conformances live in their own extension (`Error`, `LocalizedError`, `Equatable`, `Hashable`, `Codable`/`HModel`, `CustomStringConvertible`, `URLSessionTaskDelegate`, ...) together with the members that implement them.
+- They stay on the declaration: `Sendable`, a raw type (`: String`, `: Int`), a superclass (`: NSObject`) and protocol inheritance (`protocol HGetRequestProtocol: HRequestWithResultProtocol`), because Swift requires them there or they describe the type itself.
+- Every extension is preceded by a `// MARK: - {Feature or Protocol}` line followed by a blank line.
+- One top-level type or protocol per file, named after it (`HGetRequestProtocol.swift`). Large types are split into `Type+Feature.swift` files (see `HRequestManager+Execution.swift`, `+Auth`, `+Retry`, `+Mock`, `+URLSessionPool`). Small private helper types and wrappers that only make sense next to their type may share its file.
+- Shared mutable state stays in the type's main file (stored properties cannot move across files without widening their visibility); code that is not a stored property goes to the extension of its feature.
+- Mutable state shared across threads uses `HLockedState` (see `Utils/HLockedState.swift`), not a hand-rolled `NSLock`. Build-configuration checks use `HBuild.isDebug` when a value is enough; keep `#if DEBUG` when the code itself must not be compiled in release (e.g. log statements that include error details).
+
 ## Example App
 The repository includes an `Example/HarborExample` app showcasing every feature (GET, POST incl. `rawBody` and multipart, Caching, Streaming, JRPC, Auth with token refresh, Retry, mTLS, SSL pinning, Mocking). It is built in Swift 6 language mode (`SWIFT_VERSION = 6.0`, `SWIFT_STRICT_CONCURRENCY = complete`). When modifying the Example App:
 - Ensure UI state uses `@State` (or `@StateObject` for classes) to prevent lifecycle reference leaks across SwiftUI render passes.
@@ -185,7 +204,7 @@ The repository includes an `Example/HarborExample` app showcasing every feature 
 ## CI & Workflow
 - Commits must follow Conventional Commits (e.g., `feat:`, `fix:`, `docs:`, `chore:`).
 - When adding features, ensure they comply with Swift 6 strict concurrency. The library must build without warnings: CI builds the package and fails on any compiler `warning:` emitted for files under this repository's `Sources/` (warnings from dependencies are ignored).
-- Always run `swift test` and `xcodebuild test` in the Example App to ensure no regressions. CI (`.github/workflows/ci.yml`) runs unit tests with coverage and the Example App tests; `lint.yml` runs SwiftLint `--strict`; `network-tests.yml` (manual/weekly) runs the real-service tests.
+- Test every change before pushing it: run `swift build` (no warnings under `Sources/`), `swift test` and `xcodebuild test` in the Example App, even for refactors that only move code. CI (`.github/workflows/ci.yml`) runs unit tests with coverage and the Example App tests; `lint.yml` runs SwiftLint `--strict`; `network-tests.yml` (manual/weekly) runs the real-service tests.
 
 ## Internal Deep-Dive Documentation
 Harbor contains further internal documentation files mapping out specific systems. If you need deep implementation details on specific areas, you can locate them inside `.agents/skills/harbor/`:

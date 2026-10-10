@@ -214,5 +214,5 @@ Remember to call `await Harbor.setCustomURLSession(nil)` in `tearDown`. A JSON-R
 ## Related files
 
 - `Sources/Harbor/Mock/HMock.swift`, `HMockSequence.swift`, `HMocker.swift`.
-- `Sources/Harbor/Request/HRequestManager.swift` (`executeMockAttempt`, `resolveMock`).
+- `Sources/Harbor/Request/HRequestManager+Execution.swift` (`executeMockAttempt`) and `HRequestManager+Mock.swift` (`resolveMock`).
 - `Tests/HarborTests/HarborMockTests.swift`, `HarborRequestRetryTests.swift`.

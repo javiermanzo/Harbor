@@ -96,7 +96,7 @@ Notes:
 
 ## Related files
 
-- `Sources/Harbor/Request/HRequestManager.swift`: attempt loop, auth refresh, session cache.
+- `Sources/Harbor/Request/HRequestManager.swift` (shared state and attempt outcomes) and its extensions: `+Execution` (request flows, attempt loop), `+Auth` (authorization, refresh), `+Mock`, `+Retry` (error mapping, `Retry-After`, backoff), `+URLSessionPool` (session cache).
 - `Sources/Harbor/Request/HRequestProtocol.swift`: protocols, defaults, streaming.
 - `Sources/Harbor/Request/HRetryPolicy.swift`: retry classification.
 - `Sources/Harbor/Utils/HURLBuilder.swift`: URL, header and body construction.

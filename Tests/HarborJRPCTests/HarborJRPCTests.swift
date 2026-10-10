@@ -7,7 +7,7 @@ final class HarborJRPCTests: XCTestCase {
 
     override func setUp() async throws {
         await Harbor.removeAllMocks()
-        await Harbor.setMocksOnlyInDebug(false)
+        await Harbor.setMocksEnabled(true)
         await HarborJRPC.configure(url: URL(string: "https://api.example.com/rpc")!, jrpcVersion: "2.0")
     }
 
@@ -22,7 +22,7 @@ final class HarborJRPCTests: XCTestCase {
         let request = TestRequest(method: "eth_blockNumber", requestID: .string("1"))
 
         // When
-        let wrapper = request.wrapRequest(type: TestModel.self)
+        let wrapper = try request.wrapRequest(type: TestModel.self)
         let body = try XCTUnwrap(wrapper.bodyParameters)
 
         // Then
@@ -36,7 +36,7 @@ final class HarborJRPCTests: XCTestCase {
         let request = TestRequest(method: "eth_blockNumber")
 
         // When
-        let body = try XCTUnwrap(request.wrapRequest(type: TestModel.self).bodyParameters)
+        let body = try XCTUnwrap(try request.wrapRequest(type: TestModel.self).bodyParameters)
 
         // Then
         XCTAssertNil(body["params"])
@@ -47,7 +47,7 @@ final class HarborJRPCTests: XCTestCase {
         let request = TestRequest(method: "eth_getBalance", parameters: .named(["address": "0xabc", "block": "latest"]))
 
         // When
-        let body = try XCTUnwrap(request.wrapRequest(type: TestModel.self).bodyParameters)
+        let body = try XCTUnwrap(try request.wrapRequest(type: TestModel.self).bodyParameters)
         let params = try XCTUnwrap(body["params"] as? [String: Any])
 
         // Then
@@ -60,7 +60,7 @@ final class HarborJRPCTests: XCTestCase {
         let request = TestRequest(method: "eth_getBalance", parameters: .positioned(["0xabc", "latest"]))
 
         // When
-        let body = try XCTUnwrap(request.wrapRequest(type: TestModel.self).bodyParameters)
+        let body = try XCTUnwrap(try request.wrapRequest(type: TestModel.self).bodyParameters)
         let params = try XCTUnwrap(body["params"] as? [Any])
 
         // Then
@@ -74,7 +74,7 @@ final class HarborJRPCTests: XCTestCase {
         let request = TestRequest(method: "eth_blockNumber")
 
         // When
-        let body = try XCTUnwrap(request.wrapRequest(type: TestModel.self).bodyParameters)
+        let body = try XCTUnwrap(try request.wrapRequest(type: TestModel.self).bodyParameters)
         let id = try XCTUnwrap(body["id"] as? String)
 
         // Then
@@ -86,7 +86,7 @@ final class HarborJRPCTests: XCTestCase {
         let request = TestNotificationRequest()
 
         // When
-        let body = try XCTUnwrap(request.wrapRequest(type: TestModel.self).bodyParameters)
+        let body = try XCTUnwrap(try request.wrapRequest(type: TestModel.self).bodyParameters)
 
         // Then
         XCTAssertNil(body["id"])
@@ -99,7 +99,7 @@ final class HarborJRPCTests: XCTestCase {
         let request = TestRequest(method: "eth_blockNumber", requestID: .number(42))
 
         // When
-        let wrapper = request.wrapRequest(type: TestModel.self)
+        let wrapper = try request.wrapRequest(type: TestModel.self)
         let body = try XCTUnwrap(wrapper.bodyParameters)
 
         // Then
@@ -344,7 +344,7 @@ final class HarborJRPCTests: XCTestCase {
         ]
 
         // When
-        let responses = await HarborJRPC.batch(requests)
+        let responses = try await HarborJRPC.batch(requests)
 
         // Then
         XCTAssertEqual(responses.count, 3)
@@ -382,13 +382,13 @@ final class HarborJRPCTests: XCTestCase {
         ]
 
         // When
-        let responses = await HarborJRPC.batch(requests)
+        let responses = try await HarborJRPC.batch(requests)
 
         // Then
         XCTAssertTrue(responses.isEmpty)
     }
 
-    func testBatchWithEmptyURLReturnsURLNeededPerRequest() async throws {
+    func testBatchWithEmptyURLThrowsURLNeeded() async throws {
         // Given
         HJRPCRequestManager.config.url = ""
 
@@ -397,16 +397,11 @@ final class HarborJRPCTests: XCTestCase {
             TestStringRequest(method: "eth_chainId", requestID: .string("2")),
         ]
 
-        // When
-        let responses = await HarborJRPC.batch(requests)
-
-        // Then
-        XCTAssertEqual(responses.count, 2)
-        for (index, response) in responses.enumerated() {
-            guard case .error(let id, let error) = response else {
-                return XCTFail("Expected error but got: \(response)")
-            }
-            XCTAssertEqual(id, .string("\(index + 1)"))
+        // When / Then
+        do {
+            _ = try await HarborJRPC.batch(requests)
+            XCTFail("Expected batch to throw")
+        } catch let error as HJRPCRequestError {
             guard case .urlNeeded = error else {
                 return XCTFail("Expected urlNeeded but got: \(error)")
             }
@@ -447,33 +442,14 @@ final class HarborJRPCTests: XCTestCase {
 
     // MARK: - Configuration
 
-    func testSetURLFromStringValidatesTheURL() async throws {
-        do {
-            try await HarborJRPC.setURL("https://api.example.com/rpc")
-        } catch {
-            XCTFail("Expected setURL to succeed but got: \(error)")
-        }
+    func testConfigureSetsURLAndVersion() async {
+        await HarborJRPC.configure(url: URL(string: "https://api.example.com/v2")!, jrpcVersion: "2.0")
 
-        do {
-            try await HarborJRPC.setURL("ht tp://bad url")
-            XCTFail("Expected setURL to throw")
-        } catch let error as HJRPCConfigurationError {
-            guard case .invalidURL(let urlString) = error else {
-                return XCTFail("Expected invalidURL but got: \(error)")
-            }
-            XCTAssertEqual(urlString, "ht tp://bad url")
-        }
-    }
-
-    func testHJRPCConfigPublicInit() async {
-        let config = HJRPCConfig(url: "https://api.example.com/rpc", jrpcVersion: "2.0")
-
-        XCTAssertEqual(config.url, "https://api.example.com/rpc")
+        let config = await HJRPCRequestManager.config
+        XCTAssertEqual(config.url, "https://api.example.com/v2")
         XCTAssertEqual(config.jrpcVersion, "2.0")
 
-        let defaultConfig = HJRPCConfig()
-        XCTAssertEqual(defaultConfig.url, "")
-        XCTAssertEqual(defaultConfig.jrpcVersion, "2.0")
+        await HarborJRPC.configure(url: URL(string: "https://api.example.com/rpc")!)
     }
 
     // MARK: - HJRPCResponse

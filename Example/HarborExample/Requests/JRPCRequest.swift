@@ -9,8 +9,11 @@ import Foundation
 import HarborJRPC
 import Harbor
 
+/// `eth_blockNumber` takes no parameters, so `parameters` keeps its `nil` default.
 struct JRPCRequest: HJRPCRequestProtocol, HDebugRequestProtocol {
-    var debugType: HDebugRequestType = .requestAndResponse
     typealias Model = String
-    var method: String = "eth_blockNumber"
+    let method: String = "eth_blockNumber"
+    let debugType: HDebugRequestType = .requestAndResponse
+    // JSON-RPC calls are POSTs: this read-only call opts in to retries after timeouts/5xx.
+    let retryPolicy: HRetryPolicy? = HRetryPolicy(maxRetries: 2, retryNonIdempotentRequests: true)
 }

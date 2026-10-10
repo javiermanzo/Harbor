@@ -1,951 +1,218 @@
-# Harbor Testing Guide
+# Testing with Harbor
 
-Complete guide to testing with Harbor's mock system and best practices.
+## How mocks work
 
-## Overview
+Mocks are resolved inside Harbor's request manager, not at the `URLProtocol` level. On every attempt, when mocks are enabled and a mock is registered for `type(of: request)`, Harbor builds a synthetic `HTTPURLResponse` from the mock and runs it through the normal response pipeline (decoding, cache store, retry, 401 handling). No network call, connectivity check or URL session is involved.
 
-Harbor provides a comprehensive mocking system that allows you to test network requests without making actual HTTP calls. This is essential for:
+Consequences:
 
-- **Fast test execution**: No network latency
-- **Deterministic tests**: Consistent, repeatable results
-- **Offline testing**: No internet connection required
-- **Edge case testing**: Easily simulate errors and edge cases
+- Mocked requests skip the connectivity check and the initial auth-header lookup, so Harbor never *generates* `.noConnection` or `.authProviderNeeded` for them. A mock's own `error` (for example `.noConnection`) is returned as-is.
+- The status code still drives behavior. A mocked 503 is retried by the request's `retryPolicy`, a 2xx is decoded with `parseData(data:model:)` (and cached for GET requests), and a 401 calls the auth provider's `authFailed()`.
+- A mock's `error` ends the attempt with that error, after `delay`, and goes through the retry policy like the real failure it stands for: `.timeout` is retried for idempotent requests, `.noConnection` / `.cannotFindHost` / `.cannotConnectToHost` for any method, `.api(statusCode:)` per `retryableStatusCodes`. Other errors are not retried.
+- Mocks are keyed by request type identity: one mock (or sequence) per type.
+- `HJRPCRequestProtocol` requests can't be mocked with `HMock`, because they are sent through internal wrapper types. Use a `URLProtocol` stub on a custom session instead (see below).
 
-**Location**: `Sources/Harbor/Mock/`
+Mocks are on by default in DEBUG builds and off in release builds. `Harbor.setMocksEnabled(true/false)` turns them on or off (`setMocksEnabled(true)` also enables them in release, e.g. for a UI-test or demo configuration); read the current value with `Harbor.mocksEnabled`.
 
-## Mock System
-
-### HMock
-
-**Location**: `Sources/Harbor/Mock/HMock.swift`
+## API
 
 ```swift
-struct HMock: Sendable {
-    let request: HRequestBaseRequestProtocol.Type
-    let statusCode: Int
-    let jsonResponse: String?
-    let error: HRequestError?
-    let delay: Double?
-    let headers: [String: String]?
+struct Todo: Codable, Sendable, Equatable {
+    let id: Int
+    let title: String
 }
-```
 
-Use `headers` to simulate HTTP response headers such as `Cache-Control` or `ETag`, for example to test caching behavior.
-
-### HMocker
-
-**Location**: `Sources/Harbor/Mock/HMocker.swift`
-
-```swift
-@HRequestManagerActor
-enum HMocker {
-    // Mocks keyed by request metatype identity (ObjectIdentifier).
+struct GetTodoRequest: HGetRequestProtocol {
+    typealias Model = Todo
+    let url = "https://api.example.com/todos/1"
 }
-```
 
-## Creating Mocks
-
-### Basic Mock with JSON
-
-```swift
-// Define a mock response
-let mockJSON = """
-{
-    "id": 1,
-    "name": "John Doe",
-    "email": "john@example.com"
+struct DeleteTodoRequest: HDeleteRequestProtocol {
+    let url = "https://api.example.com/todos/1"
 }
-"""
 
-let mock = await HMock(
-    request: GetUserRequest.self,
-    statusCode: 200,
-    jsonResponse: mockJSON
-)
+func mockAPI() async {
+    await Harbor.setMocksEnabled(true)
 
-// Register the mock
-await Harbor.register(mock: mock)
-```
-
-### Mock with Encodable Model
-
-```swift
-let mockUser = User(id: 1, name: "John Doe", email: "john@example.com")
-let jsonData = try JSONEncoder().encode(mockUser)
-let jsonString = String(data: jsonData, encoding: .utf8)!
-
-let mock = await HMock(
-    request: GetUserRequest.self,
-    statusCode: 200,
-    jsonResponse: jsonString
-)
-
-await Harbor.register(mock: mock)
-```
-
-### Mock with Error
-
-```swift
-// Simulate network error
-let mock = await HMock(
-    request: GetUserRequest.self,
-    error: .noConnection
-)
-
-await Harbor.register(mock: mock)
-```
-
-### Mock with Delay
-
-```swift
-// Simulate slow network
-let mock = await HMock(
-    request: GetUserRequest.self,
-    statusCode: 200,
-    jsonResponse: mockJSON,
-    delay: 2.0  // 2 second delay
-)
-
-await Harbor.register(mock: mock)
-```
-
-### Mock HTTP Errors
-
-```swift
-// 404 Not Found
-let mock404 = await HMock(
-    request: GetUserRequest.self,
-    statusCode: 404,
-    jsonResponse: """
-    {
-        "error": "User not found"
-    }
-    """
-)
-
-// 500 Server Error
-let mock500 = await HMock(
-    request: GetUserRequest.self,
-    statusCode: 500,
-    jsonResponse: """
-    {
-        "error": "Internal server error"
-    }
-    """
-)
-
-// 401 Unauthorized
-let mock401 = await HMock(
-    request: GetUserRequest.self,
-    statusCode: 401,
-    jsonResponse: """
-    {
-        "error": "Unauthorized"
-    }
-    """
-)
-```
-
-## Mock Management
-
-### Register Mock
-
-```swift
-await Harbor.register(mock: mock)
-```
-
-### Remove Specific Mock
-
-`remove(mock:)` takes the registered `HMock` instance:
-
-```swift
-await Harbor.remove(mock: mock)
-```
-
-### Remove All Mocks
-
-```swift
-await Harbor.removeAllMocks()
-```
-
-### Mock Scope Configuration
-
-```swift
-// Mocks only work in DEBUG builds (default)
-await Harbor.setMocksOnlyInDebug(true)
-
-// Mocks work in all builds (for testing)
-await Harbor.setMocksOnlyInDebug(false)
-```
-
-## Test Structure
-
-### Given-When-Then Pattern
-
-Harbor tests follow the Given-When-Then structure for clarity:
-
-```swift
-func testGetUserRequest() async throws {
-    // Given: Setup test conditions
-    let mockUser = User(id: 1, name: "John Doe", email: "john@example.com")
-    let jsonData = try JSONEncoder().encode(mockUser)
-    let jsonString = String(data: jsonData, encoding: .utf8)!
-    
-    let mock = await HMock(
-        request: GetUserRequest.self,
-        statusCode: 200,
-        jsonResponse: jsonString
-    )
+    // Success with a JSON body, response headers and a simulated latency
+    let mock = HMock(request: GetTodoRequest.self,
+                     statusCode: 200,
+                     jsonResponse: #"{"id":1,"title":"Write docs"}"#,
+                     delay: 0.2,
+                     headers: ["Cache-Control": "max-age=60", "ETag": "\"v1\""])
     await Harbor.register(mock: mock)
-    
-    // When: Execute the action
-    let request = GetUserRequest(userId: "1")
-    let response = await request.request()
-    
-    // Then: Verify the result
-    switch response {
-    case .success(let user):
-        XCTAssertEqual(user.id, 1)
-        XCTAssertEqual(user.name, "John Doe")
-        XCTAssertEqual(user.email, "john@example.com")
-    case .error(let error):
-        XCTFail("Expected success but got error: \(error)")
-    }
+
+    // HTTP error: becomes HRequestError.api(statusCode: 404, data: ...)
+    await Harbor.register(mock: HMock(request: DeleteTodoRequest.self, statusCode: 404))
+
+    // Transport-level error injected directly
+    await Harbor.register(mock: HMock(request: GetTodoRequest.self, statusCode: 0, error: .timeout))
+
+    // Scripted sequence: one response per attempt, the last one repeats
+    await Harbor.register(mockSequence: HMockSequence(request: GetTodoRequest.self, responses: [
+        .init(statusCode: 503, headers: ["Retry-After": "0"]),
+        .init(statusCode: 200, jsonResponse: #"{"id":1,"title":"Recovered"}"#)
+    ]))
+
+    let calls = await Harbor.mockCallCount(for: GetTodoRequest.self)
+    let registered = await Harbor.isMockRegistered(for: GetTodoRequest.self)
+    print(calls, registered)
+
+    await Harbor.removeMock(for: GetTodoRequest.self) // removes the mock or sequence registered for GetTodoRequest
+    await Harbor.removeAllMocks()                     // also resets call counts
 }
 ```
 
-### Setup and Teardown
+Registering a mock replaces any mock or sequence for the same type, and vice versa. `HMockSequence(request:responses:)` takes `HMockSequence.Response` values (`.init(statusCode:jsonResponse:error:headers:delay:)`). `Harbor.mockCallCount(for:)` counts every mocked attempt for the type, retries included, since the last `removeAllMocks()`.
+
+## XCTest patterns
 
 ```swift
-final class HarborTests: XCTestCase {
+final class TodoTests: XCTestCase {
     override func setUp() async throws {
-        await super.setUp()
-        
-        // Clean state before each test
+        await Harbor.setMocksEnabled(true)
         await Harbor.removeAllMocks()
         await Harbor.clearAllCache()
-        await Harbor.setMocksOnlyInDebug(false)
         await Harbor.setAuthProvider(nil)
-        await Harbor.setDefaultCacheType(.disabled)
     }
-    
+
     override func tearDown() async throws {
-        // Clean up after each test
         await Harbor.removeAllMocks()
-        await Harbor.clearAllCache()
-        
-        await super.tearDown()
     }
-    
-    func testSomething() async throws {
-        // Test code
+
+    func testDecodesTodo() async {
+        await Harbor.register(mock: HMock(request: GetTodoRequest.self,
+                                          statusCode: 200,
+                                          jsonResponse: #"{"id":1,"title":"Write docs"}"#))
+
+        let response = await GetTodoRequest().request()
+
+        guard case .success(let todo) = response else {
+            return XCTFail("Expected success, got \(response)")
+        }
+        XCTAssertEqual(todo, Todo(id: 1, title: "Write docs"))
     }
-}
-```
 
-## Testing Different Request Types
+    func testNotFound() async {
+        await Harbor.register(mock: HMock(request: DeleteTodoRequest.self, statusCode: 404))
 
-### GET Request Test
-
-```swift
-func testGetRequest() async throws {
-    // Given
-    let mockJSON = """
-    {
-        "id": 123,
-        "title": "Test Post",
-        "body": "This is a test"
+        guard case .error(let error) = await DeleteTodoRequest().request() else {
+            return XCTFail("Expected an error")
+        }
+        guard case .api(let statusCode, _) = error else {
+            return XCTFail("Expected .api, got \(error)")
+        }
+        XCTAssertEqual(statusCode, 404)
     }
-    """
-    
-    let mock = await HMock(
-        request: GetPostRequest.self,
-        statusCode: 200,
-        jsonResponse: mockJSON
-    )
-    await Harbor.register(mock: mock)
-    
-    // When
-    let request = GetPostRequest(postId: "123")
-    let response = await request.request()
-    
-    // Then
-    switch response {
-    case .success(let post):
-        XCTAssertEqual(post.id, 123)
-        XCTAssertEqual(post.title, "Test Post")
-    case .error(let error):
-        XCTFail("Request failed: \(error)")
+
+    func testRetriesTransientFailure() async {
+        struct RetryingTodoRequest: HGetRequestProtocol {
+            typealias Model = Todo
+            let url = "https://api.example.com/todos/1"
+            let retryPolicy: HRetryPolicy? = HRetryPolicy(maxRetries: 2, baseDelay: 0, jitter: 0...0)
+        }
+        await Harbor.register(mockSequence: HMockSequence(request: RetryingTodoRequest.self, responses: [
+            .init(statusCode: 503),
+            .init(statusCode: 200, jsonResponse: #"{"id":1,"title":"ok"}"#)
+        ]))
+
+        let response = await RetryingTodoRequest().request()
+
+        guard case .success = response else { return XCTFail("\(response)") }
+        let calls = await Harbor.mockCallCount(for: RetryingTodoRequest.self)
+        XCTAssertEqual(calls, 2)
     }
-}
-```
 
-### POST Request Test
+    func testErrorsAreEquatable() async {
+        await Harbor.register(mock: HMock(request: GetTodoRequest.self, statusCode: 0, error: .noConnection))
 
-```swift
-func testPostRequest() async throws {
-    // Given
-    let mockJSON = """
-    {
-        "id": 456,
-        "name": "New User",
-        "created": true
-    }
-    """
-    
-    let mock = await HMock(
-        request: CreateUserRequest.self,
-        statusCode: 201,
-        jsonResponse: mockJSON
-    )
-    await Harbor.register(mock: mock)
-    
-    // When
-    let request = CreateUserRequest(name: "New User", email: "new@example.com")
-    let response = await request.request()
-    
-    // Then
-    switch response {
-    case .success(let result):
-        XCTAssertEqual(result.id, 456)
-        XCTAssertTrue(result.created)
-    case .error(let error):
-        XCTFail("Request failed: \(error)")
-    }
-}
-```
-
-### DELETE Request Test
-
-```swift
-func testDeleteRequest() async throws {
-    // Given
-    let mock = await HMock(
-        request: DeleteUserRequest.self,
-        statusCode: 204,
-        jsonResponse: nil
-    )
-    await Harbor.register(mock: mock)
-    
-    // When
-    let request = DeleteUserRequest(userId: "123")
-    let response = await request.request()
-    
-    // Then
-    switch response {
-    case .success:
-        XCTAssertTrue(true, "Delete succeeded")
-    case .error(let error):
-        XCTFail("Delete failed: \(error)")
-    }
-}
-```
-
-## Testing Error Cases
-
-### Network Error Test
-
-```swift
-func testNetworkError() async throws {
-    // Given
-    let mock = await HMock(
-        request: GetUserRequest.self,
-        error: .noConnection
-    )
-    await Harbor.register(mock: mock)
-    
-    // When
-    let response = await GetUserRequest(userId: "1").request()
-    
-    // Then
-    switch response {
-    case .success:
-        XCTFail("Expected error but got success")
-    case .error(let error):
+        guard case .error(let error) = await GetTodoRequest().request() else { return XCTFail() }
         XCTAssertEqual(error, .noConnection)
     }
 }
 ```
 
-### HTTP Error Test
+### Auth refresh
 
 ```swift
-func testHTTPError() async throws {
-    // Given
-    let errorJSON = """
-    {
-        "error": "User not found",
-        "code": "USER_NOT_FOUND"
-    }
-    """
-    
-    let mock = await HMock(
-        request: GetUserRequest.self,
-        statusCode: 404,
-        jsonResponse: errorJSON
-    )
-    await Harbor.register(mock: mock)
-    
-    // When
-    let response = await GetUserRequest(userId: "999").request()
-    
-    // Then
-    switch response {
-    case .success:
-        XCTFail("Expected error but got success")
-    case .error(let error):
-        if case .api(let statusCode, _) = error {
-            XCTAssertEqual(statusCode, 404)
-        } else {
-            XCTFail("Expected api error but got \(error)")
-        }
-    }
+actor RefreshCounter {
+    private(set) var count = 0
+    func increment() { count += 1 }
 }
-```
 
-### Authentication Error Test
+final class RotatingAuthProvider: HAuthProviderProtocol {
+    let counter = RefreshCounter()
 
-```swift
-func testAuthenticationError() async throws {
-    // Given
-    let mock = await HMock(
-        request: GetPrivateDataRequest.self,
-        statusCode: 401,
-        jsonResponse: """
-        {
-            "error": "Unauthorized"
-        }
-        """
-    )
-    await Harbor.register(mock: mock)
-    
-    // When
-    let response = await GetPrivateDataRequest().request()
-    
-    // Then
-    switch response {
-    case .success:
-        XCTFail("Expected auth error")
-    case .error(let error):
-        if case .api(let statusCode, _) = error {
-            XCTAssertEqual(statusCode, 401)
-        } else {
-            XCTFail("Expected 401 error")
-        }
-    }
-}
-```
-
-### Timeout Test
-
-```swift
-func testTimeout() async throws {
-    // Given
-    let mock = await HMock(
-        request: GetUserRequest.self,
-        error: .timeout
-    )
-    await Harbor.register(mock: mock)
-    
-    // When
-    let response = await GetUserRequest(userId: "1").request()
-    
-    // Then
-    switch response {
-    case .success:
-        XCTFail("Expected timeout error")
-    case .error(let error):
-        XCTAssertEqual(error, .timeout)
-    }
-}
-```
-
-## Testing Cache
-
-### Cache Hit Test
-
-```swift
-func testCacheHit() async throws {
-    // Given
-    let mockJSON = """
-    {
-        "id": 1,
-        "name": "Cached User"
-    }
-    """
-    
-    let mock = await HMock(
-        request: GetUserRequest.self,
-        statusCode: 200,
-        jsonResponse: mockJSON
-    )
-    await Harbor.register(mock: mock)
-    
-    let request = GetUserRequest(userId: "1")
-    
-    // First request - populates cache
-    _ = await request.request()
-    
-    // When - Second request should use cache
-    let cachedUser = await request.cache()
-    
-    // Then
-    XCTAssertNotNil(cachedUser)
-    XCTAssertEqual(cachedUser?.name, "Cached User")
-}
-```
-
-### Cache Expiration Test
-
-```swift
-func testCacheExpiration() async throws {
-    // Given
-    await Harbor.setDefaultCacheType(.custom(HCache.Configuration(expirationTime: 1.0)))
-    
-    let mockJSON = """
-    {
-        "id": 1,
-        "name": "User"
-    }
-    """
-    
-    let mock = await HMock(
-        request: GetUserRequest.self,
-        statusCode: 200,
-        jsonResponse: mockJSON
-    )
-    await Harbor.register(mock: mock)
-    
-    let request = GetUserRequest(userId: "1")
-    
-    // First request
-    _ = await request.request()
-    
-    // Cache should exist
-    XCTAssertNotNil(await request.cache())
-    
-    // Wait for expiration
-    try await Task.sleep(nanoseconds: 2_000_000_000) // 2 seconds
-    
-    // Cache should be expired
-    XCTAssertNil(await request.cache())
-}
-```
-
-### Cache Clear Test
-
-```swift
-func testCacheClear() async throws {
-    // Given
-    let mockJSON = """{"id": 1, "name": "User"}"""
-    
-    let mock = await HMock(
-        request: GetUserRequest.self,
-        statusCode: 200,
-        jsonResponse: mockJSON
-    )
-    await Harbor.register(mock: mock)
-    
-    let request = GetUserRequest(userId: "1")
-    
-    // Populate cache
-    _ = await request.request()
-    XCTAssertNotNil(await request.cache())
-    
-    // When
-    await request.clearCache()
-    
-    // Then
-    XCTAssertNil(await request.cache())
-}
-```
-
-## Testing Streaming
-
-### Stream Test
-
-```swift
-func testRequestStream() async throws {
-    // Given
-    let mockJSON = """
-    {
-        "id": 1,
-        "name": "User"
-    }
-    """
-    
-    let mock = await HMock(
-        request: GetUserRequest.self,
-        statusCode: 200,
-        jsonResponse: mockJSON
-    )
-    await Harbor.register(mock: mock)
-    
-    let request = GetUserRequest(userId: "1")
-    
-    // When
-    var emissions: [(User, HOriginType)] = []
-    for try await (user, origin) in request.requestStream(source: .cacheAndRemote) {
-        emissions.append((user, origin))
-    }
-    
-    // Then
-    // First emission from network (no cache yet)
-    XCTAssertEqual(emissions.count, 1)
-    XCTAssertEqual(emissions[0].0.name, "User")
-    XCTAssertEqual(emissions[0].1, .remote)
-}
-```
-
-## Testing Authentication
-
-### Mock Auth Provider
-
-The real `HAuthProviderProtocol` has two methods: `getAuthorizationHeader()` returns the current `HAuthorizationHeader`, and `authFailed()` is called when the server rejects the credentials.
-
-```swift
-final class MockAuthProvider: HAuthProviderProtocol, @unchecked Sendable {
-    var token: String?
-    var authFailedCalled: Bool = false
-
-    func getAuthorizationHeader() async -> HAuthorizationHeader {
-        HAuthorizationHeader(key: "Authorization", value: "Bearer \(token ?? "")")
+    func getAuthorizationHeader() async -> HAuthorizationHeader? {
+        HAuthorizationHeader(key: "Authorization", value: "Bearer \(await counter.count)")
     }
 
     func authFailed() async {
-        authFailedCalled = true
-    }
-}
-```
-
-### Auth Test
-
-```swift
-func testAuthenticatedRequest() async throws {
-    // Given
-    let mockAuth = MockAuthProvider()
-    mockAuth.token = "test-token"
-    await Harbor.setAuthProvider(mockAuth)
-
-    let mockJSON = """{"data": "private"}"""
-    let mock = await HMock(
-        request: GetPrivateDataRequest.self,
-        statusCode: 200,
-        jsonResponse: mockJSON
-    )
-    await Harbor.register(mock: mock)
-
-    // When
-    let response = await GetPrivateDataRequest().request()
-
-    // Then
-    switch response {
-    case .success(let data):
-        XCTAssertEqual(data.data, "private")
-    case .error(let error):
-        XCTFail("Request failed: \(error)")
-    }
-}
-```
-
-### Credential Refresh Test
-
-On a 401, Harbor asks the provider for the authorization header again and retries the request automatically when the value has changed. When the header is unchanged, Harbor calls `authFailed()` and returns `.authNeeded`.
-
-```swift
-func testAuthFailedIsCalledOn401() async throws {
-    // Given
-    let mockAuth = MockAuthProvider()
-    mockAuth.token = "expired-token"
-    await Harbor.setAuthProvider(mockAuth)
-
-    let mock = await HMock(
-        request: GetPrivateDataRequest.self,
-        statusCode: 401,
-        jsonResponse: """
-        {
-            "error": "Unauthorized"
-        }
-        """
-    )
-    await Harbor.register(mock: mock)
-
-    // When
-    let response = await GetPrivateDataRequest().request()
-
-    // Then
-    if case .error(let error) = response {
-        XCTAssertEqual(error, .authNeeded)
-    } else {
-        XCTFail("Expected authNeeded error")
-    }
-    XCTAssertTrue(mockAuth.authFailedCalled)
-}
-```
-
-## Testing JSON-RPC
-
-JSON-RPC requests run through internal wrapper types, so mocks are registered against `HJRPCRequestWrapper<Model>.self`, which requires `@testable import HarborJRPC`. The mocked JSON must be the full JSON-RPC response envelope with the matching `jsonrpc` version and request `id`, so give the request a fixed `requestID`.
-
-### JSON-RPC Mock
-
-```swift
-func testJRPCRequest() async throws {
-    // Given
-    await HarborJRPC.configure(url: URL(string: "https://api.example.com/rpc")!, jrpcVersion: "2.0")
-
-    let mockJSON = """
-    {
-        "jsonrpc": "2.0",
-        "id": 1,
-        "result": "0x1234567"
-    }
-    """
-
-    let mock = await HMock(
-        request: HJRPCRequestWrapper<String>.self,
-        statusCode: 200,
-        jsonResponse: mockJSON
-    )
-    await Harbor.register(mock: mock)
-
-    // When
-    let response = await GetBlockNumberRequest().requestResult()
-
-    // Then
-    switch response {
-    case .success(let blockNumber):
-        XCTAssertEqual(blockNumber, "0x1234567")
-    case .error(let error):
-        XCTFail("Request failed: \(error.localizedDescription)")
+        await counter.increment()
     }
 }
 
-// Request used above, with a fixed id matching the mock envelope
-struct GetBlockNumberRequest: HJRPCRequestProtocol {
-    typealias Model = String
-    let method: String = "eth_blockNumber"
-    let requestID: HJRPCId? = .number(1)
+struct SecureTodoRequest: HGetRequestProtocol {
+    typealias Model = Todo
+    let url = "https://api.example.com/secure/todo"
+    let needsAuth = true
+}
+
+func authRefreshScenario() async -> Int {
+    let provider = RotatingAuthProvider()
+    await Harbor.setAuthProvider(provider)
+    await Harbor.setMocksEnabled(true)
+    await Harbor.register(mockSequence: HMockSequence(request: SecureTodoRequest.self, responses: [
+        .init(statusCode: 401),
+        .init(statusCode: 200, jsonResponse: #"{"id":2,"title":"secret"}"#)
+    ]))
+
+    _ = await SecureTodoRequest().request()   // 401 → authFailed() → new header → 200
+    return await provider.counter.count        // 1
 }
 ```
 
-### JSON-RPC Error Mock
+## Stubbing the network (custom session)
+
+To exercise the real transport (cache headers through `URLCache`, JSON-RPC requests, redirects), install a `URLProtocol` subclass on a custom session:
 
 ```swift
-func testJRPCError() async throws {
-    // Given
-    let mockJSON = """
-    {
-        "jsonrpc": "2.0",
-        "id": 1,
-        "error": {
-            "code": -32600,
-            "message": "Invalid Request"
-        }
+final class StubURLProtocol: URLProtocol, @unchecked Sendable {
+    nonisolated(unsafe) static var responseBody = Data(#"{"jsonrpc":"2.0","id":"1","result":"0x10"}"#.utf8)
+
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override func startLoading() {
+        let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: "HTTP/1.1",
+                                       headerFields: ["Content-Type": "application/json"])!
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: Self.responseBody)
+        client?.urlProtocolDidFinishLoading(self)
     }
-    """
 
-    let mock = await HMock(
-        request: HJRPCRequestWrapper<String>.self,
-        statusCode: 200,
-        jsonResponse: mockJSON
-    )
-    await Harbor.register(mock: mock)
+    override func stopLoading() {}
+}
 
-    // When
-    let response = await GetBlockNumberRequest().requestResult()
-
-    // Then
-    switch response {
-    case .success:
-        XCTFail("Expected error but got success")
-    case .error(let error):
-        guard case .jrpcError(let jrpcError) = error else {
-            return XCTFail("Expected jrpcError but got: \(error.localizedDescription)")
-        }
-        XCTAssertEqual(jrpcError.standardCode, .invalidRequest)
-    }
+func installStubSession() async {
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [StubURLProtocol.self]
+    await Harbor.setMocksEnabled(false)
+    await Harbor.setCustomURLSession(URLSession(configuration: configuration))
 }
 ```
 
-## Best Practices
+Remember to call `await Harbor.setCustomURLSession(nil)` in `tearDown`. A JSON-RPC response's `id` must match the request's: set `requestID` on the request (for example `.string("1")`) when stubbing, otherwise the request fails with `.idMismatch`. Harbor's own test suite uses an internal `setProtocolClasses` hook (`@testable import Harbor`), which isn't part of the public API.
 
-### 1. Clean State Between Tests
+## Tips
 
-```swift
-override func setUp() async throws {
-    await Harbor.removeAllMocks()
-    await Harbor.clearAllCache()
-    await Harbor.setAuthProvider(nil)
-}
-```
+- Reset global state in `setUp` / `tearDown`: mocks, cache, auth provider, custom session, pins.
+- Harbor's configuration is global. Run tests that change it serially, or give each test its own request types.
+- Use `HRetryPolicy(maxRetries:baseDelay: 0, jitter: 0...0)` in tests to avoid real backoff delays. `Retry-After: 0` on mocked 429/503 responses works too.
+- Real-network tests in this repo run only with `HARBOR_RUN_NETWORK_TESTS=1`.
 
-### 2. Use Descriptive Mock Data
+## Related files
 
-```swift
-// Good: Clear and realistic
-let mockUser = """
-{
-    "id": 1,
-    "name": "John Doe",
-    "email": "john@example.com",
-    "verified": true
-}
-"""
-
-// Bad: Minimal and unclear
-let mockUser = """{"id": 1}"""
-```
-
-### 3. Test Both Success and Failure
-
-```swift
-func testGetUserSuccess() async throws {
-    // Test success case
-}
-
-func testGetUserNotFound() async throws {
-    // Test 404 error
-}
-
-func testGetUserNetworkError() async throws {
-    // Test network error
-}
-```
-
-### 4. Use Type-Safe Assertions
-
-```swift
-// Good: Type-safe error checking
-if case .api(let statusCode, _) = error {
-    XCTAssertEqual(statusCode, 404)
-}
-
-// Less ideal: Generic error check
-XCTAssertNotNil(error)
-```
-
-### 5. Test Edge Cases
-
-```swift
-func testEmptyResponse() async throws {
-    let mock = await HMock(
-        request: GetListRequest.self,
-        statusCode: 200,
-        jsonResponse: "[]"
-    )
-    // Test empty array handling
-}
-
-func testLargeResponse() async throws {
-    // Test with large JSON payload
-}
-
-func testSpecialCharacters() async throws {
-    // Test with unicode, emojis, etc.
-}
-```
-
-### 6. Isolate Tests
-
-```swift
-// Each test should be independent
-func testA() async throws {
-    // Setup specific to test A
-    // Execute test A
-    // No dependency on test B
-}
-
-func testB() async throws {
-    // Setup specific to test B
-    // Execute test B
-    // No dependency on test A
-}
-```
-
-### 7. Use Reusable Mock Factories
-
-```swift
-extension HMock {
-    static func successUser() async -> HMock {
-        let json = """{"id": 1, "name": "Test User"}"""
-        return await HMock(
-            request: GetUserRequest.self,
-            statusCode: 200,
-            jsonResponse: json
-        )
-    }
-    
-    static func notFoundUser() async -> HMock {
-        return await HMock(
-            request: GetUserRequest.self,
-            statusCode: 404,
-            jsonResponse: """{"error": "Not found"}"""
-        )
-    }
-}
-
-// Usage
-func testUser() async throws {
-    await Harbor.register(mock: .successUser())
-    // Test
-}
-```
-
-## Performance Testing
-
-### Test with Delays
-
-```swift
-func testSlowNetwork() async throws {
-    let mock = await HMock(
-        request: GetUserRequest.self,
-        statusCode: 200,
-        jsonResponse: mockJSON,
-        delay: 3.0  // Simulate 3 second delay
-    )
-    await Harbor.register(mock: mock)
-    
-    let start = Date()
-    _ = await GetUserRequest(userId: "1").request()
-    let duration = Date().timeIntervalSince(start)
-    
-    XCTAssertGreaterThanOrEqual(duration, 3.0)
-}
-```
-
-### Test Concurrent Requests
-
-```swift
-func testConcurrentRequests() async throws {
-    let mock = await HMock(
-        request: GetUserRequest.self,
-        statusCode: 200,
-        jsonResponse: mockJSON
-    )
-    await Harbor.register(mock: mock)
-    
-    // Execute 10 concurrent requests
-    await withTaskGroup(of: Void.self) { group in
-        for i in 1...10 {
-            group.addTask {
-                let response = await GetUserRequest(userId: "\(i)").request()
-                XCTAssertTrue(response.isSuccess)
-            }
-        }
-    }
-}
-```
-
-## Related Files
-
-**Mock Implementation:**
-- `Sources/Harbor/Mock/HMocker.swift` - Mock registry
-- `Sources/Harbor/Mock/HMock.swift` - Mock definition
-
-**Test Examples:**
-- `Tests/HarborTests/HarborTests.swift` - Integration tests
-- `Tests/HarborTests/HarborCacheTests.swift` - Cache tests
-- `Tests/HarborTests/HarborStreamTests.swift` - Streaming tests
-- `Tests/HarborTests/HarborSecurityTests.swift` - Security tests
-- `Tests/HarborTests/Mocks/MocksRequest.swift` - Reusable mock requests
+- `Sources/Harbor/Mock/HMock.swift`, `HMockSequence.swift`, `HMocker.swift`.
+- `Sources/Harbor/Request/HRequestManager+Execution.swift` (`executeMockAttempt`) and `HRequestManager+Mock.swift` (`resolveMock`).
+- `Tests/HarborTests/HarborMockTests.swift`, `HarborRequestRetryTests.swift`.

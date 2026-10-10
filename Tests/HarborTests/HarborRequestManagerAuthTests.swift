@@ -39,6 +39,12 @@ private final class SpyAuthProvider: HAuthProviderProtocol {
     func authFailed() async {
         authFailedCount += 1
     }
+
+    /// Resets the recorded usage, keeping the remaining scripted headers.
+    func resetCounts() {
+        headerCallCount = 0
+        authFailedCount = 0
+    }
 }
 
 /// URLProtocol stub injected through `HConfig.protocolClasses`. It answers with a scripted
@@ -330,12 +336,14 @@ final class HarborRequestManagerAuthTests: XCTestCase {
         // When
         let response = await request.request()
 
-        // Then the flow ends with .authNeeded and authFailed was called exactly once
+        // Then the flow ends with .authNeeded and authFailed was called exactly once. The
+        // provider is asked for its header three times: for the request, to check whether
+        // the rejected header was already rotated, and after authFailed()
         guard case .error(let error) = response, case .authNeeded = error else {
             XCTFail("Expected .authNeeded but got: \(response)")
             return
         }
-        XCTAssertEqual(provider.headerCallCount, 2)
+        XCTAssertEqual(provider.headerCallCount, 3)
         XCTAssertEqual(provider.authFailedCount, 1)
     }
 
@@ -479,16 +487,15 @@ final class HarborRequestManagerAuthTests: XCTestCase {
 
     // MARK: - Offline Stale Cache Tests
 
-    func testOfflineStaleCacheHitDoesNotConsultTheAuthProvider() async throws {
-        // Given an offline monitor, a stale servable entry without Vary, and a provider
-        // configured only after storing (so the store itself cannot consult it)
+    func testOfflineStaleCacheHitForRequestWithoutAuthDoesNotConsultTheAuthProvider() async throws {
+        // Given an offline monitor, a stale servable entry for a request that does not need
+        // auth, and a configured provider
         HRequestManager.connectivityMonitor = FakeConnectivityMonitor(connected: false)
         defer { HRequestManager.connectivityMonitor = HRequestManagerMonitor() }
         await Harbor.clearAllCache()
         Harbor.setDefaultCacheType(.custom(HCache.Configuration(expirationTime: .oneHour)))
-        Harbor.setAuthProvider(nil)
 
-        let request = ClassAuthGetRequest(url: "https://example.com/offline-stale")
+        let request = ClassAuthGetRequest(url: "https://example.com/offline-stale", needsAuth: false)
         try await storeStaleEntry(Data("{\"quote\":\"stale\"}".utf8), for: request, headers: ["Cache-Control": "max-age=0, stale-if-error=300"])
 
         let provider = SpyAuthProvider(headers: [HAuthorizationHeader(key: "Authorization", value: "Bearer token_A")])
@@ -504,6 +511,36 @@ final class HarborRequestManagerAuthTests: XCTestCase {
         }
         XCTAssertEqual(model.quote, "stale")
         XCTAssertEqual(provider.headerCallCount, 0)
+    }
+
+    func testOfflineRequestThatNeedsAuthNeverServesTheEntryStoredWithoutCredentials() async throws {
+        // Given an offline monitor and, for the same URL, an entry stored while logged out
+        // (no credential, un-namespaced) and one stored under the current credential
+        HRequestManager.connectivityMonitor = FakeConnectivityMonitor(connected: false)
+        defer { HRequestManager.connectivityMonitor = HRequestManagerMonitor() }
+        await Harbor.clearAllCache()
+        Harbor.setDefaultCacheType(.custom(HCache.Configuration(expirationTime: .oneHour)))
+        Harbor.setAuthProvider(nil)
+
+        let token = HAuthorizationHeader(key: "Authorization", value: "Bearer token_A")
+        let request = ClassAuthGetRequest(url: "https://example.com/offline-namespaced")
+        let headers = ["Cache-Control": "max-age=0, stale-if-error=300"]
+        try await storeStaleEntry(Data("{\"quote\":\"logged-out\"}".utf8), for: request, headers: headers)
+        try await storeStaleEntry(Data("{\"quote\":\"logged-in\"}".utf8), for: request, headers: headers, authHeader: token)
+
+        let provider = SpyAuthProvider(headers: [token])
+        Harbor.setAuthProvider(provider)
+
+        // When
+        let response = await request.request()
+
+        // Then the credential is resolved and only its own entry is served
+        guard case .success(let model) = response else {
+            XCTFail("Expected the logged-in body but got: \(response)")
+            return
+        }
+        XCTAssertEqual(model.quote, "logged-in")
+        XCTAssertEqual(provider.headerCallCount, 1)
     }
 
     func testOfflineStaleCacheMissResolvesAuthHeaderAndRetriesLookup() async throws {
@@ -525,8 +562,7 @@ final class HarborRequestManagerAuthTests: XCTestCase {
         let provider = SpyAuthProvider(headers: [token])
         Harbor.setAuthProvider(provider)
 
-        // When: the first lookup misses (no credential), so the header is resolved once
-        // and the second lookup hits
+        // When: the request needs auth, so the header is resolved once before the lookup
         let response = await request.request()
 
         // Then
@@ -535,6 +571,99 @@ final class HarborRequestManagerAuthTests: XCTestCase {
             return
         }
         XCTAssertEqual(model.quote, "stale-vary")
+        XCTAssertEqual(provider.headerCallCount, 1)
+    }
+
+    // MARK: - Offline Remembered Credential Tests
+
+    func testOfflineRequestThatNeedsAuthReusesTheCredentialItSucceededWithWithoutConsultingTheProvider() async throws {
+        // Given a request that succeeded online with the provider's credential, so its entry
+        // is stored under that credential's namespace
+        await Harbor.clearAllCache()
+        Harbor.setDefaultCacheType(.custom(HCache.Configuration(expirationTime: .oneHour)))
+        let token = HAuthorizationHeader(key: "Authorization", value: "Bearer token_A")
+        let provider = SpyAuthProvider(headers: [token, token])
+        Harbor.setAuthProvider(provider)
+
+        let request = ClassAuthGetRequest(url: "https://example.com/offline-remembered")
+        guard case .success = await request.request() else {
+            XCTFail("Expected the online request to succeed")
+            return
+        }
+        XCTAssertEqual(provider.headerCallCount, 1)
+        provider.resetCounts()
+
+        // When the device goes offline
+        HRequestManager.connectivityMonitor = FakeConnectivityMonitor(connected: false)
+        defer { HRequestManager.connectivityMonitor = HRequestManagerMonitor() }
+        let response = await request.request()
+
+        // Then the namespaced entry is served with the remembered credential: the provider,
+        // whose header resolution could refresh a token over the network, is never consulted
+        guard case .success(let model) = response else {
+            XCTFail("Expected the cached body but got: \(response)")
+            return
+        }
+        XCTAssertEqual(model.quote, "ok")
+        XCTAssertEqual(provider.headerCallCount, 0)
+    }
+
+    func testReplacingTheAuthProviderForgetsTheRememberedCredential() async throws {
+        // Given a request that succeeded online with one provider
+        await Harbor.clearAllCache()
+        Harbor.setDefaultCacheType(.custom(HCache.Configuration(expirationTime: .oneHour)))
+        let token = HAuthorizationHeader(key: "Authorization", value: "Bearer token_A")
+        Harbor.setAuthProvider(SpyAuthProvider(headers: [token]))
+
+        let request = ClassAuthGetRequest(url: "https://example.com/offline-forgotten")
+        guard case .success = await request.request() else {
+            XCTFail("Expected the online request to succeed")
+            return
+        }
+
+        // When the provider is replaced and the device goes offline
+        let newProvider = SpyAuthProvider(headers: [token])
+        Harbor.setAuthProvider(newProvider)
+        HRequestManager.connectivityMonitor = FakeConnectivityMonitor(connected: false)
+        defer { HRequestManager.connectivityMonitor = HRequestManagerMonitor() }
+        let response = await request.request()
+
+        // Then the remembered credential was forgotten: the new provider is consulted and,
+        // issuing the same credential, its namespaced entry is served
+        guard case .success(let model) = response else {
+            XCTFail("Expected the cached body but got: \(response)")
+            return
+        }
+        XCTAssertEqual(model.quote, "ok")
+        XCTAssertEqual(newProvider.headerCallCount, 1)
+    }
+
+    func testClearingTheCacheForgetsTheRememberedCredential() async throws {
+        // Given a request that succeeded online with the provider's credential
+        await Harbor.clearAllCache()
+        Harbor.setDefaultCacheType(.custom(HCache.Configuration(expirationTime: .oneHour)))
+        let token = HAuthorizationHeader(key: "Authorization", value: "Bearer token_A")
+        let provider = SpyAuthProvider(headers: [token, token])
+        Harbor.setAuthProvider(provider)
+
+        let request = ClassAuthGetRequest(url: "https://example.com/offline-cleared")
+        guard case .success = await request.request() else {
+            XCTFail("Expected the online request to succeed")
+            return
+        }
+        provider.resetCounts()
+
+        // When the cache is cleared and the device goes offline
+        await Harbor.clearAllCache()
+        HRequestManager.connectivityMonitor = FakeConnectivityMonitor(connected: false)
+        defer { HRequestManager.connectivityMonitor = HRequestManagerMonitor() }
+        let response = await request.request()
+
+        // Then nothing is remembered: the provider is consulted and the lookup misses
+        guard case .error(let error) = response, case .noConnection = error else {
+            XCTFail("Expected .noConnection but got: \(response)")
+            return
+        }
         XCTAssertEqual(provider.headerCallCount, 1)
     }
 

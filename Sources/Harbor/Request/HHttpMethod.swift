@@ -8,7 +8,7 @@
 import Foundation
 
 /// HTTP methods supported by Harbor networking library.
-public enum HHttpMethod: String {
+public enum HHttpMethod: String, Sendable {
     /// GET method for retrieving data.
     case get = "GET"
     /// POST method for creating new resources.

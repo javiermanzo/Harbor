@@ -9,7 +9,7 @@ import Foundation
 import LogBird
 
 /// Errors thrown when parsing a PKCS#12 archive.
-enum PKCS12Error: Error, Equatable {
+enum PKCS12Error {
     /// `SecPKCS12Import` rejected the archive; carries the returned status
     /// (`errSecAuthFailed` for a wrong password, other codes for malformed data).
     case importFailed(OSStatus)
@@ -17,10 +17,15 @@ enum PKCS12Error: Error, Equatable {
     case malformedContents
 }
 
+// MARK: - Error, Equatable
+
+extension PKCS12Error: Error, Equatable {}
+
 /// Helper class to extract client identity and certificates from a PKCS#12 archive.
 struct PKCS12 {
 
-    private static let logger = LogBird(subsystem: "com.harbor", category: "p12")
+    /// Logger instance for PKCS#12 import events. Toggled by `Harbor.setLoggingEnabled(_:)`.
+    static let logger = LogBird(subsystem: "com.harbor", category: "p12")
 
     /// The label of the imported item.
     let label: String?
@@ -43,17 +48,26 @@ struct PKCS12 {
     }
 
     /// Parses the P12 data using the provided password.
+    ///
+    /// The identity is imported into process memory only (`kSecImportToMemoryOnly`) on
+    /// macOS 15 / iOS 18 and later. iOS has always behaved this way; on macOS 14 and
+    /// earlier `SecPKCS12Import` has no in-memory option and persists the imported private
+    /// key and certificates to the default (login) keychain.
     /// - Parameters:
     ///   - p12Data: The PKCS#12 archive data.
     ///   - password: The password to decrypt the archive.
     /// - Returns: A parsed `PKCS12` structure containing identity and certificates.
     /// - Throws: `PKCS12Error.importFailed` if security import fails, or `.malformedContents` if data is corrupt.
     static func parse(p12Data: Data, password: String) throws(PKCS12Error) -> PKCS12 {
-        let importPasswordOption: NSDictionary = [kSecImportExportPassphrase as NSString: password]
+        let importOptions = NSMutableDictionary()
+        importOptions[kSecImportExportPassphrase as NSString] = password
+        if #available(macOS 15.0, iOS 18.0, tvOS 18.0, watchOS 11.0, visionOS 2.0, *) {
+            importOptions[kSecImportToMemoryOnly as NSString] = kCFBooleanTrue
+        }
 
         var items: CFArray?
 
-        let status = SecPKCS12Import(p12Data as NSData, importPasswordOption, &items)
+        let status = SecPKCS12Import(p12Data as NSData, importOptions, &items)
 
         guard status == errSecSuccess else {
             #if DEBUG

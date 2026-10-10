@@ -1,0 +1,27 @@
+name: Network Tests
+
+# Runs the real-service tests (HarborRealServiceTests), which call public endpoints.
+# They are skipped in regular CI so pull requests never depend on the network.
+on:
+  workflow_dispatch:
+  schedule:
+    # Every Monday at 06:00 UTC.
+    - cron: '0 6 * * 1'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  network-tests:
+    runs-on: macos-26
+    env:
+      HARBOR_RUN_NETWORK_TESTS: "1"
+    steps:
+    - name: Checkout
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+    - name: Test (including network tests)
+      run: swift test

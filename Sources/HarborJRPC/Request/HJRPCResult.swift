@@ -12,15 +12,15 @@ import Harbor
 ///
 /// A JSON-RPC response contains either a `result` or an `error` member, never both.
 /// The `result` member may also be present with an explicit `null` value.
-public struct HJRPCResult<Model: HModel>: HModel {
+struct HJRPCResult<Model: HModel> {
     /// The JSON-RPC protocol version declared by the server.
-    public let jsonrpc: String?
+    let jsonrpc: String?
     /// The identifier of the request this response belongs to.
-    public let id: HJRPCId?
+    let id: HJRPCId?
     /// The result of a successful call. `nil` when the call failed or the result is `null`.
-    public let result: Model?
+    let result: Model?
     /// The error of a failed call.
-    public let error: HJRPCError?
+    let error: HJRPCError?
 
     /// Whether the response contains a `result` member.
     var hasResult: Bool
@@ -33,7 +33,7 @@ public struct HJRPCResult<Model: HModel>: HModel {
     ///   - id: The request identifier.
     ///   - result: The result of the call.
     ///   - error: The error of the call.
-    public init(jsonrpc: String? = nil, id: HJRPCId? = nil, result: Model? = nil, error: HJRPCError? = nil) {
+    init(jsonrpc: String? = nil, id: HJRPCId? = nil, result: Model? = nil, error: HJRPCError? = nil) {
         self.jsonrpc = jsonrpc
         self.id = id
         self.result = result
@@ -43,17 +43,23 @@ public struct HJRPCResult<Model: HModel>: HModel {
     }
 }
 
-// MARK: - Decodable
+// MARK: - HModel
 
-extension HJRPCResult {
+extension HJRPCResult: HModel {
+    /// The members of a JSON-RPC response object.
     private enum CodingKeys: String, CodingKey {
+        /// The `jsonrpc` member.
         case jsonrpc
+        /// The `id` member.
         case id
+        /// The `result` member.
         case result
+        /// The `error` member.
         case error
     }
 
-    public init(from decoder: Decoder) throws {
+    /// Decodes the envelope, recording whether `result` is present and whether it is an explicit `null`.
+    init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
 
         jsonrpc = try container.decodeIfPresent(String.self, forKey: .jsonrpc)

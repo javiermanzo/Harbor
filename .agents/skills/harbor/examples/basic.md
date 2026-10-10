@@ -1,653 +1,371 @@
 # Harbor Basic Examples
 
-Practical examples for common Harbor usage patterns.
+Copy-ready examples for everyday use. Every snippet compiles against Harbor 4. The models below are shared by the examples.
 
-## Simple GET Request
+```swift
+struct User: Codable, Sendable {
+    let id: Int
+    let name: String
+    let email: String
+}
 
-### Minimal GET Request
+struct SearchResults: Codable, Sendable {
+    let items: [User]
+    let total: Int
+}
+```
+
+## GET
+
+### Minimal GET
+
+```swift
+struct GetCurrentUserRequest: HGetRequestProtocol {
+    typealias Model = User
+    let url = "https://api.example.com/me"
+}
+
+func showCurrentUser() async {
+    switch await GetCurrentUserRequest().request() {
+    case .success(let user):
+        print("User: \(user.name)")
+    case .error(let error):
+        print("Error: \(error.localizedDescription)")
+    }
+}
+```
+
+### Path parameters
+
+`{name}` placeholders in `url` are replaced with percent-encoded values (`/` becomes `%2F`, and `..` is rejected).
 
 ```swift
 struct GetUserRequest: HGetRequestProtocol {
     typealias Model = User
-    let url: String = "https://api.example.com/users/1"
-}
+    let url = "https://api.example.com/users/{userId}"
+    let pathParameters: [String: String]?
 
-// Execute
-let response = await GetUserRequest().request()
-switch response {
-case .success(let user):
-    print("User: \(user.name)")
-case .error(let error):
-    print("Error: \(error)")
+    init(userId: Int) {
+        pathParameters = ["userId": String(userId)]
+    }
 }
 ```
 
-### GET with Path Parameters
+### Query parameters
 
-```swift
-struct GetUserRequest: HGetRequestProtocol {
-    typealias Model = User
-    let userId: String
-    var url: String { "https://api.example.com/users/\(userId)" }
-}
-
-// Usage
-let response = await GetUserRequest(userId: "123").request()
-```
-
-### GET with Query Parameters
+Values are `String`s, strictly percent-encoded (`+` becomes `%2B`, a space becomes `%20`) and sorted by name.
 
 ```swift
 struct SearchUsersRequest: HGetRequestProtocol {
     typealias Model = SearchResults
-    let url: String = "https://api.example.com/users/search"
-    
-    let searchTerm: String
-    let page: Int
-    let limit: Int
-    
-    var queryParameters: [String: Any]? {
-        return [
-            "q": searchTerm,
-            "page": page,
-            "limit": limit
-        ]
+    let url = "https://api.example.com/users/search"
+    let queryParameters: [String: String]?
+
+    init(term: String, page: Int, limit: Int = 20) {
+        queryParameters = ["q": term, "page": String(page), "limit": String(limit)]
     }
 }
 
-// Usage - Executes: GET /users/search?q=john&page=1&limit=20
-let response = await SearchUsersRequest(
-    searchTerm: "john",
-    page: 1,
-    limit: 20
-).request()
+func search() async {
+    // GET /users/search?limit=20&page=1&q=john%2Bdoe
+    let response = await SearchUsersRequest(term: "john+doe", page: 1).request()
+    if case .success(let results) = response {
+        print(results.total)
+    }
+}
 ```
 
-### GET with Caching
+### GET with the custom cache
 
 ```swift
 struct GetUserProfileRequest: HGetRequestProtocol {
-    typealias Model = UserProfile
-    let userId: String
-    var url: String { "https://api.example.com/users/\(userId)/profile" }
+    typealias Model = User
+    let url = "https://api.example.com/users/{id}/profile"
+    let pathParameters: [String: String]?
     let cacheType: HCache.CacheType? = .custom(HCache.Configuration(expirationTime: .oneHour))
+
+    init(id: Int) {
+        pathParameters = ["id": String(id)]
+    }
 }
 
-// First call - fetches from network and caches
-let response1 = await GetUserProfileRequest(userId: "123").request()
+func profile() async -> User? {
+    let request = GetUserProfileRequest(id: 123)
 
-// Second call within one hour - returns cached data
-let response2 = await GetUserProfileRequest(userId: "123").request()
+    // Instant: cached copy (no network), nil on a miss
+    if let cached = await request.cache() {
+        return cached
+    }
+
+    // Network: revalidates with ETag / Last-Modified when an entry exists and stores the response
+    if case .success(let user) = await request.request() {
+        return user
+    }
+    return nil
+}
 ```
 
-## POST Requests
+`request()` always contacts the server, conditionally if possible. Read `cache()` first, or use `requestStream(source: .cacheAndRemote)`, for cache-first behavior (see `../cache.md`).
 
-### Simple POST with JSON
+## POST, PUT, PATCH, DELETE
+
+Body requests return `HResponse` (`.success` / `.error`).
 
 ```swift
 struct CreateUserRequest: HPostRequestProtocol {
-    typealias Model = User
-    let url: String = "https://api.example.com/users"
-    
+    let url = "https://api.example.com/users"
     let name: String
     let email: String
-    
+
     var bodyParameters: [String: Any]? {
-        [
-            "name": name,
-            "email": email
-        ]
+        ["name": name, "email": email]
     }
 }
 
-// Usage
-let response = await CreateUserRequest(
-    name: "John Doe",
-    email: "john@example.com"
-).request()
+func createUser() async {
+    switch await CreateUserRequest(name: "John Doe", email: "john@example.com").request() {
+    case .success:
+        print("Created")
+    case .error(let error):
+        print(error)
+    }
+}
 ```
 
-### POST with Codable Model
+### Encodable body via `rawBody`
 
 ```swift
-struct UserInput: Encodable {
+struct NewUser: Encodable, Sendable {
     let name: String
     let email: String
-    let age: Int
-    let address: Address
 }
 
-struct CreateUserRequest: HPostRequestProtocol {
-    typealias Model = User
-    let url: String = "https://api.example.com/users"
-    
-    let userInput: UserInput
-    
-    var bodyParameters: [String: Any]? {
-        guard let data = try? JSONEncoder().encode(userInput),
-              let dict = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            return nil
-        }
-        return dict
+struct CreateUserFromModelRequest: HPostRequestProtocol {
+    let url = "https://api.example.com/users"
+    let rawBody: Data?
+
+    var bodyParameters: [String: Any]? { nil }
+
+    init(user: NewUser) throws {
+        rawBody = try JSONEncoder().encode(user)
     }
 }
-
-// Usage
-let input = UserInput(
-    name: "Jane Doe",
-    email: "jane@example.com",
-    age: 28,
-    address: Address(street: "123 Main St", city: "Boston")
-)
-
-let response = await CreateUserRequest(userInput: input).request()
 ```
 
-### POST without Response Body
+The body is the first non-nil of `rawBody`, `multipartBody` and `bodyParameters`. `rawBody` is sent with `Content-Type: application/json` unless `headerParameters` sets a `Content-Type` (matched case-insensitively).
+
+### POST that returns the created model
 
 ```swift
-struct LogEventRequest: HPostRequestProtocol, HRequestWithEmptyResponseProtocol {
-    let url: String = "https://api.example.com/events"
-    
-    let eventType: String
-    let timestamp: Date
-    
-    var bodyParameters: [String: Any]? {
-        [
-            "event_type": eventType,
-            "timestamp": timestamp.timeIntervalSince1970
-        ]
-    }
+struct RegisterUserRequest: HPostRequestProtocol, HRequestWithResultProtocol {
+    typealias Model = User
+    let url = "https://api.example.com/register"
+    let email: String
+
+    var bodyParameters: [String: Any]? { ["email": email] }
 }
 
-// Usage
-let response = await LogEventRequest(
-    eventType: "user_login",
-    timestamp: Date()
-).request()
-
-switch response {
-case .success:
-    print("Event logged")
-case .error(let error):
-    print("Failed to log: \(error)")
+func register() async {
+    // The type annotation selects the model-returning `request()`.
+    let response: HResponseWithResult<User> = await RegisterUserRequest(email: "a@b.c").request()
+    if case .success(let user) = response {
+        print(user.id)
+    }
 }
 ```
 
-## PUT and PATCH Requests
-
-### PUT (Full Update)
+### PUT / PATCH / DELETE
 
 ```swift
 struct UpdateUserRequest: HPutRequestProtocol {
-    typealias Model = User
-    let userId: String
-    var url: String { "https://api.example.com/users/\(userId)" }
-    
-    let name: String
+    let url = "https://api.example.com/users/{id}"
+    let pathParameters: [String: String]?
+    let user: User
+
+    var bodyParameters: [String: Any]? {
+        ["name": user.name, "email": user.email]
+    }
+
+    init(user: User) {
+        self.user = user
+        pathParameters = ["id": String(user.id)]
+    }
+}
+
+struct PatchUserEmailRequest: HPatchRequestProtocol {
+    let url = "https://api.example.com/users/{id}"
+    let pathParameters: [String: String]?
     let email: String
-    let age: Int
-    
-    var bodyParameters: [String: Any]? {
-        [
-            "name": name,
-            "email": email,
-            "age": age
-        ]
+
+    var bodyParameters: [String: Any]? { ["email": email] }
+
+    init(id: Int, email: String) {
+        pathParameters = ["id": String(id)]
+        self.email = email
     }
-}
-
-// Usage - Updates all user fields
-let response = await UpdateUserRequest(
-    userId: "123",
-    name: "Jane Doe",
-    email: "jane@example.com",
-    age: 28
-).request()
-```
-
-### PATCH (Partial Update)
-
-```swift
-struct UpdateUserEmailRequest: HPatchRequestProtocol {
-    typealias Model = User
-    let userId: String
-    var url: String { "https://api.example.com/users/\(userId)" }
-    
-    let newEmail: String
-    
-    var bodyParameters: [String: Any]? {
-        ["email": newEmail]
-    }
-}
-
-// Usage - Updates only the email field
-let response = await UpdateUserEmailRequest(
-    userId: "123",
-    newEmail: "newemail@example.com"
-).request()
-```
-
-## DELETE Requests
-
-### DELETE without Response
-
-```swift
-struct DeleteUserRequest: HDeleteRequestProtocol, HRequestWithEmptyResponseProtocol {
-    let userId: String
-    var url: String { "https://api.example.com/users/\(userId)" }
-}
-
-// Usage
-let response = await DeleteUserRequest(userId: "123").request()
-switch response {
-case .success:
-    print("User deleted successfully")
-case .error(let error):
-    print("Failed to delete user: \(error)")
-}
-```
-
-### DELETE with Confirmation Response
-
-```swift
-struct DeleteResponse: Codable, Sendable {
-    let success: Bool
-    let message: String
-    let deletedId: String
 }
 
 struct DeleteUserRequest: HDeleteRequestProtocol {
-    typealias Model = DeleteResponse
-    let userId: String
-    var url: String { "https://api.example.com/users/\(userId)" }
-}
+    let url = "https://api.example.com/users/{id}"
+    let pathParameters: [String: String]?
+    let needsAuth = true
 
-// Usage
-let response = await DeleteUserRequest(userId: "123").request()
-switch response {
-case .success(let result):
-    print("Deleted: \(result.message)")
-case .error(let error):
-    print("Failed: \(error)")
-}
-```
-
-## Response Handling
-
-### Basic Response Handling
-
-```swift
-let response = await request.request()
-
-switch response {
-case .success(let user):
-    // Handle success
-    print("User: \(user.name)")
-    
-case .error(let error):
-    // Handle error
-    print("Error: \(error)")
-}
-```
-
-### Detailed Error Handling
-
-```swift
-let response = await request.request()
-
-switch response {
-case .success(let user):
-    updateUI(with: user)
-    
-case .error(let error):
-    switch error {
-    case .authNeeded:
-        // Redirect to login
-        showLoginScreen()
-        
-    case .noConnection:
-        // Show offline message
-        showOfflineAlert()
-        
-    case .api(let statusCode, let data):
-        if statusCode == 404 {
-            showNotFoundAlert()
-        } else if statusCode >= 500 {
-            showServerErrorAlert()
-        }
-        
-    case .codable(let modelName, let decodingError):
-        // Log decoding issue
-        logError("Failed to encode/decode \(modelName): \(decodingError)")
-        
-    case .timeout:
-        showTimeoutAlert()
-        
-    case .cancelled:
-        // Request was cancelled
-        print("Request cancelled")
-        
-    default:
-        showGenericError(error)
+    init(id: Int) {
+        pathParameters = ["id": String(id)]
     }
 }
 ```
 
-### SwiftUI Integration
+## Error handling
 
 ```swift
+func loadUser(id: Int) async -> String {
+    switch await GetUserRequest(userId: id).request() {
+    case .success(let user):
+        return user.name
+    case .error(.api(let statusCode, _)) where statusCode == 404:
+        return "Not found"
+    case .error(.noConnection):
+        return "You are offline"
+    case .error(.timeout):
+        return "Timed out"
+    case .error(.authNeeded), .error(.authProviderNeeded):
+        return "Please log in"
+    case .error(.codable(let model, let error)):
+        return "Cannot decode \(model): \(error)"
+    case .error(let error):
+        return error.localizedDescription
+    }
+}
+```
+
+## SwiftUI
+
+The SwiftUI snippets in these examples assume `import SwiftUI`.
+
+```swift
+@MainActor
+final class UserViewModel: ObservableObject {
+    @Published var user: User?
+    @Published var errorMessage: String?
+
+    func load(id: Int) async {
+        // request() runs on Harbor's actor; results come back here on the main actor.
+        switch await GetUserRequest(userId: id).request() {
+        case .success(let user):
+            self.user = user
+        case .error(let error):
+            errorMessage = error.localizedDescription
+        }
+    }
+}
+
 struct UserView: View {
-    @State private var user: User?
-    @State private var isLoading = false
-    @State private var errorMessage: String?
-    
+    @StateObject private var model = UserViewModel()
+
     var body: some View {
-        Group {
-            if isLoading {
-                ProgressView("Loading...")
-            } else if let user = user {
-                UserDetailView(user: user)
-            } else if let error = errorMessage {
-                ErrorView(message: error)
-            }
-        }
-        .task {
-            await loadUser()
-        }
-    }
-    
-    func loadUser() async {
-        isLoading = true
-        defer { isLoading = false }
-        
-        let response = await GetUserRequest(userId: "123").request()
-        
-        await MainActor.run {
-            switch response {
-            case .success(let loadedUser):
-                self.user = loadedUser
-                self.errorMessage = nil
-            case .error(let error):
-                self.user = nil
-                self.errorMessage = error.localizedDescription
-            }
-        }
+        Text(model.user?.name ?? model.errorMessage ?? "Loading…")
+            .task { await model.load(id: 1) }
     }
 }
 ```
 
-## Custom Headers
-
-### Static Headers
+## Headers
 
 ```swift
-struct GetDataRequest: HGetRequestProtocol {
-    typealias Model = Data
-    let url: String = "https://api.example.com/data"
-    var headerParameters: [String: String]? {
-        get { return [
-            "X-API-Version": "2.0",
-            "X-Client-Platform": "iOS"
-        ] }
-        set { }
-    }
-}
-```
-
-### Dynamic Headers
-
-```swift
-struct GetUserRequest: HGetRequestProtocol {
+struct LocalizedUserRequest: HGetRequestProtocol {
     typealias Model = User
-    let userId: String
-    var url: String { "https://api.example.com/users/\(userId)" }
-    
-    let sessionId: String
+    let url = "https://api.example.com/me"
+    let locale: String
 
+    // Computed: may depend on stored properties
     var headerParameters: [String: String]? {
-        get {
-            return [
-                "X-Session-ID": sessionId,
-                "X-Request-Time": ISO8601DateFormatter().string(from: Date())
-            ]
-        }
-        set { }
+        ["Accept-Language": locale, "X-Request-ID": UUID().uuidString]
     }
 }
-```
 
-### Global Default Headers
-
-```swift
-// Set once at app launch
-await Harbor.setDefaultHeaderParameters([
-    "X-API-Key": "your-api-key",
-    "X-Client-Version": "1.2.3",
-    "Accept-Language": Locale.current.languageCode ?? "en"
-])
-
-// All requests will include these headers
-struct AnyRequest: HGetRequestProtocol {
-    // Automatically includes default headers
+func configureHeaders() async {
+    // Sent with every request; request headers override them; the auth header is applied last
+    await Harbor.setDefaultHeaderParameters(["X-Client-Version": "4.0.0", "Accept": "application/json"])
 }
 ```
 
-## Configuration
-
-### Set Global Cache
+## Global configuration
 
 ```swift
-// In AppDelegate or app initialization
-await Harbor.setDefaultCacheType(.custom(HCache.Configuration(expirationTime: .oneHour)))
+func configure() async {
+    await Harbor.setDefaultTimeoutInterval(30)               // per-request idle timeout (default 15 s)
+    await Harbor.setDefaultResourceTimeoutInterval(300)      // whole-transfer limit of Harbor-built sessions (default: system, 7 days)
+    await Harbor.setDefaultCacheType(.custom(HCache.Configuration(expirationTime: .oneHour)))
+    await Harbor.setLoggingEnabled(true)                    // default: on in DEBUG, off in release
+    await Harbor.setHTTPShouldHandleCookies(true)            // default: false
 
-// All requests without explicit cache config will use this
+    let delegate = await Harbor.makeURLSessionDelegate()   // keeps pinning / mTLS / redirect policy
+    await Harbor.setCustomURLSession(URLSession(configuration: .default, delegate: delegate, delegateQueue: nil))
+}
 ```
 
-### Set Custom URLSession
+## Debug logging for one request
 
 ```swift
-let configuration = URLSessionConfiguration.default
-configuration.timeoutIntervalForRequest = 30
-configuration.timeoutIntervalForResource = 300
-configuration.waitsForConnectivity = true
-
-let customSession = URLSession(configuration: configuration)
-await Harbor.setCustomURLSession(customSession)
-```
-
-### Enable Debug Logging
-
-```swift
-// Enable logging
-await Harbor.setLoggingEnabled(true)
-
-// Requests with HDebugRequestProtocol will log cURL commands
-struct DebugRequest: HGetRequestProtocol, HDebugRequestProtocol {
+struct DebugUserRequest: HGetRequestProtocol, HDebugRequestProtocol {
     typealias Model = User
-    let url: String = "https://api.example.com/user"
-    var debugType: HDebugRequestType = .requestAndResponse
+    let url = "https://api.example.com/me"
+    let debugType: HDebugRequestType = .requestAndResponse   // also the default
 }
-
-// Output:
-// curl -X GET "https://api.example.com/user" -H "Content-Type: application/json"
 ```
 
-## Organized Request Groups
+The output includes a redacted cURL command, headers, body, status and duration.
 
-### Namespace Pattern
+## Grouping requests
 
 ```swift
-enum UserAPI {
-    struct Get: HGetRequestProtocol {
-        typealias Model = User
-        let userId: String
-        var url: String { "https://api.example.com/users/\(userId)" }
-    }
-    
+enum UsersAPI {
+    static let baseURL = "https://api.example.com/v1"
+
     struct List: HGetRequestProtocol {
         typealias Model = [User]
-        let url = "https://api.example.com/users"
-        let page: Int
-        var queryParameters: [String: Any]? {
-            return ["page": page]
+        let url = "\(UsersAPI.baseURL)/users"
+    }
+
+    struct Detail: HGetRequestProtocol {
+        typealias Model = User
+        let url = "\(UsersAPI.baseURL)/users/{id}"
+        let pathParameters: [String: String]?
+
+        init(id: Int) {
+            pathParameters = ["id": String(id)]
         }
     }
-    
-    struct Create: HPostRequestProtocol {
-        typealias Model = User
-        let url = "https://api.example.com/users"
-        var bodyParameters: [String: Any]?
-    }
-    
-    struct Update: HPutRequestProtocol {
-        typealias Model = User
-        let userId: String
-        var url: String { "https://api.example.com/users/\(userId)" }
-        var bodyParameters: [String: Any]?
-    }
-    
-    struct Delete: HDeleteRequestProtocol, HRequestWithEmptyResponseProtocol {
-        let userId: String
-        var url: String { "https://api.example.com/users/\(userId)" }
-    }
 }
 
-// Usage
-let user = await UserAPI.Get(userId: "123").request()
-let users = await UserAPI.List(page: 1).request()
-await UserAPI.Delete(userId: "123").request()
+func listUsers() async {
+    _ = await UsersAPI.List().request()
+    _ = await UsersAPI.Detail(id: 1).request()
+}
 ```
 
-### Base Request Pattern
+## Retry
 
 ```swift
-protocol APIRequest: HGetRequestProtocol {
-    var endpoint: String { get }
+struct ResilientUserRequest: HGetRequestProtocol {
+    typealias Model = User
+    let url = "https://api.example.com/me"
+    // Up to 3 retries on 408/425/429/500/502/503/504 or transient network errors, with backoff + jitter
+    let retryPolicy: HRetryPolicy? = HRetryPolicy(maxRetries: 3)
 }
 
-extension APIRequest {
-    var url: String { "https://api.example.com/\(endpoint)" }
-    var needsAuth: Bool { true }
-    var headerParameters: [String: String]? {
-        get { return ["X-API-Version": "2.0"] }
-        set { }
-    }
-}
-
-// Usage
-struct GetProfileRequest: APIRequest {
-    typealias Model = Profile
-    let endpoint = "profile"
-}
-
-struct GetSettingsRequest: APIRequest {
-    typealias Model = Settings
-    let endpoint = "settings"
+struct ResilientCreateRequest: HPostRequestProtocol {
+    let url = "https://api.example.com/orders"
+    var bodyParameters: [String: Any]? { ["sku": "A1"] }
+    // POST is only retried after a 5xx/timeout when the endpoint is idempotent (e.g. uses an idempotency key)
+    let headerParameters: [String: String]? = ["Idempotency-Key": UUID().uuidString]
+    let retryPolicy: HRetryPolicy? = HRetryPolicy(maxRetries: 2, retryNonIdempotentRequests: true)
 }
 ```
 
-## Common Patterns
+## Related files
 
-### Conditional Request Configuration
-
-```swift
-struct GetDataRequest: HGetRequestProtocol {
-    typealias Model = Data
-    let url: String = "https://api.example.com/data"
-    let useCache: Bool
-    
-    var cacheType: HCache.CacheType? {
-        return useCache ? .custom(HCache.Configuration(expirationTime: .oneHour)) : .disabled
-    }
-}
-
-// Usage
-let cached = await GetDataRequest(useCache: true).request()
-let fresh = await GetDataRequest(useCache: false).request()
-```
-
-### Retry Configuration
-
-```swift
-struct ReliableRequest: HGetRequestProtocol {
-    typealias Model = Data
-    let url: String = "https://api.example.com/data"
-    var retries: Int? { get { 3 } set { } }  // Will retry up to 3 times on failure
-}
-```
-
-### Request with Custom URLSession (for timeout control)
-
-Timeout is configured via URLSession configuration:
-
-```swift
-let configuration = URLSessionConfiguration.default
-configuration.timeoutIntervalForRequest = 30  // 30 seconds timeout
-
-let customSession = URLSession(configuration: configuration)
-await Harbor.setCustomURLSession(customSession)
-```
-
-## Error Recovery
-
-### Retry Pattern
-
-```swift
-func fetchUserWithRetry(userId: String, maxAttempts: Int = 3) async -> User? {
-    for attempt in 1...maxAttempts {
-        let response = await GetUserRequest(userId: userId).request()
-        
-        switch response {
-        case .success(let user):
-            return user
-            
-        case .error(let error):
-            if attempt == maxAttempts {
-                print("Failed after \(maxAttempts) attempts")
-                return nil
-            }
-            
-            if case .noConnection = error {
-                // Wait before retry
-                try? await Task.sleep(nanoseconds: UInt64(attempt) * 1_000_000_000)
-            } else {
-                // Don't retry non-network errors
-                return nil
-            }
-        }
-    }
-    return nil
-}
-```
-
-### Fallback Pattern
-
-```swift
-func getUser(userId: String) async -> User? {
-    // Try primary API
-    let response1 = await GetUserRequest(userId: userId).request()
-    if case .success(let user) = response1 {
-        return user
-    }
-    
-    // Fallback to backup API
-    let response2 = await GetUserBackupRequest(userId: userId).request()
-    if case .success(let user) = response2 {
-        return user
-    }
-    
-    // Return nil if both fail
-    return nil
-}
-```
-
-## Related Files
-
-**Example Implementations:**
-- `Example/HarborExample/Requests/RESTRequest.swift` - GET request example
-- `Example/HarborExample/RequestsView.swift` - SwiftUI usage
-
-**More Examples:**
-- [advanced.md](advanced.md) - Advanced patterns
-- [jrpc.md](jrpc.md) - JSON-RPC examples
+- `../protocols.md`: full protocol reference.
+- `advanced.md`: streaming, multipart, auth, pagination, cancellation.
+- `jrpc.md`: JSON-RPC.

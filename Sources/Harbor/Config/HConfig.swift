@@ -6,19 +6,15 @@
 //
 
 import Foundation
-import LogBird
 
 /// Internal configuration state for Harbor.
 ///
 /// This struct holds all the global configuration options used by the library.
 /// Access is serialized via `@HRequestManagerActor` to ensure thread safety.
 @HRequestManagerActor
-struct HConfig: @unchecked Sendable {
+struct HConfig {
     /// Shared singleton instance of the configuration.
     static var shared = HConfig()
-
-    /// Logger instance for configuration related events
-    private static let logger = LogBird(subsystem: "com.harbor", category: "config")
 
     /// Authentication provider for adding credentials to requests.
     var authProvider: HAuthProviderProtocol?
@@ -50,27 +46,35 @@ struct HConfig: @unchecked Sendable {
             }
         }
     }
-    /// Custom URLSession provided by the user to use for all requests. Used as-is when set.
+    /// Custom URLSession provided by the user to use for all requests. Used as-is when set:
+    /// Harbor's SSL pinning, mTLS and redirect policies only apply when its delegate is
+    /// `HURLSessionDelegate` (see `Harbor.makeURLSessionDelegate()`) or forwards to one.
     var customURLSession: URLSession?
-    /// Whether mocks should only be enabled in DEBUG builds. Default is true.
-    var mocksOnlyInDebug: Bool = true
-    /// Explicit override for `mocksEnabled`. When non-nil it takes precedence over the
-    /// DEBUG/`mocksOnlyInDebug` computation, letting tests (or release builds) force mocks on/off.
-    var mocksEnabledOverride: Bool?
+    /// Whether registered mocks answer requests. Default is true in DEBUG builds, false otherwise.
+    var mocksEnabled: Bool = HBuild.isDebug
     /// Whether debug logging is enabled. Default is true in DEBUG builds, false in RELEASE builds.
-    #if DEBUG
-    var isLoggingEnabled: Bool = true
-    #else
-    var isLoggingEnabled: Bool = false
-    #endif
-    /// Whether sensitive header values are printed in debug logs and generated cURL commands. Default is false (redacted).
-    var logSensitiveHeaders: Bool = false
-    /// Header names treated as sensitive (lowercased) and redacted from debug output unless `logSensitiveHeaders` is true.
-    static let sensitiveHeaders: Set<String> = ["authorization", "cookie", "set-cookie", "x-api-key", "proxy-authorization"]
+    var isLoggingEnabled: Bool = HBuild.isDebug
+    /// Whether sensitive values (headers, query values, body fields, error bodies) are printed
+    /// unredacted in debug logs, generated cURL commands and `HRequestError` descriptions.
+    /// Default is false (redacted). Backed by `HRedactionPolicy` so nonisolated code
+    /// (e.g. `HRequestError.errorDescription`) reads the same value.
+    var logSensitiveValues: Bool {
+        get { HRedactionPolicy.logsSensitiveValues }
+        set { HRedactionPolicy.logsSensitiveValues = newValue }
+    }
+    /// Header names (lowercased) stripped from a request when a redirect leaves the original
+    /// origin (see `HURLSessionDelegate.redirectRequest`). Debug output redaction is governed
+    /// by `HRedactionPolicy`, which covers these names and more.
+    nonisolated static let sensitiveHeaders: Set<String> = ["authorization", "cookie", "set-cookie", "x-api-key", "proxy-authorization"]
     /// Default cache type for requests without explicit cache settings. Default is `.urlCache`.
     var cacheType: HCache.CacheType = .urlCache()
-    /// Default timeout interval for requests. Default is 15 seconds.
+    /// Default timeout interval for requests. Default is 15 seconds. Applied to every
+    /// `URLRequest` (`timeoutInterval`) unless the request overrides it, so it also holds
+    /// for custom sessions. It bounds the idle time between packets, not the whole transfer.
     var timeoutInterval: TimeInterval = 15
+    /// Maximum time a whole transfer may take (`URLSessionConfiguration.timeoutIntervalForResource`)
+    /// in sessions Harbor builds. `nil` (default) keeps the system default of 7 days.
+    var resourceTimeoutInterval: TimeInterval?
     /// Whether DEBUG/simulator builds assume network availability instead of trusting the
     /// connectivity monitor. Default is true; set to false to exercise `.noConnection` flows in debug.
     var assumeNetworkAvailableInDebug: Bool = true
@@ -85,44 +89,22 @@ struct HConfig: @unchecked Sendable {
         set { HJSONDecoderStorage.decoder = newValue }
     }
 
-    /// Whether mocks are currently enabled based on build configuration and `mocksOnlyInDebug`.
-    /// An explicit override (`mocksEnabledOverride`) takes precedence over the build rule.
-    var mocksEnabled: Bool {
-        if let override = mocksEnabledOverride {
-            return override
-        }
-        #if DEBUG
-        return true
-        #else
-        return !mocksOnlyInDebug
-        #endif
-    }
-
-    /// Logs a warning for every pin that is not a valid base64 SHA-256 hash.
+    /// Logs a security warning (visible even with debug logging disabled) for every pin that
+    /// is not a valid base64 SHA-256 hash.
     private static func validatePins(_ keys: [String]) {
         for key in keys where !HSPKI.isValidPin(key) {
-            Self.logger.log("SSL pinning key \"\(key)\" is not a valid base64 SHA-256 hash and will never match. Pins must be base64(SHA256(SPKI)).", level: .warning)
+            HLogger.securityWarning("SSL pinning key \"\(key)\" is not a valid base64 SHA-256 hash and will never match. Pins must be base64(SHA256(SPKI)).")
         }
     }
 }
 
 /// Thread-safe storage for the default JSON decoder used across Harbor.
-private struct HJSONDecoderStorage {
-    /// Mutex lock protecting access to the shared decoder instance.
-    static let lock = NSLock()
-    /// Internal backing storage for the JSON decoder.
-    nonisolated(unsafe) static var _decoder = JSONDecoder()
+private enum HJSONDecoderStorage {
+    /// The shared decoder, protected by a lock.
+    private static let storage = HLockedState(JSONDecoder())
     /// Accessor for the thread-safe JSON decoder instance.
     static var decoder: JSONDecoder {
-        get {
-            lock.lock()
-            defer { lock.unlock() }
-            return _decoder
-        }
-        set {
-            lock.lock()
-            defer { lock.unlock() }
-            _decoder = newValue
-        }
+        get { storage.withLock { $0 } }
+        set { storage.withLock { $0 = newValue } }
     }
 }

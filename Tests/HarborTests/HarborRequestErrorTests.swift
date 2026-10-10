@@ -18,7 +18,6 @@ final class HarborRequestErrorTests: XCTestCase {
         switch error {
         case .api: return "api"
         case .invalidHttpResponse: return "invalidHttpResponse"
-        case .invalidRequest: return "invalidRequest"
         case .authProviderNeeded: return "authProviderNeeded"
         case .authNeeded: return "authNeeded"
         case .codable: return "codable"
@@ -26,10 +25,12 @@ final class HarborRequestErrorTests: XCTestCase {
         case .malformedRequest: return "malformedRequest"
         case .timeout: return "timeout"
         case .cannotFindHost: return "cannotFindHost"
+        case .cannotConnectToHost: return "cannotConnectToHost"
         case .cancelled: return "cancelled"
         case .certificate: return "certificate"
         case .noCachedDataFound: return "noCachedDataFound"
         case .networkFailure: return "networkFailure"
+        case .unknown: return "unknown"
         }
     }
 
@@ -37,10 +38,12 @@ final class HarborRequestErrorTests: XCTestCase {
         let expectations: [(URLError.Code, String)] = [
             (.cancelled, "cancelled"),
             (.badURL, "malformedRequest"),
-            (.cannotConnectToHost, "cannotFindHost"),
+            (.cannotConnectToHost, "cannotConnectToHost"),
             (.cannotFindHost, "cannotFindHost"),
             (.dnsLookupFailed, "cannotFindHost"),
             (.serverCertificateUntrusted, "certificate"),
+            (.clientCertificateRequired, "certificate"),
+            (.secureConnectionFailed, "networkFailure"),
             (.timedOut, "timeout"),
             (.notConnectedToInternet, "noConnection"),
             (.networkConnectionLost, "noConnection"),
@@ -128,5 +131,47 @@ final class HarborRequestErrorTests: XCTestCase {
         let description = error.errorDescription ?? ""
         XCTAssertTrue(description.contains("\(URLError.Code.badServerResponse.rawValue)"))
         XCTAssertTrue(description.contains(urlError.localizedDescription))
+    }
+
+    func testUnknownDescriptionIncludesUnderlyingError() {
+        let error = HRequestError.unknown(CocoaError(.fileNoSuchFile))
+
+        let description = error.errorDescription ?? ""
+        XCTAssertTrue(description.hasPrefix("Unexpected error"))
+        XCTAssertTrue(description.contains("\(CocoaError.Code.fileNoSuchFile.rawValue)"))
+    }
+
+    // MARK: - Equatable
+
+    func testEquatableComparesCasesAndPayloads() {
+        XCTAssertEqual(HRequestError.timeout, .timeout)
+        XCTAssertNotEqual(HRequestError.timeout, .cancelled)
+        XCTAssertNotEqual(HRequestError.cannotFindHost, .cannotConnectToHost)
+
+        XCTAssertEqual(HRequestError.api(statusCode: 500, data: Data("a".utf8)), .api(statusCode: 500, data: Data("a".utf8)))
+        XCTAssertNotEqual(HRequestError.api(statusCode: 500, data: Data("a".utf8)), .api(statusCode: 502, data: Data("a".utf8)))
+        XCTAssertNotEqual(HRequestError.api(statusCode: 500, data: Data("a".utf8)), .api(statusCode: 500, data: Data("b".utf8)))
+
+        XCTAssertEqual(HRequestError.malformedRequest(reason: "x"), .malformedRequest(reason: "x"))
+        XCTAssertNotEqual(HRequestError.malformedRequest(reason: "x"), .malformedRequest(reason: nil))
+
+        XCTAssertEqual(HRequestError.networkFailure(URLError(.badServerResponse)), .networkFailure(URLError(.badServerResponse)))
+        XCTAssertNotEqual(HRequestError.networkFailure(URLError(.badServerResponse)), .networkFailure(URLError(.unknown)))
+    }
+
+    func testEquatableComparesWrappedNonEquatableErrors() {
+        let context = DecodingError.Context(codingPath: [], debugDescription: "bad")
+        let otherContext = DecodingError.Context(codingPath: [], debugDescription: "worse")
+
+        XCTAssertEqual(HRequestError.codable(modelName: "User", error: DecodingError.dataCorrupted(context)),
+                       .codable(modelName: "User", error: DecodingError.dataCorrupted(context)))
+        XCTAssertNotEqual(HRequestError.codable(modelName: "User", error: DecodingError.dataCorrupted(context)),
+                          .codable(modelName: "Post", error: DecodingError.dataCorrupted(context)))
+        XCTAssertNotEqual(HRequestError.codable(modelName: "User", error: DecodingError.dataCorrupted(context)),
+                          .codable(modelName: "User", error: DecodingError.dataCorrupted(otherContext)))
+
+        XCTAssertEqual(HRequestError.unknown(CocoaError(.fileNoSuchFile)), .unknown(CocoaError(.fileNoSuchFile)))
+        XCTAssertNotEqual(HRequestError.unknown(CocoaError(.fileNoSuchFile)), .unknown(CocoaError(.fileReadNoPermission)))
+        XCTAssertNotEqual(HRequestError.unknown(CocoaError(.fileNoSuchFile)), .networkFailure(URLError(.unknown)))
     }
 }

@@ -1,80 +1,98 @@
 # Changelog
 
-## [4.0.0] - 2026-08-07
+## [Unreleased]
+
+## [4.0.0] - Unreleased
+
+Upgrading from 3.0.0: items tagged **[Breaking]** need code changes. See the [migration guide](.agents/skills/harbor-migration-v3-to-v4/SKILL.md).
 
 ### Added
-- JSON-RPC 2.0 spec compliance including batch requests (`HarborJRPC.batch`), notifications (`notify()`), typed parameters (`HJRPCParams`), and explicit-null result handling.
-- Public `HJRPCConfig`, `HJRPCResult`, and `HJRPCError` types for JSON-RPC.
-- `HarborJRPC.setURL(URL)` and `HarborJRPC.configure` methods for global JSON-RPC setup.
-- Advanced multi-layer cache system (Memory + Disk) `HCache` honoring HTTP directives (`Cache-Control`, `ETag`, `Vary`) with automatic 304 handling.
-- Native `AsyncThrowingStream` support via `requestStream()` to handle large payloads chunk by chunk.
-- Support for `HCache.CacheType` overrides per-request via `.cacheType`.
-- Cache system configurations including `.urlCache`, `.custom`, and `.disabled`.
-- `HCache.Configuration.diskCacheCapacityInMBs` and `memoryCacheCapacityInMBs` configuration.
-- Background cache cleanup functionality.
-- mTLS identity extraction via `HMTLSIdentity` sending full certificate chains.
-- Per-host SSL pinning configuration via `Harbor.setSSLPinningKeys(_:forHosts:)`.
-- `Harbor.computePin(for:)` utility to generate base64 SPKI hashes from certificates.
-- Configurable global timeouts via `Harbor.setDefaultTimeoutInterval`.
-- Automatic sensitive data redaction in debug logs via `Harbor.setLogSensitiveHeaders`.
-- Logging disabled by default in Release builds via `HarborLogger`.
-- Integrated `LogBird` 2.1.0 behind a private `HarborLogger` facade.
-- New error cases: `certificate`, `noCachedDataFound`, and `HRequestError.mapURLError`.
-- `HJRPCRequestError.noCachedDataFound` case.
-- Default implementations for request protocol properties (`needsAuth`, `retries`, `pathParameters`, `headerParameters`, `queryParameters`, `bodyType`, `cacheType`).
-- `rawBody` property in `HRequestWithBodyProtocol` to send raw `Data`.
-- `HMock.headers` to simulate HTTP response headers in mocks.
-- CocoaPods subspec `Harbor/JRPC`.
-- Harbor Claude AI skill documentation.
-- `Harbor.setHTTPShouldHandleCookies` to handle session-level cookies.
+
+**Requests**
+- `multipartBody: [String: HFormValue]?` (`.text(String)`, `.file(url:mimeType:fileName:)`) and `rawBody: Data?` on body requests. The body is the first non-nil of `rawBody`, `multipartBody` and `bodyParameters` (JSON). File parts are streamed from a temporary file. `rawBody` is sent as `application/json` unless `headerParameters` sets a `Content-Type` (header names match case-insensitively).
+- Per-request `timeoutInterval: TimeInterval?` with `Harbor.setDefaultTimeoutInterval(_:)`, and `Harbor.setDefaultResourceTimeoutInterval(_:)` for the whole-transfer timeout of Harbor's sessions. Timeouts are set on each `URLRequest`, so they also apply to custom sessions.
+- `HRetryPolicy` (exponential backoff with jitter) and the `retryPolicy: HRetryPolicy?` request requirement. It retries `retryableStatusCodes` (default 408, 425, 429, 500, 502, 503, 504) and transient `URLError`s; other statuses, non-`URLError` failures, cancellation and certificate errors are never retried. `Retry-After` on 429/503 is honored up to `HRetryPolicy.maxDelay` (60 s); a longer value is not waited for and the request returns `.api` immediately. POST and PATCH (and therefore JSON-RPC calls) are only retried after pre-connection failures unless `retryNonIdempotentRequests` is `true`.
+- Default implementations for the optional request properties (`needsAuth`, `retryPolicy`, `pathParameters`, `headerParameters`, `queryParameters`, `timeoutInterval`, `multipartBody`, `rawBody`, `cacheType`).
+- `HRequestError` conforms to `LocalizedError` and `Equatable`, and has new cases `certificate`, `noCachedDataFound`, `networkFailure(URLError)`, `cannotConnectToHost` and `unknown(Error)`, mirrored in `HJRPCRequestError`. **[Breaking]** for exhaustive `switch`es.
+- `Harbor.setHTTPShouldHandleCookies(_:)` for session-level cookie handling.
+- `requestStream(source:)` on GET requests: an `AsyncThrowingStream` that yields at most one cached and one remote model (`HRequestSource`), each tagged with its `HOriginType`. A cached copy that stood in for the network (offline, or `stale-if-error`) is tagged `.cache` and yielded once. It throws if the remote request fails, even after yielding a cached value.
+
+**Caching**
+- Multi-layer cache (memory + disk, LRU) `HCache` with `HCache.Configuration` (`expirationTime`, `maxObjectSizeInMBs`, `memoryCacheCapacityInMBs`, `diskCacheCapacityInMBs`; values below 1 MB are clamped to 1) and the `.urlCache`, `.custom` and `.disabled` types, set with `Harbor.setDefaultCacheType(_:)` or the per-request `cacheType`.
+- GET requests gain `cache()`, `cachedETag()` and `clearCache()` (all work with `.custom` and `.urlCache`), and `shouldCache(statusCode:)` (default `true`) to keep a non-final success such as `202 Accepted` out of the cache.
+- The custom cache honors `Cache-Control` (including `stale-while-revalidate` and `stale-if-error`), `Expires`, `Age`, `Date` and `Vary`; private-cache semantics apply (`s-maxage` and `proxy-revalidate` are ignored). It revalidates with `If-None-Match` / `If-Modified-Since` and serves the cached body on `304 Not Modified`; validators you set yourself are kept and a `304` answering them is returned as `.api(statusCode: 304, data:)`. Expired and outdated files are cleaned up in the background.
+- `Harbor.clearAllCache()` (`async`) clears the custom cache, `URLCache.shared` and the `URLCache` of the configured `.urlCache` type or custom session. A response whose request started before `clearAllCache()` or `setAuthProvider(_:)` is returned but not cached.
+- Custom-cache entries are namespaced by a hash of the credential a request is sent with: the auth provider's header of `needsAuth` requests and sensitive headers such as `Authorization`, `Proxy-Authorization`, `Cookie` or `X-API-Key` set in the default or request headers. Call `Harbor.clearAllCache()` on logout. A `needsAuth` request sent without a credential is neither cached nor served from cache. `.urlCache` keys entries by URL only and is not namespaced.
+- Offline, GET requests fall back to a fresh, `stale-if-error` or `URLCache` response; other requests fail with `.noConnection` only when the network path is unsatisfied. `Harbor.setAssumeNetworkAvailableInDebug(_:)` skips the check in DEBUG builds.
+
+**Security**
+- `HMTLS(p12FileUrl:hosts:passwordProvider:)` with an `async throws` password provider; the identity is sent with its full certificate chain and only to the given hosts. Failures are reported through `HMTLSError`. `Harbor.clearMTLS()` removes it.
+- SSL pinning with per-host pins (`Harbor.setSSLPinningKeys(_:forHosts:)`) using `base64(SHA256(SPKI))` hashes (RSA of any size, EC P-256/P-384/P-521), and `Harbor.computePin(for:)` to generate them from a certificate.
+- `Harbor.makeURLSessionDelegate()` and `HURLSessionDelegate`, so a session passed to `Harbor.setCustomURLSession(_:)` can enforce pinning, mTLS and the redirect policy. A warning is logged, even with logging disabled, when pins or mTLS are configured and the custom session bypasses them.
+- `Harbor.setCustomURLSession(nil)` restores Harbor's own sessions, which are cached and reused (up to 4, one per cache/cookie configuration) and rebuilt when a session-affecting setting changes.
+
+**Logging**
+- `Harbor.setLoggingEnabled(_:)` (works in release builds), `Harbor.updateLogSensitiveKeys(_:)` and `Harbor.setLogSensitiveValues(_:)`. Sensitive values are redacted by default in headers, query values, body fields, cURL commands, response headers and `HRequestError.api` descriptions. Logging is on by default in DEBUG builds and off in release. `LogBird` 2.1.0 is integrated behind an internal `HLogger`.
+- The cURL command of a debug log includes cookies (redacted by default) only when the session actually sends them.
+
+**JSON-RPC**
+- Full JSON-RPC 2.0 support: batches (`HarborJRPC.batch(_:)`, one `HJRPCBatchResponse` per response element), notifications (`isNotification`, `notify()`), typed parameters (`HJRPCParams`, `.named` / `.positioned`), explicit request ids (`requestID: HJRPCId?`) and explicit-null results. Parameters JSON cannot represent (e.g. `Double.nan`) throw `.codable`.
+- `HarborJRPC.configure(url:jrpcVersion:)` for global setup, and `HJRPCRequestProtocol.endpoint: URL?` to send a request to another endpoint.
+- `requestResult()` returns the non-throwing `HJRPCResponse`.
+- Public `HJRPCError` (with `httpStatusCode`, set when an error object arrives with a non-2xx status), `HJRPCId`, `HJSONValue`, `HJRPCStandardCode` and `HJRPCBatchResponse`. `HJSONValue.decimal(Decimal)` carries integers beyond `Int`: exact on iOS 18 / macOS 15 and later, possibly rounded through `Double` on earlier OS versions (also in `HJRPCParams`).
+- `HJRPCRequestError` conforms to `LocalizedError` and has new cases `certificate`, `networkFailure`, `invalidResponse` and `idMismatch`.
+- Notifications are strict: a non-empty 2xx body that is not a JSON-RPC response throws `.codable`, and an error object throws `.jrpcError`.
+
+**Mocking**
+- `HMock.headers`, `HMockSequence` with `Harbor.register(mockSequence:)` to script one response per attempt, `Harbor.mockCallCount(for:)` (every mocked attempt, retries included), `Harbor.isMockRegistered(for:)`, `Harbor.removeMock(for:)`, `Harbor.setMocksEnabled(_:)` and `Harbor.mocksEnabled`.
+
+**Package and docs**
+- AI agent documentation (`AGENTS.md`, `.agents/skills/`, including the v3 to v4 migration skill).
+- `network-tests.yml` workflow (manual and weekly) running the real-service tests with `HARBOR_RUN_NETWORK_TESTS=1`.
 
 ### Changed
-- `HJRPCRequestProtocol.parameters` is now the typed `HJRPCParams` enum (`.named` / `.positioned`) instead of `[String: Any]`. **[Breaking]**
-- `HJRPCRequestProtocol.request()` now throws directly instead of returning an `HJRPCResponse`. Use `requestResult()` for the old non-throwing behavior. **[Breaking]**
-- `Harbor.setMTLS(_:)` is now `async throws` and takes the new `HMTLS` type. The password provider is also `async throws`. **[Breaking]**
-- SSL Pinning strings must now be `base64(SHA256(SPKI))`. Old raw-key pins will fail. **[Breaking]**
-- `HAuthProviderProtocol.getAuthorizationHeader()` now returns `HAuthorizationHeader?` instead of a non-optional; returning `nil` sends the request without an authorization header. **[Breaking]**
-- `Harbor.clearAllCache()` is now `async`. **[Breaking]**
-- Error cases were renamed for brevity (`apiError` → `api`, `codableError` → `codable`, `noConnectionError` → `noConnection`, `malformedRequestError` → `malformedRequest`, `timeoutError` → `timeout`). **[Breaking]**
-- `TimeInterval.none` was renamed to `TimeInterval.noExpiration`. **[Breaking]**
-- `Harbor.setSSlPinningSHA256(String?)` renamed to `Harbor.setSSLPinningKeys([String]?)`. **[Breaking]**
-- `HmTLS` renamed to `HMTLS`. **[Breaking]**
-- `HJRPCRequestProtocol.retries` and `.headers` are now get-only. **[Breaking]**
-- Migrated network monitoring from SystemConfiguration to `NWPathMonitor` for reliable offline detection.
-- Migrated SHA256 from CommonCrypto to `CryptoKit`.
-- Debug logging is enabled by default in DEBUG builds and disabled in RELEASE; the gate is encapsulated in `HarborLogger`.
-- Harbor no longer registers its own sensitive keys globally in LogBird.
-- `requestStream` throws if the remote request fails even when cache is available.
-- Custom cache now honors HTTP response directives: `Cache-Control`, `Expires` and `Vary`, with case-insensitive header lookup.
-- Custom cache sends stored validators as `If-None-Match`/`If-Modified-Since` on GET requests; a `304 Not Modified` response serves the cached body and refreshes its expiration.
-- Memory, disk and object-size values for cache capacities below 1 are clamped to 1.
-- `Harbor.clearAllCache()` also clears `URLCache.shared` and the URLCache of the configured `.urlCache` default type / custom session.
-- `Harbor.setCustomURLSession(_:)` now accepts an optional `URLSession` (passing `nil` restores the default session) and uses it as-is; Harbor no longer caches URLSessions internally. Requests with `.custom`/`.disabled` cache are isolated from `URLCache.shared`.
-- `cachedETag()` now also works with the `.urlCache` cache type.
-- `clearCache()` now falls back to the global default cache type when the request does not specify one.
-- `HJRPCRequestError` conforms to `LocalizedError` with human-readable descriptions, and includes new `invalidResponse` and `idMismatch` cases.
-- `HMTLS.passwordProvider` is now `@Sendable () async throws -> String` and `extractIdentity` is `async`.
-- SHA256 helpers renamed for clarity: `SHA256.sha256(data:)` → `sha256Base64(data:)`, `SHA256.hash(data:)` → `sha256Data(data:)`, `String.sha256Hash` → `String.sha256Hex`.
+
+**Requests and errors**
+- `headerParameters`, `bodyParameters`, `retryPolicy` and the other request requirements are get-only; implement them as `let` constants or computed properties. `HDebugRequestProtocol.debugType` is get-only and defaults to `.requestAndResponse`. **[Breaking]**
+- `retries: Int?` is replaced by `retryPolicy: HRetryPolicy?` on all request protocols. **[Breaking]**
+- Error cases are renamed: `apiError` to `api`, `codableError` to `codable`, `noConnectionError` to `noConnection`, `malformedRequestError` to `malformedRequest(reason:)`, `timeoutError` to `timeout`. **[Breaking]**
+- Error mapping: `URLError.cannotConnectToHost` maps to `.cannotConnectToHost` (was `.cannotFindHost`); pinning and mTLS rejections and certificate-specific `URLError`s map to `.certificate`; `URLError.secureConnectionFailed` maps to `.networkFailure` and is retried as transient. **[Breaking]**
+- `HAuthProviderProtocol.getAuthorizationHeader()` returns `HAuthorizationHeader?`; `nil` sends the request without an authorization header. **[Breaking]**
+- On a `401`, Harbor re-sends the request with the provider's current header without calling `authFailed()` when it already differs from the rejected one; otherwise `authFailed()` is called once per request (coalesced across concurrent requests) and the request is re-sent once if the header changed. A request that still fails with `.authNeeded` has always triggered `authFailed()`.
+- `Harbor.setCustomURLSession(_:)` takes an optional `URLSession` and uses it as-is.
+- Only `http` and `https` URLs are accepted (scheme compared case-insensitively); any other scheme, such as `file://`, or a URL without scheme fails with `.malformedRequest(reason:)`. **[Breaking]**
+- Mocks are resolved per attempt (retries and sequences interact as expected), and a mock's `error` goes through the retry policy like the real failure. `Harbor.setMocksEnabled(_:)` replaces `setMocksOnlyInDebug(_:)`: mocks are on by default in DEBUG and off in release, and `setMocksEnabled(true)` enables them in release builds. `Harbor.remove(mock:)` is now `Harbor.removeMock(for:)`, taking the request type. **[Breaking]**
+- Network monitoring uses `NWPathMonitor` and SHA256 uses `CryptoKit`.
+
+**Security**
+- `Harbor.setMTLS(_:)` is `async throws` and takes `HMTLS(p12FileUrl:hosts:passwordProvider:)`, which replaces `HmTLS` and `init(p12FileUrl:password:)`. The PKCS#12 identity is imported into memory only (on macOS 14 and earlier `SecPKCS12Import` has no in-memory option and persists it to the login keychain). **[Breaking]**
+- `Harbor.setSSlPinningSHA256(String?)` is replaced by `Harbor.setSSLPinningKeys([String]?)`. Pins must be `base64(SHA256(SPKI))`; old raw-key pins never match. **[Breaking]**
+
+**JSON-RPC**
+- `HarborJRPC` is an enum; `setURL(_:)` and `setJRPCVersion(_:)` are replaced by `configure(url:jrpcVersion:)`. **[Breaking]**
+- `HJRPCRequestProtocol.parameters` is the typed `HJRPCParams?` instead of `[String: Any]?`, and `headers` is renamed `headerParameters`. **[Breaking]**
+- `HJRPCRequestProtocol.request()` is `async throws` and returns the model; use `requestResult()` for the previous `HJRPCResponse`. **[Breaking]**
+- `HarborJRPC.batch(_:)` is `async throws` (an empty batch returns `[]` without a network call); batched requests must share an endpoint, and their headers, auth, retry policy and debug settings are merged. **[Breaking]**
+- JSON-RPC error objects returned with a 4xx/5xx status surface as `.jrpcError` instead of `.api`. **[Breaking]**
+- Each element of a 2xx `HarborJRPC.batch(_:)` response must carry the configured `jsonrpc` version, like a single request: otherwise that element is an `.error` with `.invalidResponse`. **[Breaking]**
+
+**Package**
+- The LogBird dependency is `from: "2.1.0"` (was exactly 1.0.0), and the package builds in Swift 6 language mode only. **[Breaking]** for projects still on LogBird 1.x.
 
 ### Fixed
-- Path and query parameters are now properly percent-encoded to prevent traversal/injection vulnerabilities.
-- SSL Pinning hashes now strictly match the `SubjectPublicKeyInfo (SPKI)` format (aligning with OpenSSL standards) instead of raw key bytes.
-- Malformed SSL pins are warned about and ignored during validation.
-- `HMTLS` properly attaches intermediate certificates from the PKCS#12 archive.
-- `PKCS12.certChain` is now correctly extracted as `[SecCertificate]` (was declared `[SecTrust]?` and always `nil`).
-- Sensitive keys now apply to Harbor's debug logger properly.
-- Removed global LogBird mutation side effect from `HConfig.init()`; redaction is now owned by `HarborLogger`.
-- `clearCache` uses the proper URLRequest for URLCache.
-- 304 Not Modified handling in cache.
-- SSL pinning exact hash comparison and trust evaluation logging.
-- `generateCurl` and the structured request debug log no longer leak credentials: sensitive headers and cookies are redacted as `<redacted>` by default.
-- `generateCurl` reads cookies and additional headers from Harbor's actual `URLSession` instead of `URLSession.shared`.
-- False `.noConnection` on the first request in Release builds.
-- Auth header injection and the 401 retry flow no longer mutate the caller's request object: the authorization header is applied to the built `URLRequest`.
-- `PKCS12` parsing is now the throwing `PKCS12.parse(...)` with a typed `PKCS12Error` and logged failure statuses.
+- Path and query parameters are percent-encoded (`+` is sent as `%2B`, `/` in path parameters as `%2F`, `..` path segments are rejected), closing a traversal/injection hole.
+- A body that cannot be serialized as JSON fails with `.malformedRequest(reason:)` instead of being sent empty.
+- Credentials (`Authorization`, `Cookie`, `Proxy-Authorization`, the auth provider's header) are stripped when a redirect leaves the original origin.
+- SSL pin comparison matches the `SubjectPublicKeyInfo` hash format used by OpenSSL instead of raw key bytes; malformed pins are warned about and ignored.
+- mTLS attaches intermediate certificates from the PKCS#12 archive, and PKCS#12 parsing failures are reported through `HMTLSError` instead of silently disabling mTLS.
+- Debug logs and cURL commands no longer leak credentials, and Harbor no longer mutates LogBird's global sensitive keys. cURL reads cookies and headers from Harbor's actual `URLSession` instead of `URLSession.shared`.
+- False `.noConnection` on the first request in release builds.
+- Auth header injection and the 401 retry no longer mutate the caller's request object.
 
 ### Removed
-- Removed internal tracking of custom `URLSession` cache configurations in favor of explicit session handling.
+- `bodyType` and `HRequestDataType`: send multipart through `multipartBody`. **[Breaking]**
+- `HRequestError.invalidRequest`, which was never produced. **[Breaking]** for exhaustive `switch`es.
+- CocoaPods support: Harbor is distributed through Swift Package Manager only. **[Breaking]**
 
 ---
 

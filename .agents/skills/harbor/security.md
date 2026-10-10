@@ -1,841 +1,219 @@
-# Harbor Security Guide
+# Harbor Security
 
-Complete guide to Harbor's security features: mTLS, SSL Pinning, and Authentication.
+Covers SSL pinning, mutual TLS, redirects, custom sessions, authentication and log redaction.
 
-## Overview
+## SSL pinning
 
-Harbor provides three layers of security for network communications:
+Pins are `base64(SHA256(SubjectPublicKeyInfo))`, the same format as HPKP/TrustKit/OkHttp. Raw-key hashes from Harbor v3 no longer match.
 
-1. **mTLS (Mutual TLS)**: Client certificate authentication
-2. **SSL Pinning**: Certificate validation against known public keys
-3. **Authentication Provider**: Custom authentication token management
-
-## mTLS (Mutual TLS)
-
-### What is mTLS?
-
-Mutual TLS extends standard TLS by requiring both the server and client to authenticate with certificates. This provides:
-
-- **Two-way authentication**: Server validates client, client validates server
-- **Enhanced security**: Client identity verified via certificate
-- **Common use cases**: Banking apps, enterprise APIs, IoT devices
-
-### Configuration
-
-**Location**: `Sources/Harbor/Request/HmTLS.swift`
-
-```swift
-struct HMTLS: Sendable, CustomStringConvertible {
-    let p12FileUrl: URL
-    let passwordProvider: @Sendable () async throws -> String
-}
-```
-
-The password is requested through `passwordProvider` once, when the identity is extracted; it is not retained by the configuration value. The async signature accommodates password sources that are themselves asynchronous, such as keychain wrappers, biometric prompts or remote vaults; a provider failure surfaces as `HMTLSError.passwordProviderFailed`. The `CustomStringConvertible` description always redacts the password. The older `HmTLS` spelling and the `init(p12FileUrl:password:)` initializer are deprecated.
-
-### Setting Up mTLS
-
-#### Step 1: Obtain PKCS12 Certificate
-
-You need a `.p12` file containing:
-- Client certificate
-- Private key
-- (Optional) Certificate chain
-
-**File location options:**
-- App bundle: `Bundle.main.url(forResource:withExtension:)`
-- Documents directory
-- Secure storage (Keychain for sensitive deployments)
-
-#### Step 2: Configure Harbor
-
-```swift
-// In AppDelegate or app initialization
-Task {
-    guard let p12Url = Bundle.main.url(forResource: "client-cert", withExtension: "p12") else {
-        print("Certificate not found")
-        return
-    }
-    
-    let mtls = HMTLS(p12FileUrl: p12Url) { "your-certificate-password" }
-    try await Harbor.setMTLS(mtls)
-}
-```
-
-#### Step 3: Make Requests
-
-Once configured, all requests automatically use the client certificate:
-
-```swift
-struct SecureRequest: HGetRequestProtocol {
-    typealias Model = SecureData
-    let url = "https://secure-api.example.com/data"
-}
-
-// Automatically includes client certificate
-let response = await SecureRequest().request()
-```
-
-### PKCS12 Loading Process
-
-**Location**: `Sources/Harbor/Utils/PKCS12.swift`
-
-Harbor internally handles:
-1. Loading PKCS12 data from file
-2. Extracting identity (certificate + private key)
-3. Extracting certificate chain
-4. Creating URLCredential with client identity **and the full certificate chain** (intermediates are sent during the TLS handshake)
-
-**Error Handling:**
-```swift
-// PKCS12.parse throws a typed PKCS12Error and logs failures when logging is enabled:
-// - .importFailed(status): SecPKCS12Import rejected the archive (errSecAuthFailed = wrong password)
-// - .malformedContents: the imported items could not be read
-// Harbor.setMTLS surfaces these as HMTLSError (fileNotFound, invalidPassword, invalidP12Format, noIdentity)
-```
-
-### Example: Complete Setup
-
-```swift
-import Harbor
-
-@main
-struct MyApp: App {
-    init() {
-        configureMTLS()
-    }
-    
-    func configureMTLS() {
-        Task {
-            do {
-                // Load certificate from bundle
-                guard let certUrl = Bundle.main.url(
-                    forResource: "client-certificate",
-                    withExtension: "p12"
-                ) else {
-                    throw NSError(domain: "Certificate not found", code: 1)
-                }
-                
-                // Configure mTLS; the password is read from secure storage on demand
-                let certificatePassword = loadCertificatePassword()
-                let mtls = HMTLS(p12FileUrl: certUrl) { certificatePassword }
-                try await Harbor.setMTLS(mtls)
-                
-                print("mTLS configured successfully")
-            } catch {
-                print("Failed to configure mTLS: \(error)")
-            }
-        }
-    }
-    
-    var body: some Scene {
-        WindowGroup {
-            ContentView()
-        }
-    }
-}
-```
-
-### Testing mTLS
-
-**Test Server**: Use https://certauth.cryptomix.com for testing
-
-```swift
-struct MTLSTestRequest: HGetRequestProtocol {
-    typealias Model = MTLSResponse
-    let url = "https://certauth.cryptomix.com/json"
-}
-
-struct MTLSResponse: Codable {
-    let success: Bool
-    let message: String
-}
-
-// Execute test
-let response = await MTLSTestRequest().request()
-switch response {
-case .success(let result):
-    print("mTLS working: \(result.message)")
-case .error(let error):
-    print("mTLS failed: \(error)")
-}
-```
-
-### mTLS Best Practices
-
-1. **Secure Password Storage**
-```swift
-// Don't hardcode passwords
-// ❌ Bad
-let mtls = HMTLS(p12FileUrl: url) { "hardcoded-password" }
-
-// ✅ Good - read from Keychain on demand; the password is not retained by HMTLS
-let mtls = HMTLS(p12FileUrl: url) { KeychainManager.certificatePassword }
-```
-
-2. **Certificate Rotation**
-```swift
-// Support certificate updates
-func updateClientCertificate(newCertUrl: URL, password: String) async throws {
-    let mtls = HMTLS(p12FileUrl: newCertUrl) { password }
-    try await Harbor.setMTLS(mtls)
-}
-```
-
-3. **Error Recovery**
-```swift
-// Handle certificate errors gracefully
-let response = await request.request()
-switch response {
-case .error(.api(let code, _)) where code == 403:
-    // Certificate might be expired or invalid
-    await promptCertificateRenewal()
-default:
-    break
-}
-```
-
-## SSL Pinning
-
-### What is SSL Pinning?
-
-SSL Pinning validates that the server's SSL certificate matches a known public key hash. This prevents:
-
-- **Man-in-the-Middle (MITM) attacks**: Even with valid certificates
-- **Certificate authority compromise**: Don't rely solely on CA trust
-- **Network interceptors**: Corporate proxies, debugging tools, malicious actors
-
-### Configuration
-
-**Location**: `Sources/Harbor/Request/HURLSessionDelegate.swift`
-
-SSL Pinning uses SHA256 hashes of the certificate's **SubjectPublicKeyInfo (SPKI)**, base64 encoded: `base64(SHA256(SPKI))`. Supported key types: RSA 2048/4096, EC P-256/P-384.
-
-### Getting Public Key Hash
-
-#### Method 1: Using Harbor
-
-```swift
-// Compute the pin from any SecCertificate (e.g. extracted from a P12 or a server trust)
-if let pin = await Harbor.computePin(for: certificate) {
-    await Harbor.setSSLPinningKeys([pin])
-}
-```
-
-#### Method 2: Using OpenSSL
+Generate a pin:
 
 ```bash
-# Get certificate from server
-openssl s_client -connect api.example.com:443 -showcerts < /dev/null | \
-  openssl x509 -outform DER > certificate.der
-
-# Extract public key
-openssl x509 -inform DER -in certificate.der -pubkey -noout > publickey.pem
-
-# Generate SHA256 hash of the SPKI
-openssl pkey -pubin -in publickey.pem -outform DER | \
-  openssl dgst -sha256 -binary | \
-  base64
+openssl s_client -connect api.example.com:443 -servername api.example.com </dev/null 2>/dev/null \
+  | openssl x509 -pubkey -noout \
+  | openssl pkey -pubin -outform der \
+  | openssl dgst -sha256 -binary | openssl base64
 ```
 
-#### Method 3: Using Browser
-
-1. Visit the site in a browser (Chrome, Safari)
-2. View certificate details
-3. Export certificate
-4. Use OpenSSL commands above
-
-> **Note**: Pins must be valid base64-encoded SHA-256 hashes (32 bytes, 44 chars with `=` padding or 43 without). Malformed pins log a warning when calling `setSSLPinningKeys` and are ignored during validation.
-
-### Setting Up SSL Pinning
-
-#### Single Key
+Or in Swift:
 
 ```swift
-// In app initialization
-let publicKeyHash = "YLh1dUR9y6Kja30RrAn7JKnbQG/uEtLMkBgFF2Fuihg="
-await Harbor.setSSLPinningKeys([publicKeyHash])
-```
-
-#### Multiple Keys (Recommended)
-
-Pin multiple keys for:
-- **Certificate rotation**: Old and new certificates
-- **Backup certificates**: Primary and backup servers
-- **Key rollover**: Gradual migration
-
-```swift
-let primaryKey = "YLh1dUR9y6Kja30RrAn7JKnbQG/uEtLMkBgFF2Fuihg="
-let backupKey = "GNKGcGj1ue3yRYvqr9t/lz2nkzMU5VZK3QBILcvPJ8U="
-let rotationKey = "X2aKNRD8aZ4hJ+5tT6uAzYa1WePqC4p7k9mKp2kYvHg="
-
-await Harbor.setSSLPinningKeys([primaryKey, backupKey, rotationKey])
-```
-
-#### Per-Host Pinning
-
-Pins can be scoped to specific hosts with `setSSLPinningKeys(_:forHosts:)`. Challenges from the configured hosts are validated against their pins; any other host falls back to the global pins or, when none are set, to the default URLSession handling:
-
-```swift
-// Only api.example.com is pinned; every other host uses default handling
-await Harbor.setSSLPinningKeys([apiKey, apiBackupKey], forHosts: ["api.example.com"])
-
-// Stop pinning a host
-await Harbor.setSSLPinningKeys(nil, forHosts: ["api.example.com"])
-```
-
-### How SSL Pinning Works
-
-**Validation Process:**
-
-```
-Server Connection
-    │
-    ▼
-Extract Server Certificate
-    │
-    ▼
-Extract Public Key from Certificate
-    │
-    ▼
-Rebuild SPKI (SubjectPublicKeyInfo) and Generate SHA256 Hash
-    │
-    ▼
-Compare Hash with Pinned Keys
-    │
-    ├─ Match Found → Connection Allowed
-    │
-    └─ No Match → Connection Rejected
-                 → Error: .api(statusCode: -1, data: Data())
-```
-
-**Implementation**: `Sources/Harbor/Request/HURLSessionDelegate.swift`
-
-```swift
-func urlSession(
-    _ session: URLSession,
-    didReceive challenge: URLAuthenticationChallenge,
-    completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void
-) {
-    // Extract server certificate
-    // Generate SHA256 hash of public key
-    // Compare with pinned keys
-    // Accept or reject connection
+func pin(for certificateDER: Data) async -> String? {
+    guard let certificate = SecCertificateCreateWithData(nil, certificateDER as CFData) else { return nil }
+    return await Harbor.computePin(for: certificate)   // nil for unsupported key types
 }
 ```
 
-### Example: Complete Setup
+Supported keys: RSA of any size, and EC on P-256, P-384 and P-521.
+
+Configure pins:
 
 ```swift
-import Harbor
+func configurePinning() async {
+    // Global pins (every host). Include a backup pin for key rotation.
+    await Harbor.setSSLPinningKeys(["PRIMARY_PIN_BASE64=", "BACKUP_PIN_BASE64="])
 
-class AppConfiguration {
-    static func configure() {
-        Task {
-            // Configure SSL Pinning
-            let apiKeys = [
-                // Production server
-                "YLh1dUR9y6Kja30RrAn7JKnbQG/uEtLMkBgFF2Fuihg=",
-                // Backup server
-                "GNKGcGj1ue3yRYvqr9t/lz2nkzMU5VZK3QBILcvPJ8U=",
-                // Next rotation (valid from Jan 2027)
-                "X2aKNRD8aZ4hJ+5tT6uAzYa1WePqC4p7k9mKp2kYvHg="
-            ]
-            await Harbor.setSSLPinningKeys(apiKeys)
-            
-            print("SSL Pinning configured with \(apiKeys.count) keys")
-        }
+    // Host-scoped pins take precedence over the global ones for those hosts.
+    await Harbor.setSSLPinningKeys(["API_PIN_BASE64="], forHosts: ["api.example.com"])
+
+    // Remove pins
+    await Harbor.setSSLPinningKeys(nil, forHosts: ["api.example.com"])
+    await Harbor.setSSLPinningKeys(nil)
+}
+```
+
+How it works (`HURLSessionDelegate`):
+
+1. Pins are looked up by the challenge host: host-scoped pins first, then global pins. Hosts are normalized (lowercased, trailing dot removed). If no pins apply, the system's default handling runs.
+2. The server trust is evaluated first, off the session's delegate queue. An untrusted chain is rejected even if a pin would match.
+3. The SPKI hash of every certificate in the chain (leaf, intermediates, root) is compared with the pins. One match accepts the connection. Certificates with unsupported key types are skipped, with one warning per host.
+4. On a mismatch or an untrusted chain, the challenge is cancelled and the request fails with `HRequestError.certificate`. It is never retried and never served from cache.
+
+Malformed pins (not base64 SHA-256) trigger a security warning when set and are ignored. If only malformed pins are configured for a host, every connection to it fails.
+
+Only certificate-specific failures surface as `HRequestError.certificate`: a pin mismatch, an untrusted chain, an mTLS rejection and the certificate `URLError` codes (`serverCertificateUntrusted`, `serverCertificateHasBadDate`, `serverCertificateHasUnknownRoot`, `serverCertificateNotYetValid`, `clientCertificateRejected`, `clientCertificateRequired`). A generic `URLError.secureConnectionFailed` maps to `.networkFailure` and is retried as a transient failure for idempotent (or opted-in) requests.
+
+## Mutual TLS
+
+```swift
+func configureMTLS() async {
+    guard let p12URL = Bundle.main.url(forResource: "client", withExtension: "p12") else { return }
+
+    let mTLS = HMTLS(p12FileUrl: p12URL, hosts: ["api.example.com"]) {
+        // async throws: read from the keychain, a vault, a biometric prompt...
+        "p12-password"
+    }
+
+    do {
+        try await Harbor.setMTLS(mTLS)
+    } catch let error as HMTLSError {
+        // .fileNotFound, .passwordProviderFailed, .invalidPassword, .invalidP12Format, .noIdentity
+        print(error)
+    } catch {
+        print(error)
+    }
+
+    // Later:
+    await Harbor.clearMTLS()
+}
+```
+
+- The password provider is called once, during import, and the password isn't retained. `HMTLS(p12FileUrl:hosts:passwordProvider:)` is the only initializer.
+- The P12 is read and imported off the actor. The identity is imported into memory only (`kSecImportToMemoryOnly`) on iOS and on macOS 15 and later. On macOS 14, `SecPKCS12Import` has no in-memory option and persists the key and certificates to the default (login) keychain.
+- The identity and its certificate chain are presented only to the `hosts` you list (case-insensitive). With `hosts: nil` they go to every host that asks for a client certificate, so scoping is recommended. Other hosts get default handling.
+- On failure, mTLS stays disabled and the error is thrown.
+
+## Redirects
+
+When a redirect leaves the original origin (scheme, host or port; default ports made explicit), Harbor's delegate strips the auth provider's header key, `Authorization`, `Cookie`, `Proxy-Authorization`, `Set-Cookie` and `X-API-Key` from the new request. Same-origin redirects are followed unchanged.
+
+## Custom URLSession
+
+`Harbor.setCustomURLSession(_:)` uses the session as-is. Pinning, mTLS and redirect stripping are enforced only when the session's delegate is Harbor's:
+
+```swift
+func secureCustomSession() async {
+    // 1. Configure pins / mTLS first: the delegate captures the configuration now.
+    await Harbor.setSSLPinningKeys(["API_PIN_BASE64="], forHosts: ["api.example.com"])
+
+    // 2. Build the session with Harbor's delegate.
+    let configuration = URLSessionConfiguration.default
+    configuration.waitsForConnectivity = true
+    let delegate = await Harbor.makeURLSessionDelegate()
+    let session = URLSession(configuration: configuration, delegate: delegate, delegateQueue: nil)
+    await Harbor.setCustomURLSession(session)
+}
+```
+
+If you need your own delegate, forward its calls to an `HURLSessionDelegate`:
+
+```swift
+final class AppSessionDelegate: NSObject, URLSessionTaskDelegate, Sendable {
+    let harbor: HURLSessionDelegate
+
+    init(harbor: HURLSessionDelegate) {
+        self.harbor = harbor
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, didReceive challenge: URLAuthenticationChallenge,
+                    completionHandler: @escaping @Sendable (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
+        harbor.urlSession(session, task: task, didReceive: challenge, completionHandler: completionHandler)
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
+                    newRequest request: URLRequest, completionHandler: @escaping @Sendable (URLRequest?) -> Void) {
+        harbor.urlSession(session, task: task, willPerformHTTPRedirection: response, newRequest: request, completionHandler: completionHandler)
     }
 }
 ```
 
-### Testing SSL Pinning
-
-```swift
-// Test with correct key
-struct SecureRequest: HGetRequestProtocol {
-    typealias Model = Data
-    let url = "https://api.example.com/test"
-}
-
-let response = await SecureRequest().request()
-switch response {
-case .success:
-    print("SSL Pinning validated successfully")
-case .error(let error):
-    print("SSL Pinning failed: \(error)")
-}
-```
-
-### SSL Pinning Best Practices
-
-1. **Pin Multiple Keys**
-```swift
-// Pin current + future certificates
-await Harbor.setSSLPinningKeys([
-    currentCertHash,
-    nextCertHash,
-    backupCertHash
-])
-```
-
-2. **Plan for Rotation**
-```swift
-// Add new key before old expires
-// Keep old key during transition period
-// Remove old key after full migration
-```
-
-3. **Remote Configuration**
-```swift
-// Load pinned keys from remote config (for updates without app release)
-struct PinningConfig: Codable {
-    let keys: [String]
-    let effectiveDate: Date
-}
-
-// Fetch and update
-if let config = await fetchPinningConfig() {
-    await Harbor.setSSLPinningKeys(config.keys)
-}
-```
-
-4. **Disable in Debug Builds**
-```swift
-#if DEBUG
-// Allow network debugging tools in development
-// await Harbor.setSSLPinningKeys([])
-#else
-// Enable pinning in production
-await Harbor.setSSLPinningKeys(productionKeys)
-#endif
-```
-
-5. **Monitor Expiration**
-```swift
-// Track certificate expiration dates
-// Alert before certificates expire
-// Plan rotation 30-60 days in advance
-```
-
-### Troubleshooting SSL Pinning
-
-**Connection Rejected:**
-```
-Error: serverError(statusCode: -1)
-```
-
-**Possible causes:**
-1. **Wrong hash**: Regenerate hash from current certificate
-2. **Certificate rotated**: Server certificate changed
-3. **MITM proxy**: Corporate proxy intercepting traffic
-4. **Test environment**: Using different certificate than production
-
-**Solutions:**
-```swift
-// Log actual server certificate hash
-// Compare with pinned hashes
-// Update pinned keys if certificate legitimately changed
-```
-
-## Sensitive Data in Debug Logs
-
-Debug logs (`HDebugRequestProtocol`) redact sensitive headers — `Authorization`, `Cookie`, `Set-Cookie`, `X-API-Key`, `Proxy-Authorization` — both in the generated cURL command and in the structured request log (`headerParameters`), printing `<redacted>` instead of the real value. Cookies are redacted as well.
-
-```swift
-// Print real values (only for advanced debugging, never in production)
-await Harbor.setLogSensitiveHeaders(true)
-```
+A session-level challenge handler can call `harbor.handleChallenge(challenge, task: nil, completionHandler:)`. Harbor logs a security warning, even with logging disabled, when pins or mTLS are configured and the custom session doesn't use its delegate, or when pins or mTLS change while a custom session holds an older delegate. In the second case, build a new delegate and session. `setDefaultResourceTimeoutInterval(_:)` doesn't apply to custom sessions. The per-request timeout does, because it is set on each `URLRequest`.
 
 ## Authentication
 
-### Authentication Provider Protocol
-
-**Location**: `Sources/Harbor/Auth/HAuthProviderProtocol.swift`
-
 ```swift
-protocol HAuthProviderProtocol: Sendable {
-    func getAuthorizationHeader() async -> HAuthorizationHeader?
-    func authFailed() async
+actor TokenStore {
+    private(set) var accessToken: String?
+    func update(_ token: String?) { accessToken = token }
 }
 
-struct HAuthorizationHeader: Sendable, Equatable {
-    let key: String    // e.g. "Authorization", "X-API-Key"
-    let value: String  // e.g. "Bearer token123"
-}
-```
+final class OAuthProvider: HAuthProviderProtocol {
+    let store: TokenStore
 
-Harbor calls `getAuthorizationHeader()` before every request with `needsAuth = true` and sets the returned key-value pair as a header; a `nil` header means no credentials are available and the request is sent without an authorization header. On a 401 response, Harbor asks for the header again: if the value changed (e.g. the provider refreshed its token), the request is retried automatically; if it is unchanged or `nil`, `authFailed()` is called and the request fails with `.authNeeded`. There is no built-in expiration check — return the freshest header you have from `getAuthorizationHeader()` and use `authFailed()` to trigger re-authentication.
-
-### Implementing Auth Provider
-
-#### Basic Token Auth
-
-```swift
-final class TokenAuthProvider: HAuthProviderProtocol, @unchecked Sendable {
-    private var accessToken: String?
-
-    func getAuthorizationHeader() async -> HAuthorizationHeader? {
-        guard let accessToken else { return nil }
-        return HAuthorizationHeader(key: "Authorization", value: "Bearer \(accessToken)")
-    }
-
-    func authFailed() async {
-        // Called when the server rejects the credentials (401 and the header did not change).
-        // Refresh the token or ask the user to log in again.
-        await refreshToken()
-    }
-
-    func setToken(_ token: String) {
-        self.accessToken = token
-    }
-
-    private func refreshToken() async {
-        // Call refresh token endpoint and update accessToken
-    }
-}
-```
-
-#### OAuth2 Auth Provider
-
-```swift
-final class OAuth2AuthProvider: HAuthProviderProtocol, @unchecked Sendable {
-    private var accessToken: String?
-    private var refreshToken: String?
-    private var tokenExpiration: Date?
-
-    private let clientId: String
-    private let clientSecret: String
-    private let tokenEndpoint: String
-
-    init(clientId: String, clientSecret: String, tokenEndpoint: String) {
-        self.clientId = clientId
-        self.clientSecret = clientSecret
-        self.tokenEndpoint = tokenEndpoint
+    init(store: TokenStore) {
+        self.store = store
     }
 
     func getAuthorizationHeader() async -> HAuthorizationHeader? {
-        // Refresh proactively when the token is about to expire
-        if isTokenExpired() {
-            try? await refreshTokens()
-        }
-        guard let accessToken else { return nil }
-        return HAuthorizationHeader(key: "Authorization", value: "Bearer \(accessToken)")
+        guard let token = await store.accessToken else { return nil }   // nil: send without credentials
+        return HAuthorizationHeader(key: "Authorization", value: "Bearer \(token)")
     }
 
     func authFailed() async {
-        // The server rejected the current token - force a refresh so the
-        // next request picks up new credentials
-        try? await refreshTokens()
-    }
-
-    private func isTokenExpired() -> Bool {
-        guard let expiration = tokenExpiration else {
-            return true
-        }
-        // Consider expired 60 seconds before the actual expiration
-        return Date().addingTimeInterval(60) > expiration
-    }
-
-    private func refreshTokens() async throws {
-        guard let refreshToken = refreshToken else {
-            throw AuthError.noRefreshToken
-        }
-
-        // Call OAuth2 token refresh endpoint
-        let request = RefreshTokenRequest(
-            clientId: clientId,
-            clientSecret: clientSecret,
-            refreshToken: refreshToken
-        )
-
-        let response = await request.request()
-        switch response {
-        case .success(let tokenResponse):
-            self.accessToken = tokenResponse.accessToken
-            self.refreshToken = tokenResponse.refreshToken
-            self.tokenExpiration = Date().addingTimeInterval(tokenResponse.expiresIn)
-        case .error(let error):
-            throw error
-        }
-    }
-
-    func setTokens(access: String, refresh: String, expiresIn: TimeInterval) {
-        self.accessToken = access
-        self.refreshToken = refresh
-        self.tokenExpiration = Date().addingTimeInterval(expiresIn)
+        // Refresh the token (or log out). Called at most once per request; concurrent
+        // requests rejected with the same header share one call. Not called when
+        // getAuthorizationHeader() already returns a header different from the rejected one.
+        await store.update("refreshed-token")
     }
 }
 
-enum AuthError: Error {
-    case noRefreshToken
-    case refreshFailed
-}
-```
-
-#### API Key Auth Provider
-
-```swift
-final class APIKeyAuthProvider: HAuthProviderProtocol, @unchecked Sendable {
-    private let apiKey: String
-    private let headerName: String
-
-    init(apiKey: String, headerName: String = "X-API-Key") {
-        self.apiKey = apiKey
-        self.headerName = headerName
-    }
-
-    func getAuthorizationHeader() async -> HAuthorizationHeader? {
-        HAuthorizationHeader(key: headerName, value: apiKey)
-    }
-
-    func authFailed() async {
-        // API keys can't be refreshed - prompt for a new key if needed
-    }
-}
-```
-
-### Setting Auth Provider
-
-```swift
-// Configure once at app startup
-let authProvider = OAuth2AuthProvider(
-    clientId: "your-client-id",
-    clientSecret: "your-client-secret",
-    tokenEndpoint: "https://auth.example.com/token"
-)
-
-await Harbor.setAuthProvider(authProvider)
-```
-
-### Using Authentication in Requests
-
-```swift
-struct GetUserProfileRequest: HGetRequestProtocol {
-    typealias Model = UserProfile
-    let url = "https://api.example.com/profile"
-    let needsAuth: Bool = true  // Will automatically add auth headers
-}
-```
-
-### Authentication Flow
-
-```
-Request with needsAuth = true
-    │
-    ▼
-Check if auth provider is set
-    │
-    ├─ No → Return authProviderNeeded error
-    │
-    └─ Yes
-        │
-        ▼
-    Call getAuthorizationHeader() → Add header (if any) → Execute request
-        │
-        ▼
-Request completes
-    │
-    ├─ Status 200-299 → Return success
-    │
-    └─ Status 401
-        │
-        ▼
-    Call getAuthorizationHeader() again
-        │
-        ├─ Header changed (provider refreshed credentials)
-        │   → Retry request once with the new header
-        │
-        └─ Header unchanged or nil
-            → Call authFailed() → Return authNeeded error
-```
-
-### Complete Example
-
-```swift
-// 1. Create auth provider
-let authProvider = OAuth2AuthProvider(
-    clientId: "app-client-id",
-    clientSecret: "app-secret",
-    tokenEndpoint: "https://auth.example.com/oauth/token"
-)
-
-// 2. Login and set tokens
-func login(email: String, password: String) async throws {
-    let loginRequest = LoginRequest(email: email, password: password)
-    let response = await loginRequest.request()
-    
-    switch response {
-    case .success(let tokens):
-        await authProvider.setTokens(
-            access: tokens.accessToken,
-            refresh: tokens.refreshToken,
-            expiresIn: tokens.expiresIn
-        )
-        await Harbor.setAuthProvider(authProvider)
-    case .error(let error):
-        throw error
-    }
+struct AccountRequest: HGetRequestProtocol {
+    typealias Model = String
+    let url = "https://api.example.com/account"
+    let needsAuth = true
 }
 
-// 3. Make authenticated requests
-struct GetUserDataRequest: HGetRequestProtocol {
-    typealias Model = UserData
-    let url = "https://api.example.com/user/data"
-    let needsAuth = true  // Auth headers added automatically
-}
+func authFlow() async {
+    let store = TokenStore()
+    await Harbor.setAuthProvider(OAuthProvider(store: store))
+    _ = await AccountRequest().request()
 
-let response = await GetUserDataRequest().request()
-// If token expired, Harbor automatically refreshes and retries
-```
-
-### Authentication Best Practices
-
-1. **Store Tokens Securely**
-```swift
-// Use Keychain for token storage
-KeychainManager.save(token: accessToken, key: "access_token")
-let token = KeychainManager.load(key: "access_token")
-```
-
-2. **Handle Auth Errors**
-```swift
-let response = await request.request()
-switch response {
-case .error(.authNeeded):
-    // Token refresh failed - re-authenticate user
-    await showLoginScreen()
-default:
-    break
-}
-```
-
-3. **Preemptive Token Refresh**
-```swift
-// Refresh the token inside getAuthorizationHeader() when it is close to expiring,
-// so Harbor always gets a valid header
-func getAuthorizationHeader() async -> HAuthorizationHeader? {
-    if tokenIsCloseToExpiring {
-        try? await refreshTokens()
-    }
-    guard let accessToken else { return nil }
-    return HAuthorizationHeader(key: "Authorization", value: "Bearer \(accessToken)")
-}
-```
-
-4. **Clear Auth on Logout**
-```swift
-func logout() async {
+    // Logout
+    await store.update(nil)
     await Harbor.setAuthProvider(nil)
-    await Harbor.clearAllCache()
-    // Clear stored tokens
+    await Harbor.clearAllCache()   // cached responses are per credential but are not deleted automatically
 }
 ```
 
-## Combining Security Features
+Flow:
 
-### mTLS + SSL Pinning + Auth
+- A request with `needsAuth == false` never consults the provider. With `needsAuth == true` and no provider, it fails with `.authProviderNeeded`.
+- The header is applied to the built `URLRequest`. Your request value is never mutated.
+- On a 401, Harbor asks the provider for its current header (`getAuthorizationHeader()` is called at most twice per request: once to detect a rotated header and, only after `authFailed()`, once more for the refreshed one). If it already differs from the rejected one (a refresh finished meanwhile), the request is re-sent with it without calling `authFailed()`. Otherwise Harbor calls `authFailed()` exactly once per request (concurrent requests rejected with the same header share one call), fetches the header again, and re-sends the request once if it changed. When no re-send is possible, or the re-sent request is rejected again, the error is `.authNeeded`; a request that ends in `.authNeeded` after a 401 has always triggered `authFailed()`, and never more than once. A 401 on a request that doesn't need auth is `.authNeeded` without calling the provider. These extra attempts are separate from `retryPolicy.maxRetries`.
+
+## Log redaction
+
+Debug output is opt-in per request (`HDebugRequestProtocol`) and gated by `Harbor.setLoggingEnabled(_:)` (default: on in DEBUG, off in release; it works in release builds when enabled). Security warnings are logged regardless of that setting.
+
+Everything Harbor prints goes through one redaction policy (`HRedactionPolicy`): request and response headers, query values, path, query and body parameters, cURL commands, response bodies and `HRequestError.api` descriptions. A key is sensitive when its normalized form (lowercased, `-`, `_` and spaces removed) contains:
+
+- a built-in credential key (`authorization`, `cookie`, `set-cookie`, `x-api-key`, `password`, `token`, `secret`, `session_id`, ...), which always applies;
+- a configurable key, managed with `Harbor.updateLogSensitiveKeys(_:)`;
+- the header key the auth provider's credential was sent under.
 
 ```swift
-func configureFullSecurity() async throws {
-    // 1. Configure mTLS
-    guard let certUrl = Bundle.main.url(forResource: "client", withExtension: "p12") else {
-        return
-    }
-    let mtls = HMTLS(p12FileUrl: certUrl) { getSecurePassword() }
-    try await Harbor.setMTLS(mtls)
-    
-    // 2. Configure SSL Pinning
-    let pinnedKeys = [
-        "YLh1dUR9y6Kja30RrAn7JKnbQG/uEtLMkBgFF2Fuihg=",
-        "GNKGcGj1ue3yRYvqr9t/lz2nkzMU5VZK3QBILcvPJ8U="
-    ]
-    await Harbor.setSSLPinningKeys(pinnedKeys)
-    
-    // 3. Configure Authentication
-    let authProvider = OAuth2AuthProvider(
-        clientId: "client-id",
-        clientSecret: "client-secret",
-        tokenEndpoint: "https://auth.example.com/token"
-    )
-    await Harbor.setAuthProvider(authProvider)
-    
-    print("Full security configured: mTLS + SSL Pinning + Auth")
+func configureRedaction() async {
+    await Harbor.updateLogSensitiveKeys(.add(["otp", "pin_code"]))  // extend
+    await Harbor.updateLogSensitiveKeys(.set(["otp"]))              // replace the configurable set
+    await Harbor.updateLogSensitiveKeys(.reset)                     // defaults
+    await Harbor.updateLogSensitiveKeys(.clear)                     // only the built-in floor remains
+    await Harbor.setLogSensitiveValues(true)                        // print everything unredacted (local debugging only)
+    await Harbor.setLogSensitiveValues(false)                       // default: redact as <redacted>
 }
 ```
 
-## Security Testing
+## Checklist
 
-### Test mTLS
+- Pin with at least one backup pin, and scope pins to the hosts you control.
+- Scope the mTLS identity with `hosts:`. Load the password lazily.
+- Use `Harbor.makeURLSessionDelegate()` for any custom session, and rebuild it after changing pins or mTLS.
+- Call `Harbor.clearAllCache()` on logout.
+- Keep `setLogSensitiveValues(false)` outside local debugging.
 
-```swift
-func testMTLS() async {
-    struct MTLSTest: HGetRequestProtocol {
-        typealias Model = MTLSResponse
-        let url = "https://certauth.cryptomix.com/json"
-    }
-    
-    let response = await MTLSTest().request()
-    guard case .success = response else {
-        XCTFail("Expected success but got: \(response)")
-        return
-    }
-}
-```
+## Related files
 
-### Test SSL Pinning
-
-```swift
-func testSSLPinning() async {
-    // Test with correct key
-    await Harbor.setSSLPinningKeys(["correct-hash"])
-    let response1 = await SecureRequest().request()
-    guard case .success = response1 else {
-        XCTFail("Expected success but got: \(response1)")
-        return
-    }
-    
-    // Test with wrong key (should fail)
-    await Harbor.setSSLPinningKeys(["wrong-hash"])
-    let response2 = await SecureRequest().request()
-    if case .success = response2 {
-        XCTFail("Expected pinning failure but got success")
-    }
-}
-```
-
-### Test Authentication
-
-```swift
-func testAuthentication() async {
-    let mockAuth = MockAuthProvider(token: "test-token")
-    await Harbor.setAuthProvider(mockAuth)
-    
-    struct AuthRequest: HGetRequestProtocol {
-        typealias Model = Data
-        let url = "https://api.example.com/private"
-        let needsAuth = true
-    }
-    
-    let response = await AuthRequest().request()
-    guard case .success = response else {
-        XCTFail("Expected success but got: \(response)")
-        return
-    }
-}
-```
-
-## Related Files
-
-**Security Implementation:**
-- `Sources/Harbor/Request/HmTLS.swift` - mTLS configuration
-- `Sources/Harbor/Request/HURLSessionDelegate.swift` - SSL Pinning
-- `Sources/Harbor/Auth/HAuthProviderProtocol.swift` - Authentication
-- `Sources/Harbor/Utils/PKCS12.swift` - Certificate loading
-- `Sources/Harbor/Utils/HSPKI.swift` - SPKI extraction and pin computation/validation
-- `Sources/Harbor/Utils/SHA256.swift` - Hash utilities
-
-**Examples:**
-- `Example/HarborExample/RequestsView.swift` - mTLS setup example
-- `Example/HarborExample/Requests/MTLSRequest.swift` - mTLS request
-- `Tests/HarborTests/HarborSecurityTests.swift` - Security tests
+- `Sources/Harbor/Request/HURLSessionDelegate.swift`: challenges, pin matching, redirects.
+- `Sources/Harbor/Utils/HSPKI.swift`: SPKI reconstruction and pin computation.
+- `Sources/Harbor/Request/HmTLS.swift`, `Sources/Harbor/Utils/PKCS12.swift`: mTLS import.
+- `Sources/Harbor/Debug/HRedactionPolicy.swift`: log redaction.
+- `Sources/Harbor/Auth/HAuthProviderProtocol.swift`.

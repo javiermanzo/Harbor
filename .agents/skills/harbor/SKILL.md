@@ -1,126 +1,83 @@
-# Harbor - Context for Agents
+---
+name: harbor
+description: Use when writing, reviewing or debugging Swift code that uses the Harbor networking library (import Harbor / HarborJRPC). Covers REST requests (HGetRequestProtocol, HPostRequestProtocol, HPutRequestProtocol, HPatchRequestProtocol, HDeleteRequestProtocol), JSON-RPC 2.0, caching, auth providers and token refresh, HRetryPolicy, SSL pinning, mTLS, mocks and tests, multipart, streaming and debug logging. For upgrading Harbor 3 code use harbor-migration-v3-to-v4; for changing Harbor's own source see AGENTS.md.
+---
 
-This document provides massive system instructions and full context of the Harbor library for AI agents operating on this repository.
+# Harbor
 
-## Overview
-Harbor is a modern, lightweight, and robust networking library for Swift, built from the ground up to support Swift 6's strict concurrency model. It relies on `async/await` and Actors to provide a thread-safe environment for making REST and JSON-RPC API requests.
+Harbor is a protocol-oriented networking library for Swift 6 (strict concurrency, `async/await`). Requests are `Sendable` structs conforming to a per-method protocol. Global configuration lives on the `Harbor` enum, isolated to the global actor `@HRequestManagerActor`.
 
-## Architecture & Concurrency Rules
+Requirements: Swift 6.0 toolchain, iOS 15+ / macOS 14+. Products: `Harbor` and `HarborJRPC` (JSON-RPC).
 
-1. **Protocols, not Classes**: Harbor requires requests to be defined as `struct`s conforming to protocols like `HGetRequestProtocol`, `HPostRequestProtocol`, etc. This keeps networking code immutable, type-safe, and self-contained. 
-2. **Default Implementations**: The protocols already provide defaults for properties like `needsAuth` (false), `retries` (0), `headerParameters` (nil), `cacheType` (nil). Only override what you need.
-3. **Async/Await First**: Everything is `async`. You fetch data via `.request()` and Harbor returns the `Decodable` model directly. If it fails, it `throws`. If you need raw headers and status codes, use `.requestResult()`.
-4. **Actor Isolation**: Global configuration lives in the `Harbor` enum (which is `@HRequestManagerActor` isolated). Configuration is done using `await Harbor.setSomething(...)`. Since this runs on a global actor, always ensure your UI updates happen on `@MainActor` when fetching configurations.
-5. **No Callbacks**: Never use escaping closures or callbacks for requests. Always use `try await`.
+## Core rules
 
-## Core Features & Configuration
+1. **Requests are structs.** Conform to `HGetRequestProtocol`, `HPostRequestProtocol`, `HPutRequestProtocol`, `HPatchRequestProtocol` or `HDeleteRequestProtocol`. Every requirement is get-only: implement it as a `let` constant or a computed property. A computed `bodyParameters: [String: Any]?` keeps the struct `Sendable` without `@unchecked`.
+2. **Provide only what you need.** `url` is required (plus `Model` for GET and `bodyParameters` for POST/PUT/PATCH; return `nil` from it when you send `rawBody` or `multipartBody`). Everything else has a default: `needsAuth` (`false`), `retryPolicy`, `pathParameters`, `headerParameters`, `queryParameters`, `cacheType`, `timeoutInterval`, `multipartBody` and `rawBody` (all `nil`). Full table: `protocols.md`.
+3. **REST requests never throw.** GET `request()` returns `HResponseWithResult<Model>` (`.success(Model)` / `.error(HRequestError)`). POST, PUT, PATCH and DELETE return `HResponse` (`.success` / `.error`).
+4. **JSON-RPC requests throw.** `HJRPCRequestProtocol.request()` is `async throws -> Model`; `requestResult()` returns `HJRPCResponse<Model>` instead.
+5. **Await configuration.** Call `await Harbor.setX(...)` from any context, then hop to `@MainActor` before touching UI.
+6. **No completion handlers.** Use `async/await`. Cancel a request by cancelling its `Task` (it finishes with `.cancelled`).
 
-### 1. Network & Configurations
 ```swift
-// Global configurations
-await Harbor.setDefaultTimeoutInterval(30)
-await Harbor.setDefaultHeaderParameters(["X-Client-Version": "4.0.0"])
+struct User: Codable, Sendable {
+    let id: Int
+    let name: String
+}
 
-// Custom URLSession (Harbor uses it as-is, isolating request cache states)
-await Harbor.setCustomURLSession(URLSession(configuration: .ephemeral))
-// To restore the default Harbor session, pass nil:
-// await Harbor.setCustomURLSession(nil)
-```
-
-### 2. Advanced Caching
-Harbor features a multi-layer cache (Memory + Disk). It respects HTTP directives (`Cache-Control`, `ETag`, `Vary`) and supports conditional revalidation (304 Not Modified).
-```swift
-let config = HCache.Configuration(
-    expirationTime: .oneHour, 
-    maxObjectSizeInMBs: 10, 
-    memoryCacheCapacityInMBs: 100, 
-    diskCacheCapacityInMBs: 500
-)
-await Harbor.setDefaultCacheType(.custom(config))
-
-// You can override it per request
-struct MyRequest: HGetRequestProtocol {
+struct GetUserRequest: HGetRequestProtocol {
     typealias Model = User
-    let url = "https://api.example.com"
-    let cacheType: HCache.CacheType? = .urlCache()
-}
+    let url = "https://api.example.com/users/{id}"
+    let pathParameters: [String: String]?
 
-// Fetch cache directly without network
-let cachedUser = await MyRequest().cache()
-await Harbor.clearAllCache() // async!
-```
-
-### 3. Security (mTLS, SSL Pinning, Redaction)
-```swift
-// mTLS uses an async throwing password provider to avoid retaining strings in memory
-let mTLS = HMTLS(p12FileUrl: certURL) { "myPassword" }
-try await Harbor.setMTLS(mTLS)
-
-// SSL Pinning uses base64(SHA256(SPKI)) hashes.
-// Old raw key bytes are no longer valid in v4! Generate with:
-// openssl pkey -pubin -outform der | openssl dgst -sha256 -binary | openssl base64
-await Harbor.setSSLPinningKeys(["base64(SHA256(SPKI))_hash"], forHosts: ["api.example.com"])
-
-// Redact sensitive data from Debug logs (cURL generation, etc)
-await Harbor.setLogSensitiveHeaders(["Authorization", "Cookie"])
-```
-
-### 4. Authentication & Retry
-```swift
-class MyAuthProvider: HAuthProviderProtocol {
-    func getAuthorizationHeader() async -> HAuthorizationHeader? {
-        // returning nil means "send without auth header"
-        return HAuthorizationHeader(key: "Authorization", value: "Bearer token")
+    init(id: Int) {
+        pathParameters = ["id": String(id)]
     }
-    func authFailed() async { /* refresh flow */ }
 }
-await Harbor.setAuthProvider(MyAuthProvider())
-```
 
-### 5. JSON-RPC (HarborJRPC)
-Harbor natively supports Ethereum-style JSON-RPC 2.0 requests.
-```swift
-try await HarborJRPC.configure(url: "https://rpc.example.com", jrpcVersion: "2.0")
+struct CreateUserRequest: HPostRequestProtocol {
+    let url = "https://api.example.com/users"
+    let name: String
 
-struct BlockRequest: HJRPCRequestProtocol {
-    typealias Model = String
-    let method = "eth_blockNumber"
-    // Parameters use the HJRPCParams enum in v4:
-    let parameters: HJRPCParams? = .positioned(["latest"])
+    var bodyParameters: [String: Any]? { ["name": name] }
 }
-// request() now throws in v4
-let block = try await BlockRequest().request()
+
+func load() async {
+    switch await GetUserRequest(id: 1).request() {
+    case .success(let user):
+        print(user.name)
+    case .error(let error):
+        print(error.localizedDescription)
+    }
+
+    if case .error(let error) = await CreateUserRequest(name: "Jane").request() {
+        print(error)
+    }
+}
 ```
 
-### 6. Streaming & Multipart
-- **Streaming**: Call `.requestStream(source: .cacheAndRemote)` to get an `AsyncThrowingStream` that yields elements and origin (`.cache` or `.remote`) chunk by chunk.
-- **Multipart**: Set `bodyType = .multipart` and use `HFormValue(data: fileName: mimeType:)` inside `bodyParameters`. To send raw data, use `rawBody`.
+## Gotchas
 
-### 7. Mocking & Testing
-Mocks operate at the `URLProtocol` level, intercepting actual network traffic.
-```swift
-await Harbor.setMocksEnabled(true)
-let mock = HMock(request: GetUserRequest.self, result: .success(User(id: 1)), delay: 1.5)
-await Harbor.register(mock: mock)
-```
+- The body is the first non-nil of `rawBody`, `multipartBody` and `bodyParameters` (JSON). A body JSON can't encode fails with `.malformedRequest`.
+- A POST/PUT/PATCH that must decode a response also conforms to `HRequestWithResultProtocol`, and the call site annotates the result type (`protocols.md`).
+- `retryPolicy` retries transient failures only. POST and PATCH (and every JSON-RPC call) are retried after pre-connection failures only, unless `retryNonIdempotentRequests: true`.
+- `request()` on a GET always contacts the server. For cache-first behavior call `cache()` or use `requestStream(source:)`, which yields at most one `.cache` and one `.remote` element (`cache.md`).
+- Cached `.custom` responses are namespaced per credential (provider header or sensitive headers such as `Authorization`/`X-API-Key` in `headerParameters`/default headers; `.urlCache` is not) and never deleted automatically: call `await Harbor.clearAllCache()` on logout.
+- A custom `URLSession` is used as-is: SSL pinning, mTLS and redirect credential stripping apply only when it uses the delegate from `Harbor.makeURLSessionDelegate()`, created after configuring pins and mTLS (`security.md`).
+- Pins must be `base64(SHA256(SPKI))`. Pin mismatches, mTLS rejections and certificate-specific `URLError`s are `HRequestError.certificate` and are never retried.
+- Mocks (`HMock`, `HMockSequence`) are on in DEBUG and off in release; `await Harbor.setMocksEnabled(true)` enables them in release. They can't target JSON-RPC requests (`testing.md`).
+- Logging is on in DEBUG, off in release (`setLoggingEnabled(_:)`), is opt-in per request through `HDebugRequestProtocol`, and redacts sensitive values by default (`security.md`).
+- Integers beyond `Int` in JSON-RPC results decode as `HJSONValue.decimal`; digits are exact on iOS 18 / macOS 15 and later only (`examples/jrpc.md`).
 
-## Example App
-The repository includes an `Example/HarborExample` app showcasing every single feature (GET, POST, Caching, Streaming, JRPC, Auth, Retry, Mocking). When modifying the Example App:
-- Ensure UI state uses `@State` (or `@StateObject` for classes) to prevent lifecycle reference leaks across SwiftUI render passes.
-- Isolate networking calls using `Task { await ... }`. If passing closures to a `Task` inside a SwiftUI View, mark the closure as `@Sendable` to correctly detach execution from the view's implicit `@MainActor`.
-- Always verify that global configuration states (like `Harbor.mocksEnabled`) are accessed correctly without triggering Main Actor warnings.
+## Where to look
 
-## CI & Workflow
-- Commits must follow Conventional Commits (e.g., `feat:`, `fix:`, `docs:`, `chore:`).
-- When adding features, ensure they comply with Swift 6 Strict Concurrency.
-- Always run `swift test` and `xcodebuild test` in the Example App to ensure no regressions. The CI handles Unit Tests via GitHub Actions.
-
-## Internal Deep-Dive Documentation
-Harbor contains further internal documentation files mapping out specific systems. If you need deep implementation details on specific areas, you can locate them inside `.agents/skills/harbor/`:
-- `architecture.md`: In-depth breakdown of request flow and Actor lifecycle.
-- `cache.md`: Deep dive into L1/L2 cache storage mechanisms and ETags.
-- `security.md`: How `URLSessionDelegate` handles trust evaluation.
-- `testing.md`: How `HMocker` intercepts requests via `URLProtocol`.
-- `protocols.md`: Comprehensive list of all Harbor protocols.
-
-If migrating a codebase from Harbor v3 to v4, always consult `.agents/skills/harbor-migration-v3-to-v4/SKILL.md`.
+| Need | Read |
+|---|---|
+| Every request protocol, property, default, response and error type; `HRetryPolicy` | `protocols.md` |
+| Request flow, actor model, URLSession management, connectivity | `architecture.md` |
+| Cache types, HTTP caching semantics, keys, offline behavior, streaming | `cache.md` |
+| SSL pinning, mTLS, redirects, custom sessions, auth provider and 401 flow, log redaction | `security.md` |
+| Mocks, `HMockSequence`, XCTest patterns, stubbing the network | `testing.md` |
+| Copy-ready code: everyday requests, global configuration | `examples/basic.md` |
+| Copy-ready code: multipart, streaming, OAuth2, pagination, cancellation | `examples/advanced.md` |
+| JSON-RPC: setup, batches, notifications, errors | `examples/jrpc.md` |
+| Upgrading from Harbor 3 | `../harbor-migration-v3-to-v4/SKILL.md` |

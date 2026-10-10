@@ -1,21 +1,27 @@
 disabled_rules:
+  # The rules below still report violations in Sources/ under `--strict` and stay disabled
+  # until the affected code is refactored:
+  # - type_body_length / file_length / function_body_length / cyclomatic_complexity:
+  #   HCache.Manager, HURLBuilder and HRequestManager exceed the default limits.
   - type_body_length
   - file_length
-  - line_length
-  - trailing_comma
-  - multiple_closures_with_trailing_closure
   - function_body_length
   - cyclomatic_complexity
-  - unused_setter_value
-  - function_name_whitespace
-  - vertical_whitespace
-  - trailing_newline
+  # - line_length: long DocC comments and log messages (~160 violations).
+  - line_length
+  # - trailing_comma: multi-line literals (Package.swift, HarborJRPC) use trailing commas.
+  - trailing_comma
+  # - multiple_closures_with_trailing_closure: HRequestManager's runAttempts call sites.
+  - multiple_closures_with_trailing_closure
+  # - nesting: types nested two levels deep in HCache.Manager and HRequestManager.
   - nesting
-  - return_arrow_whitespace
-  - large_tuple
+  # - identifier_name: short closure/local names and the `_decoder` backing storage in HConfig.
   - identifier_name
-  - unused_optional_binding
+  # Re-enabled (Sources/ passes cleanly): unused_setter_value, function_name_whitespace,
+  # vertical_whitespace, trailing_newline, return_arrow_whitespace, large_tuple,
+  # unused_optional_binding.
 
 excluded:
+  - .build
   - Example
   - Tests

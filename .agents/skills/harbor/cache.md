@@ -1,758 +1,127 @@
-# Harbor Cache System
+# Harbor Cache
 
-Complete guide to Harbor's two-level caching system for optimizing network requests.
+Harbor caches GET requests (`HGetRequestProtocol`) only. The cache type is chosen per request (`cacheType`) or globally (`Harbor.setDefaultCacheType(_:)`).
 
-## Overview
-
-Harbor offers two cache strategies, selected via `HCache.CacheType`:
-
-- **`.urlCache`** (default): automatic HTTP caching backed by `URLCache`, with ETag/304 revalidation and zero configuration.
-- **`.custom(HCache.Configuration)`**: Harbor's own two-level cache with explicit expiration and size control:
-
-1. **Level 1 (Memory)**: NSCache for fast in-memory access
-2. **Level 2 (Disk)**: FileSystem cache with one file per cache key for persistent storage
-
-**Location**: `Sources/Harbor/Cache/`
-
-## Architecture
-
-### Two-Level Cache Flow
-
-```
-Request
-    │
-    ▼
-Memory Cache (L1)
-    │
-    ├─ Hit → Return cached data immediately
-    │
-    └─ Miss
-        │
-        ▼
-    Disk Cache (L2)
-        │
-        ├─ Hit → Load to memory → Return data
-        │
-        └─ Miss
-            │
-            ▼
-        Network Request
-            │
-            ├─ Success → Store in L2 → Store in L1 → Return data
-            │
-            └─ Error → Return error
-```
-
-### Cache Manager
-
-**Location**: `Sources/Harbor/Cache/HCache+Manager.swift`
+## Cache types
 
 ```swift
-@HRequestManagerActor
-final class Manager {
-    static let shared = Manager()
-    
-    private let memoryCache = NSCache<NSString, CacheEntry>()
-    private let fileManager = FileManager.default
-    private let cacheDirectory: URL
+func cacheTypes() async {
+    // Default: URLCache with the protocol cache policy (URLSession handles HTTP caching)
+    await Harbor.setDefaultCacheType(.urlCache())
+    await Harbor.setDefaultCacheType(.urlCache(urlCache: URLCache(memoryCapacity: 10_000_000, diskCapacity: 50_000_000),
+                                               requestCachePolicy: .returnCacheDataElseLoad))
+
+    // Harbor's own memory (L1) + disk (L2) cache
+    await Harbor.setDefaultCacheType(.custom(HCache.Configuration(
+        expirationTime: .oneHour,        // fallback lifetime when the response has no explicit one; default .oneWeek
+        maxObjectSizeInMBs: 10,          // larger bodies are not stored; default 10
+        memoryCacheCapacityInMBs: 100,   // default 100
+        diskCacheCapacityInMBs: 500      // default 100; LRU eviction when exceeded
+    )))
+
+    // No caching
+    await Harbor.setDefaultCacheType(.disabled)
 }
 ```
 
-**Key Features:**
-- Actor-isolated for thread safety
-- Automatic cleanup of expired entries
-- Respects HTTP cache headers
-- Configurable size limits
+Values below 1 MB are clamped to 1. `expirationTime: .noExpiration` (`nil`) means no fallback lifetime. The `TimeInterval` helpers are `.oneMinute`, `.fiveMinutes`, `.fifteenMinutes`, `.thirtyMinutes`, `.oneHour`, `.sixHours`, `.twelveHours`, `.oneDay`, `.threeDays`, `.oneWeek`, `.oneMonth`, `.threeMonths`, `.sixMonths` and `.oneYear`.
 
-## Configuration
-
-### Cache Configuration Types
-
-**Location**: `Sources/Harbor/Cache/HCacheType.swift`
+Per request:
 
 ```swift
-enum CacheType {
-    case urlCache(urlCache: URLCache, requestCachePolicy: NSURLRequest.CachePolicy)
-    case custom(Configuration)
-    case disabled
+struct CatalogRequest: HGetRequestProtocol {
+    typealias Model = [String]
+    let url = "https://api.example.com/catalog"
+    let cacheType: HCache.CacheType? = .custom(HCache.Configuration(expirationTime: .oneDay))
+}
+
+struct LivePriceRequest: HGetRequestProtocol {
+    typealias Model = Double
+    let url = "https://api.example.com/price"
+    let cacheType: HCache.CacheType? = .disabled
 }
 ```
 
-**Location**: `Sources/Harbor/Cache/HCacheConfiguration.swift`
+A request's own `cacheType` wins over the global default. The memory limit of the custom cache follows the global `.custom` configuration, and a per-request configuration can only raise it.
+
+## How `request()` uses the cache
+
+- **`.urlCache`**: `URLSession` applies HTTP caching itself, according to `requestCachePolicy`.
+- **`.custom`**: `request()` always contacts the server, so the custom cache is not a "cache-first" shortcut. Harbor uses it as follows:
+  - **Conditional revalidation.** Stored `ETag` / `Last-Modified` values are sent as `If-None-Match` / `If-Modified-Since`, unless the request already sets either header (a caller-set validator is kept as-is). A `304` serves the cached body and refreshes the entry's lifetime and validators. If the `304` arrives but no cached body can be served (evicted, undecodable for this request, or another `Vary` variant), Harbor re-sends the request once without validators and uses that response. This only happens when Harbor injected the validators: a `304` answering caller-set validators is returned as `.api(statusCode: 304, data:)`.
+  - **Store.** Every 2xx response is stored according to its directives. A `needsAuth` response is stored only under the credential it was actually sent with (the provider is not asked again when storing); a `needsAuth` request sent without a credential (the provider returned `nil`) is neither stored nor served from cache. A response whose request started before `Harbor.clearAllCache()` or `Harbor.setAuthProvider(_:)` is returned to its caller but neither stored nor remembered for offline lookups.
+  - **Offline.** When the connectivity monitor reports `.unsatisfied`, or the request fails with no connection, Harbor serves a fresh entry or a `stale-if-error` entry. For `needsAuth` requests it remembers the credential used by the last successful online request for that URL and looks that entry up without calling the auth provider; when nothing is remembered the provider is asked for its current header, and the entry stored without credentials is never served in its place. The remembered credentials are forgotten when the auth provider is replaced and when `Harbor.clearAllCache()` runs. With `.urlCache` it serves the stored 2xx response unless the policy ignores local data. With nothing to serve, the error is `.noConnection`.
+  - **Errors.** After retries are exhausted, a 5xx or a network error serves an expired entry that is still within its `stale-if-error` window.
+- For cache-first UX, read the cache explicitly (`cache()`) or use `requestStream(source: .cacheAndRemote)`.
+
+## HTTP semantics (custom cache)
+
+- Lifetime: `max-age` > `Expires` (measured from the response `Date`) > `HCache.Configuration.expirationTime`. The response `Age` header is subtracted.
+- `no-store`: not stored, and any previous entry for the key is evicted. Bodies larger than `maxObjectSizeInMBs` are treated the same way.
+- `no-cache`: stored but always stale. It is never served without revalidation, and its validators are kept.
+- `must-revalidate`: never served stale.
+- `s-maxage` and `proxy-revalidate` are ignored: they only apply to shared caches, and Harbor's cache (like `URLCache`) is a private cache.
+- `stale-while-revalidate`: `cache()` and `.cacheAndRemote` may serve the entry within that window after expiry.
+- `stale-if-error`: served after network errors or 5xx responses within that window.
+- `Vary`: the varying request header values are stored as a SHA-256 digest (never in clear) and enforced on reads. `Vary: *` entries are never served directly.
+- Expired entries without validators are evicted once their `stale-if-error` window (if any) has elapsed; until then they are kept (by reads and by the startup cleanup) so they can still be served after errors. Expired entries with validators are kept as a source of `If-None-Match` / `If-Modified-Since`.
+
+For `.urlCache`, `cache()` (and the cached leg of `requestStream(source: .cacheAndRemote)`) serves the stored 2xx response unless it is explicitly stale: `Cache-Control: no-cache` or `no-store`, an elapsed `max-age` / `Expires` lifetime (age from `Date` + `Age`, extended by `stale-while-revalidate`), or an elapsed 10% `Last-Modified` heuristic when a `Date` header is present. A response without freshness headers is served. A policy that explicitly prefers cached data (`.returnCacheDataElseLoad`, `.returnCacheDataDontLoad`) skips the check altogether.
+
+## Cache keys and credentials
+
+- The key is the composite URL (path parameters substituted, query items sorted by name and strictly percent-encoded).
+- When the request is sent with a credential, `#harbor-auth=<sha256(credentials)>` is appended. Credentials are the auth provider's header (`needsAuth` requests) and every header of the effective request (default headers merged with `headerParameters`, names compared case-insensitively) whose name is a built-in sensitive name (`HRedactionPolicy.defaultSensitiveKeys`: `Authorization`, `Proxy-Authorization`, `Cookie`, `X-API-Key`, anything containing `token`, `secret`, `password`, ...). Each credential set gets its own entries, and the raw value is never stored in the key. A request without any such header keeps the plain URL key. Lookup, store, `clearCache()`, `cachedETag()`, conditional validators and offline fallback all build the key the same way.
+- `.urlCache` is not namespaced: `URLCache` keys entries by URL only, so responses that depend on a credential (provider or manual header) must use `.custom`, and `Harbor.clearAllCache()` is the only protection on logout.
+- Replacing the auth provider or the token does **not** delete old entries. **Call `await Harbor.clearAllCache()` on logout.**
+
+## Storage
+
+- L1: `NSCache` bounded by body bytes.
+- L2: `Library/Caches/HarborCache/`. Each entry is one file named `sha256(key).cache`, holding a length-prefixed JSON metadata header followed by the raw body (format version 2). Files in an older format, or from legacy versions, are deleted. Reads refresh the access time, and eviction is least-recently-used once `diskCacheCapacityInMBs` is exceeded. A background task at startup removes expired (outside any `stale-if-error` window) and outdated files.
+- Cached bodies are decoded with the request's `parseData(data:model:)`, the same decoder as the network path. A body that does not decode for a request is a miss for that request but is kept, since request types with different models or parsers may share a URL. The next full response replaces it. On-disk access-time updates are throttled per entry (once per 60 s).
+
+## API
 
 ```swift
-struct Configuration: Sendable, Equatable {
-    let expirationTime: TimeInterval?
-    let maxObjectSizeInMBs: Int
-    let memoryCacheCapacityInMBs: Int
-    let diskCacheCapacityInMBs: Int
-}
-```
-
-Defaults: `expirationTime` 1 week, `maxObjectSizeInMBs` 10, `memoryCacheCapacityInMBs` 100, `diskCacheCapacityInMBs` 100. Values below 1 are clamped to 1.
-
-**Options:**
-
-1. **Disabled** - No caching
-```swift
-var cacheType: HCache.CacheType? = .disabled
-// or simply
-var cacheType: HCache.CacheType? = nil
-```
-
-2. **Enabled** - Cache with expiration time
-```swift
-var cacheType: HCache.CacheType? = .custom(HCache.Configuration(expirationTime: .oneHour))
-```
-
-3. **Custom** - Cache with expiration and size limit
-```swift
-var cacheType: HCache.CacheType? = .custom(HCache.Configuration(
-    expirationTime: .oneDay,
-    maxObjectSizeInMBs: 5  // 5MB max per object
-))
-```
-
-### Predefined Expiration Times
-
-**Location**: `Sources/Harbor/Cache/TimeInterval+Cache.swift`
-
-```swift
-extension TimeInterval {
-    static var noExpiration: TimeInterval? { nil }
-    static var oneMinute: TimeInterval { 60 }
-    static var fiveMinutes: TimeInterval { 300 }
-    static var fifteenMinutes: TimeInterval { 900 }
-    static var thirtyMinutes: TimeInterval { 1800 }
-    static var oneHour: TimeInterval { 3600 }
-    static var sixHours: TimeInterval { 21600 }
-    static var twelveHours: TimeInterval { 43200 }
-    static var oneDay: TimeInterval { 86400 }
-    static var threeDays: TimeInterval { 259200 }
-    static var oneWeek: TimeInterval { 604800 }
-    static var oneMonth: TimeInterval { 2592000 }   // 30 days
-    static var threeMonths: TimeInterval { 7776000 } // 90 days
-    static var sixMonths: TimeInterval { 15552000 }  // 180 days
-    static var oneYear: TimeInterval { 31536000 }    // 365 days
-}
-```
-
-**Usage:**
-```swift
-.custom(HCache.Configuration(expirationTime: .noExpiration))
-.custom(HCache.Configuration(expirationTime: .oneMinute))
-.custom(HCache.Configuration(expirationTime: .fiveMinutes))
-.custom(HCache.Configuration(expirationTime: .fifteenMinutes))
-.custom(HCache.Configuration(expirationTime: .thirtyMinutes))
-.custom(HCache.Configuration(expirationTime: .oneHour))
-.custom(HCache.Configuration(expirationTime: .sixHours))
-.custom(HCache.Configuration(expirationTime: .twelveHours))
-.custom(HCache.Configuration(expirationTime: .oneDay))
-.custom(HCache.Configuration(expirationTime: .threeDays))
-.custom(HCache.Configuration(expirationTime: .oneWeek))
-.custom(HCache.Configuration(expirationTime: .oneMonth))
-.custom(HCache.Configuration(expirationTime: .threeMonths))
-.custom(HCache.Configuration(expirationTime: .sixMonths))
-.custom(HCache.Configuration(expirationTime: .oneYear))
-```
-
-## Global vs Per-Request Configuration
-
-### Global Configuration
-
-Set default cache behavior for all requests:
-
-```swift
-// Enable cache globally with 1 hour expiration
-await Harbor.setDefaultCacheType(.custom(HCache.Configuration(expirationTime: .oneHour)))
-
-// All requests without explicit cache config will use this
-struct GetUserRequest: HGetRequestProtocol {
-    typealias Model = User
-    let url = "https://api.example.com/user"
-    // Will use global cache configuration
-}
-```
-
-### Per-Request Configuration
-
-Override global settings for specific requests:
-
-```swift
-// Request-specific cache configuration
-struct GetUserRequest: HGetRequestProtocol {
-    typealias Model = User
-    let url = "https://api.example.com/user"
-    var cacheType: HCache.CacheType? = .custom(HCache.Configuration(expirationTime: .oneDay))
-    // This overrides global configuration
-}
-
-// Disable cache for specific request
-struct GetBalanceRequest: HGetRequestProtocol {
-    typealias Model = Balance
-    let url = "https://api.example.com/balance"
-    var cacheType: HCache.CacheType? = .disabled
-    // Never cache this request
-}
-```
-
-### Priority Order
-
-1. **Per-request configuration** takes precedence
-2. **Global configuration** is used if per-request is not set
-3. **`.urlCache`** (automatic HTTP caching) is the default if neither is configured
-
-## Cache Usage Patterns
-
-### Static Data (Long Cache)
-
-```swift
-// Country list - rarely changes
-struct GetCountriesRequest: HGetRequestProtocol {
-    typealias Model = [Country]
-    let url = "https://api.example.com/countries"
-    var cacheType: HCache.CacheType? = .custom(HCache.Configuration(expirationTime: .oneWeek))
-}
-```
-
-### Semi-Static Data (Medium Cache)
-
-```swift
-// User profile - changes occasionally
-struct GetUserProfileRequest: HGetRequestProtocol {
-    typealias Model = UserProfile
+struct ProfileRequest: HGetRequestProtocol {
+    typealias Model = String
     let url = "https://api.example.com/profile"
-    var cacheType: HCache.CacheType? = .custom(HCache.Configuration(expirationTime: .oneHour))
-}
-```
-
-### Dynamic Data (Short Cache)
-
-```swift
-// News feed - updates frequently
-struct GetFeedRequest: HGetRequestProtocol {
-    typealias Model = [Post]
-    let url = "https://api.example.com/feed"
-    var cacheType: HCache.CacheType? = .custom(HCache.Configuration(expirationTime: .fiveMinutes))
-}
-```
-
-### Real-Time Data (No Cache)
-
-```swift
-// Balance - must be current
-struct GetBalanceRequest: HGetRequestProtocol {
-    typealias Model = Balance
-    let url = "https://api.example.com/balance"
-    var cacheType: HCache.CacheType? = .disabled
-}
-```
-
-## HTTP Header Compliance
-
-Harbor respects standard HTTP cache headers:
-
-### Cache-Control Header
-
-```
-Cache-Control: max-age=3600
-```
-
-Harbor will use the smaller of:
-- Configured expiration time
-- HTTP `max-age` value
-
-**Example:**
-```swift
-// Request configured for 1 day cache
-var cacheType: HCache.CacheType? = .custom(HCache.Configuration(expirationTime: .oneDay))
-
-// But server responds with: Cache-Control: max-age=3600 (1 hour)
-// Harbor will cache for 1 hour (respects server preference)
-```
-
-### Expires Header
-
-```
-Expires: Wed, 21 Oct 2026 07:28:00 GMT
-```
-
-Harbor checks the `Expires` header if `Cache-Control` is not present.
-
-### No-Cache Directives
-
-```
-Cache-Control: no-store
-Cache-Control: no-cache
-```
-
-- `no-store`: the response is never persisted, regardless of request configuration.
-- `no-cache`: the response is persisted (keeping its `ETag`/`Last-Modified` validators) but is always revalidated with the server before being served.
-
-### Other Supported Directives
-
-The custom cache also honors:
-
-- `s-maxage`: like `max-age`, takes precedence over `max-age` when present.
-- `must-revalidate` / `proxy-revalidate`: expired entries are never served without successful revalidation.
-- `stale-if-error`: an expired entry may be served on network or 5xx errors while still inside its window.
-- `Vary`: stored with the entry and matched against the request headers on lookup.
-
-Header lookup is case-insensitive, so it works with HTTP/2 lowercase headers.
-
-### Conditional Revalidation
-
-For GET requests, the custom cache sends stored validators as `If-None-Match` / `If-Modified-Since`. A `304 Not Modified` response serves the cached body and refreshes its expiration — even if the entry had already expired.
-
-## Cache Size Limits
-
-### Default Limits
-
-**Memory Cache (L1):**
-- Managed by NSCache
-- Capacity controlled by `memoryCacheCapacityInMBs` (default: 100MB)
-- Automatically evicts under memory pressure
-
-**Disk Cache (L2):**
-- Capacity controlled by `diskCacheCapacityInMBs` (default: 100MB)
-- When exceeded, the oldest entries are evicted first (LRU)
-- Default max object size: 10MB
-- Can be customized per request
-
-### Custom Size Limits
-
-```swift
-// Limit cache objects to 5MB
-var cacheType: HCache.CacheType? = .custom(HCache.Configuration(
-    expirationTime: .oneHour,
-    maxObjectSizeInMBs: 5
-))
-
-// Larger images might need bigger limits
-var cacheType: HCache.CacheType? = .custom(HCache.Configuration(
-    expirationTime: .oneDay,
-    maxObjectSizeInMBs: 20  // 20MB
-))
-```
-
-**Objects exceeding the limit are not cached.**
-
-```swift
-// Limit total cache capacity (memory and disk)
-var cacheType: HCache.CacheType? = .custom(HCache.Configuration(
-    expirationTime: .oneDay,
-    memoryCacheCapacityInMBs: 50,
-    diskCacheCapacityInMBs: 200
-))
-```
-
-## Cache Management APIs
-
-### Direct Cache Access
-
-```swift
-// Get cached data for a request
-let request = GetUserRequest(userId: "123")
-if let cachedUser = await request.cache() {
-    print("Found cached user: \(cachedUser)")
-}
-```
-
-### Clear Specific Cache
-
-```swift
-// Clear cache for a specific request
-let request = GetUserRequest(userId: "123")
-await request.clearCache()
-```
-
-### Clear All Cache
-
-```swift
-// Clear all cached data
-await Harbor.clearAllCache()
-```
-
-This clears the custom cache (memory and disk), `URLCache.shared`, and the `URLCache` of the configured `.urlCache` default type or custom session when they differ.
-
-**Use Cases:**
-- User logout (clear all cached data)
-- Force refresh (clear specific cache)
-- Manual cache management in settings
-
-### Example: Refresh Pattern
-
-```swift
-// Force refresh by clearing cache first
-await request.clearCache()
-let response = await request.request()  // Always hits network
-```
-
-## Streaming with Cache
-
-Harbor supports streaming data from cache and network sources.
-
-### Request Source Types
-
-**Location**: `Sources/Harbor/Request/HRequestProtocol.swift`
-
-```swift
-enum HRequestSource {
-    case cacheOnly      // Only return cached data
-    case remoteOnly     // Only fetch from network
-    case cacheAndRemote // Return cache first, then network
-}
-```
-
-### Data Origin
-
-```swift
-enum HOriginType {
-    case cache   // Data came from cache
-    case remote  // Data came from network
-}
-```
-
-### Streaming API
-
-```swift
-func requestStream(source: HRequestSource = .cacheAndRemote) 
-    -> AsyncThrowingStream<(Model, HOriginType), Error>
-```
-
-### Example: Cache Then Network
-
-```swift
-struct GetUserRequest: HGetRequestProtocol {
-    typealias Model = User
-    let url = "https://api.example.com/user"
-    var cacheType: HCache.CacheType? = .custom(HCache.Configuration(expirationTime: .oneHour))
+    let needsAuth = true
+    let cacheType: HCache.CacheType? = .custom(HCache.Configuration(expirationTime: .fifteenMinutes))
 }
 
-// Stream will emit twice: first from cache, then from network
-for try await (user, origin) in GetUserRequest().requestStream(source: .cacheAndRemote) {
-    switch origin {
-    case .cache:
-        print("Showing cached user: \(user.name)")
-        // Update UI with cached data (fast)
-    case .remote:
-        print("Showing fresh user: \(user.name)")
-        // Update UI with fresh data
-    }
-}
-```
+func cacheAPI() async {
+    // Cached model, or nil (miss, stale, Vary mismatch, other credential)
+    let cached: String? = await ProfileRequest().cache()
 
-### Example: Cache Only
+    // Stored ETag (custom cache and URLCache)
+    let etag: String? = await ProfileRequest().cachedETag()
 
-```swift
-// Only check cache, no network request
-for try await (user, origin) in request.requestStream(source: .cacheOnly) {
-    print("Cached user: \(user.name)")
-}
-// If no cache exists, stream completes without emitting
-```
+    // Remove this request's entry (current credential + the credential-less entry)
+    await ProfileRequest().clearCache()
 
-### Example: Remote Only
-
-```swift
-// Only fetch from network, ignore cache
-for try await (user, origin) in request.requestStream(source: .remoteOnly) {
-    print("Fresh user: \(user.name)")
-}
-// Cache is still updated for future requests
-```
-
-### SwiftUI Integration
-
-```swift
-struct UserView: View {
-    @State private var user: User?
-    @State private var isLoading = false
-    
-    var body: some View {
-        Group {
-            if let user = user {
-                UserDetailView(user: user)
-            } else {
-                ProgressView()
-            }
-        }
-        .task {
-            await loadUser()
-        }
-    }
-    
-    func loadUser() async {
-        isLoading = true
-        defer { isLoading = false }
-        
-        do {
-            for try await (user, origin) in GetUserRequest().requestStream() {
-                await MainActor.run {
-                    self.user = user
-                    if origin == .cache {
-                        // Show refresh indicator
-                    }
-                }
-            }
-        } catch {
-            print("Error: \(error)")
-        }
-    }
-}
-```
-
-## Cache Key Generation
-
-Harbor generates unique cache keys based on:
-
-1. **URL**: Full request URL
-2. **Query Parameters**: All query parameters
-3. **HTTP Method**: GET, POST, etc.
-4. **Headers**: Custom headers (if they affect response)
-
-**Key Format:**
-```
-SHA256(url + queryParams + method + relevantHeaders)
-```
-
-**Example:**
-```swift
-// These generate different cache keys:
-GetUserRequest(userId: "123")  // Key: hash of "/users/123"
-GetUserRequest(userId: "456")  // Key: hash of "/users/456"
-
-SearchRequest(query: "test", page: 1)  // Key: hash of "/search?query=test&page=1"
-SearchRequest(query: "test", page: 2)  // Key: hash of "/search?query=test&page=2"
-```
-
-## Cache Expiration
-
-### Expiration Check
-
-Cache entries are checked for expiration on:
-1. **Cache read**: Expired entries return as cache miss
-2. **Periodic cleanup**: Background cleanup of expired entries
-
-### Expiration Logic
-
-```swift
-let currentTime = Date()
-let cacheAge = currentTime.timeIntervalSince(cacheEntry.timestamp)
-
-if cacheAge > expirationTime {
-    // Cache expired - remove entry
-    // Fetch from network
-} else {
-    // Cache valid - return cached data
-}
-```
-
-### HTTP Header Priority
-
-```swift
-// 1. Check Cache-Control max-age
-if let maxAge = response.cacheControl?.maxAge {
-    effectiveExpiration = min(configuredExpiration, maxAge)
-}
-
-// 2. Check Expires header
-else if let expires = response.expires {
-    effectiveExpiration = expires.timeIntervalSinceNow
-}
-
-// 3. Use configured expiration
-else {
-    effectiveExpiration = configuredExpiration
-}
-```
-
-## Best Practices
-
-### 1. Cache Static Data Aggressively
-
-```swift
-// Reference data - cache for a week
-struct GetCategoriesRequest: HGetRequestProtocol {
-    typealias Model = [Category]
-    let url = "https://api.example.com/categories"
-    var cacheType: HCache.CacheType? = .custom(HCache.Configuration(expirationTime: .oneWeek))
-}
-```
-
-### 2. Don't Cache Sensitive Data
-
-```swift
-// User balance - always fresh
-struct GetBalanceRequest: HGetRequestProtocol {
-    typealias Model = Balance
-    let url = "https://api.example.com/balance"
-    var cacheType: HCache.CacheType? = .disabled
-}
-```
-
-### 3. Use Streaming for Better UX
-
-```swift
-// Show cached data immediately, update with fresh data
-for try await (posts, origin) in GetPostsRequest().requestStream() {
-    updateUI(with: posts)
-    if origin == .cache {
-        showRefreshIndicator()
-    } else {
-        hideRefreshIndicator()
-    }
-}
-```
-
-### 4. Clear Cache on Logout
-
-```swift
-func logout() async {
+    // Custom cache (memory + disk), URLCache.shared, and the URLCache of the default
+    // cache type / custom session when they differ
     await Harbor.clearAllCache()
-    // Clear auth tokens
-    // Navigate to login
+    _ = (cached, etag)
 }
 ```
 
-### 5. Cache Large Responses
+Only `cache()`, `cachedETag()` and `clearCache()` are public. For `needsAuth` requests they resolve the credential from the auth provider's current header.
 
-```swift
-// Large image data - cache with size limit
-struct GetImageRequest: HGetRequestProtocol {
-    typealias Model = Data
-    let url: String
-    var cacheType: HCache.CacheType? = .custom(HCache.Configuration(
-        expirationTime: .oneWeek,
-        maxObjectSizeInMBs: 10  // 10MB
-    ))
-}
-```
+## Streaming with cache
 
-### 6. Respect Server Cache Headers
+`requestStream(source:)` yields at most one `.cache` element (only when `cache()` returns a value) and one `.remote` element; it is not a chunked download. With `.cacheAndRemote` it throws when the remote request fails, even after a cached element; `.cacheOnly` throws `HRequestError.noCachedDataFound` on a miss. A cached copy that stands in for the network (offline, or `stale-if-error`) is tagged `.cache` and yielded once. Example: `examples/advanced.md`.
 
-Don't override server cache directives. If the server says `no-cache`, Harbor respects it automatically.
+## Best practices
 
-### 7. Use Appropriate Expiration Times
+- Use `.custom` for data you want offline, with ETags. Use `.disabled` for real-time or one-shot sensitive responses. Servers should send `Cache-Control: no-store` for secrets.
+- Clear the cache on logout (`Harbor.clearAllCache()`).
+- After a model change, old entries are misses and get replaced by the next network response. No migration is needed.
 
-| Data Type | Recommended Expiration |
-|-----------|------------------------|
-| Static reference data | 1 week - 1 month |
-| User profile | 1 hour - 1 day |
-| Content lists | 5-15 minutes |
-| Real-time data | No cache |
-| Large media files | 1 week - 1 month |
-| Session data | 30 minutes - 12 hours |
+## Related files
 
-## Performance Considerations
-
-### Memory Usage
-
-**NSCache automatically manages memory:**
-- Evicts objects under memory pressure
-- No manual management needed
-- Thread-safe by default
-
-**To minimize memory:**
-```swift
-// Large objects should have size limits
-var cacheType: HCache.CacheType? = .custom(HCache.Configuration(
-    expirationTime: .oneDay,
-    maxObjectSizeInMBs: 5  // Limit to 5MB
-))
-```
-
-### Disk Usage
-
-**Disk cache is persistent but limited:**
-- Respects `maxObjectSizeInMBs` setting
-- Expired entries cleaned up periodically
-- Manual cleanup with `clearAllCache()`
-
-**Monitor disk usage:**
-```swift
-// Implement periodic cleanup in app
-Task {
-    // Clean cache every 7 days
-    if lastCleanup.timeIntervalSinceNow > .oneWeek {
-        await Harbor.clearAllCache()
-        lastCleanup = Date()
-    }
-}
-```
-
-### Network Efficiency
-
-**Cache hits avoid network entirely:**
-- No network round-trip for valid cached entries
-- Reduces data usage
-- Works offline
-
-**Streaming provides best UX:**
-- Instant display from cache
-- Fresh data loaded in background
-- Seamless updates
-
-## Troubleshooting
-
-### Cache Not Working
-
-**Check configuration:**
-```swift
-// Ensure cache is enabled
-var cacheType: HCache.CacheType? = .custom(HCache.Configuration(expirationTime: .oneHour))
-
-// Not disabled
-// var cacheType: HCache.CacheType? = .disabled
-```
-
-**Check HTTP headers:**
-```swift
-// Server might send no-store
-// Cache-Control: no-store
-// This prevents caching regardless of configuration
-```
-
-### Cache Returning Stale Data
-
-**Check expiration time:**
-```swift
-// Might be too long
-.custom(HCache.Configuration(expirationTime: .oneWeek))
-
-// Try shorter expiration
-.custom(HCache.Configuration(expirationTime: .fifteenMinutes))
-```
-
-**Force refresh:**
-```swift
-await request.clearCache()
-let response = await request.request()
-```
-
-### Cache Taking Too Much Space
-
-**Set size limits:**
-```swift
-.custom(HCache.Configuration(
-    expirationTime: .oneDay, maxObjectSizeInMBs: 2))
-```
-
-**Periodic cleanup:**
-```swift
-await Harbor.clearAllCache()
-```
-
-## Related Files
-
-**Cache Implementation:**
-- `Sources/Harbor/Cache/HCache+Manager.swift` - Cache manager and storage
-- `Sources/Harbor/Cache/HCacheType.swift` - Cache type definitions
-- `Sources/Harbor/Cache/HCacheConfiguration.swift` - Cache configuration
-- `Sources/Harbor/Cache/TimeInterval+Cache.swift` - Predefined expiration times
-- `Sources/Harbor/Request/HRequestProtocol.swift` - Streaming APIs
-
-**Examples:**
-- `Example/HarborExample/Requests/RESTRequest.swift` - Cache usage example
-- `Tests/HarborTests/HarborCacheTests.swift` - Cache tests
-- `Tests/HarborTests/HarborStreamTests.swift` - Streaming tests
+- `Sources/Harbor/Cache/HCache+Manager.swift`: storage, directives, keys, disk codec.
+- `Sources/Harbor/Cache/HGetRequestProtocol+Cache.swift`: `cache()`, `cachedETag()`, `clearCache()`, offline lookup.
+- `Sources/Harbor/Cache/HCacheType.swift`, `HCacheConfiguration.swift`, `TimeInterval+Cache.swift`.

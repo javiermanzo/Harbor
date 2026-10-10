@@ -223,33 +223,8 @@ final class HarborSecurityTests: XCTestCase {
 
     // MARK: - Security Error Tests
 
-    func testSSLPinningFailure() async throws {
-        // Given
-        let testSHA256 = "INVALID_HASH"
-        Harbor.setSSLPinningKeys([testSHA256])
-
-        // Mock a SSL-related failure (using existing error types)
-        let mock = HMock(request: SecureGetRequest.self, statusCode: 500, error: .noConnection)
-        Harbor.register(mock: mock)
-
-        // When
-        let request = SecureGetRequest()
-        let response = await request.request()
-
-        // Then
-        switch response {
-        case .success:
-            XCTFail("Expected SSL-related failure")
-        case .error(let error):
-            switch error {
-            case .noConnection:
-                let count = await HMocker.callCount(for: SecureGetRequest.self)
-                XCTAssertEqual(count, 1)
-            default:
-                XCTFail("Expected connection error but got: \(error)")
-            }
-        }
-    }
+    // A pinning mismatch on a real TLS handshake is covered end to end in
+    // HarborTransportSecurityTests.testPinningMismatchOnRealHandshakeFailsWithCertificateError.
 
     func testMTLSCertificateError() async throws {
         // Given
@@ -333,6 +308,120 @@ final class HarborSecurityTests: XCTestCase {
         //   openssl base64
         XCTAssertEqual(pin, "8tTpKUiR9q0MRHDOcFD1qGCUeliu9b+wQeGMT16qm7Y=")
     }
+
+    func testSPKIPinMatchesOpenSSLOutputRSA3072() async throws {
+        // Given
+        let certificate = try certificate(base64DER: Self.rsa3072CertificateBase64)
+
+        // When
+        let pin = Harbor.computePin(for: certificate)
+
+        // Then
+        // Expected value generated from rsa3072CertificateBase64 (decoded to cert.der) with:
+        // openssl x509 -inform DER -in cert.der -pubkey -noout | \
+        //   openssl pkey -pubin -outform der | \
+        //   openssl dgst -sha256 -binary | \
+        //   openssl base64
+        XCTAssertEqual(pin, "v9sPP7iIhW4zD3eVto3QPDT/ux7FWwLvS1r56FJSWrs=")
+    }
+
+    func testSPKIPinMatchesOpenSSLOutputEC521() async throws {
+        // Given
+        let certificate = try certificate(base64DER: Self.ec521CertificateBase64)
+
+        // When
+        let pin = Harbor.computePin(for: certificate)
+
+        // Then
+        // Expected value generated from ec521CertificateBase64 with the same openssl pipeline.
+        XCTAssertEqual(pin, "pN/3OV3mMK7uoHEet/QzKZgDMnMuvPiPvTQpNdUrqnQ=")
+    }
+
+    func testSPKIDataForGeneratedKeysStartsWithTheExpectedDERHeader() async throws {
+        // Expected SubjectPublicKeyInfo prefixes (outer SEQUENCE, AlgorithmIdentifier and the
+        // BIT STRING header) for each supported key type/size (RSA-4096 is covered by its
+        // certificate vector, generating one is slow). The RSA-2048 and P-256/384 values are
+        // TrustKit's fixed headers; the RSA-3072 and P-521 ones were read from
+        // `openssl pkey -pubin -outform der` for keys of those types.
+        let cases: [(keyType: CFString, bits: Int, header: String)] = [
+            (kSecAttrKeyTypeRSA, 2048, "30820122300d06092a864886f70d01010105000382010f00"),
+            (kSecAttrKeyTypeRSA, 3072, "308201a2300d06092a864886f70d01010105000382018f00"),
+            (kSecAttrKeyTypeECSECPrimeRandom, 256, "3059301306072a8648ce3d020106082a8648ce3d030107034200"),
+            (kSecAttrKeyTypeECSECPrimeRandom, 384, "3076301006072a8648ce3d020106052b81040022036200"),
+            (kSecAttrKeyTypeECSECPrimeRandom, 521, "30819b301006072a8648ce3d020106052b8104002303818600")
+        ]
+
+        for testCase in cases {
+            // Given a freshly generated key
+            let attributes: [String: Any] = [
+                kSecAttrKeyType as String: testCase.keyType,
+                kSecAttrKeySizeInBits as String: testCase.bits
+            ]
+            var error: Unmanaged<CFError>?
+            let privateKey = try XCTUnwrap(SecKeyCreateRandomKey(attributes as CFDictionary, &error), "Key generation failed for \(testCase.bits) bits")
+            let publicKey = try XCTUnwrap(SecKeyCopyPublicKey(privateKey))
+            let rawKey = try XCTUnwrap(SecKeyCopyExternalRepresentation(publicKey, nil) as Data?)
+
+            // When
+            let spki = try XCTUnwrap(HSPKI.spkiData(for: publicKey), "Unsupported key: \(testCase.bits) bits")
+
+            // Then the SPKI is the expected header followed by the raw key
+            let hex = spki.map { String(format: "%02x", $0) }.joined()
+            XCTAssertTrue(hex.hasPrefix(testCase.header), "Unexpected SPKI header for \(testCase.keyType) \(testCase.bits): \(hex.prefix(60))")
+            XCTAssertEqual(spki.suffix(rawKey.count), rawKey)
+        }
+    }
+
+    func testDERLengthEncoding() async {
+        XCTAssertEqual(HSPKI.derLength(0x7f), [0x7f])
+        XCTAssertEqual(HSPKI.derLength(0x80), [0x81, 0x80])
+        XCTAssertEqual(HSPKI.derLength(0x9b), [0x81, 0x9b])
+        XCTAssertEqual(HSPKI.derLength(0x01a2), [0x82, 0x01, 0xa2])
+    }
+
+    private func certificate(base64DER: String) throws -> SecCertificate {
+        let data = try XCTUnwrap(Data(base64Encoded: base64DER, options: .ignoreUnknownCharacters))
+        return try XCTUnwrap(SecCertificateCreateWithData(nil, data as CFData), "Not a valid DER certificate")
+    }
+
+    /// Self-signed RSA-3072 certificate (CN=harbor-rsa3072), DER, base64. Generated with
+    /// `openssl req -x509 -newkey rsa:3072 -nodes -subj "/CN=harbor-rsa3072" -days 3650 -outform DER`.
+    private static let rsa3072CertificateBase64 = """
+MIIEEzCCAnugAwIBAgIUR6vGwjdR8V67+Qba2wgMQ7ej0B8wDQYJKoZIhvcNAQELBQAwGTEXMBUG
+A1UEAwwOaGFyYm9yLXJzYTMwNzIwHhcNMjYxMDAyMjI0NzQ2WhcNMzYwOTI5MjI0NzQ2WjAZMRcw
+FQYDVQQDDA5oYXJib3ItcnNhMzA3MjCCAaIwDQYJKoZIhvcNAQEBBQADggGPADCCAYoCggGBAKdm
+fJfBVR4xX7Oin9/E2w+50DIJqeoT5oGm7BEp3TQCLts6blluAgwE3dpqdUcI00Onkev+pyL+kG1q
+zjfVI8hnpmXm/zW8H4Q7Wc+m6qo7sOG+vavgUVLHServqrz2sR40uxBgo6nqU9jIzybyzvBK/08u
+esUwuXm2jlISCKEmtcT0l2QZbZtflo3QHelOLpASnLGYn6cULwuQq4gA2oJZnuNW84o2eziZm61g
+SthLqx1bqdaZDHWoRCXGY2PYRY3KjUSNqi3y46uuxfD24NMk74WCZKqNHzrtEjgwaxlZ6OMOF4NA
+sT05rIqFSpaFyYqCYI40KDdSSm40SdvL+/SlZAli0ZnhqIVksiCo0Xic/PZuo5nDxs3+7vyAWbdY
+ed9UKsUAxqjhAEEbVzoHGtCahCyNAlQpFybf+3oQALt347ZzUTQfxm2KD9y+n8aJRFhjdggkixPD
+InqAQCxgdJnD+BFnqHLIODFu6tsxhbRu4HW/Qjqw/Tv13cm5/HKy8QIDAQABo1MwUTAdBgNVHQ4E
+FgQU8czp6qN7ZndwPsCY902fZ3X/irwwHwYDVR0jBBgwFoAU8czp6qN7ZndwPsCY902fZ3X/irww
+DwYDVR0TAQH/BAUwAwEB/zANBgkqhkiG9w0BAQsFAAOCAYEAbtCSEJ0lANBzvq3DL4GijewEs8mg
+dGVzmdCn/tHZcjqQyRN0To9cxlj/6nv5+YI3eZqPrvo3pepnO7dfM2qoCD6butwfQfhSg9EPXpDI
+D7BFBNKeq/zxRm9jVfP4fBJ4SH0wvAqgpVn79SELF8wT2fbaHxGvf+EvY3r17EYPyLRkE1Rci2YK
+TrG/Gs0kU17YXPyZZJ/AZX0zM/OdFvw9uJ4MIEdTwJjOeygBA4VCL1zXeb30Pspw0mu8NwGIdM42
+3ZkVQEh0VBAAbN+0OEkZpAKiLHraSk7Ertl1kAoNRMMqAUnfC3sZQO108Tvza6bQK+M/DEuHHbg1
+xUSHE0ehyyHAO7piNDYmHGJK/ASxS33GoDEJIZkf3KE5TZfMQi/iTs0ScITwwgjl0NDPdNstTLZX
+rBXtogww1x0o6h1/NfPIhPQ0aUKStlWWN/qvv/eyS+wD1poHC3/taDtI5b7QcA2xkB3dNPNMUcme
+hzqyPAcfIakBtXPfqEmnLMgtSgQ2
+"""
+
+    /// Self-signed EC P-521 certificate (CN=harbor-ec521), DER, base64. Generated with
+    /// `openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:secp521r1 -nodes -subj "/CN=harbor-ec521" -days 3650 -outform DER`.
+    private static let ec521CertificateBase64 = """
+MIICCzCCAWygAwIBAgIUa6EicETu5OMu3XWzt1TwiNw2BcswCgYIKoZIzj0EAwIwFzEVMBMGA1UE
+AwwMaGFyYm9yLWVjNTIxMB4XDTI2MTAwMjIyNDc0NloXDTM2MDkyOTIyNDc0NlowFzEVMBMGA1UE
+AwwMaGFyYm9yLWVjNTIxMIGbMBAGByqGSM49AgEGBSuBBAAjA4GGAAQBQP6xUhXABBB7im/TCxLi
+NDIZ/qOJfDkn9n5z8LnIV47la17hIWUk6LZshvxTY3Lq1NtBVPVGjYpHfdoJASKI/yUAA/NUerNE
+uZJUqLS52ZKAOXzHcTBmY6zeC6jv0zQaFLwyqg2wUzqd41s/+tch3c65yar6VAc5uZM0Zl68X139
+MiGjUzBRMB0GA1UdDgQWBBTx5P4bQgukbOCUuds0F8zIP8vNujAfBgNVHSMEGDAWgBTx5P4bQguk
+bOCUuds0F8zIP8vNujAPBgNVHRMBAf8EBTADAQH/MAoGCCqGSM49BAMCA4GMADCBiAJCAQzrqVhw
+iBWe+vvTJR2x7CFTuUO0hAI+K01O4FslAK6zZCR268ZrYD9IR9vQEd+3ozImnXtNTcgYFm9wQr3T
+ikxaAkIAtWcWL/2FEgZotQFd0yMKuhGvRaJXRKS7BggZHVEYwLsPJaV+hdsrOksgLjWe195D8Swh
+Q5yH6LFbqNgsTiFSiDM=
+"""
 
     private func loadDERCertificate(named fileName: String) throws -> SecCertificate {
         let thisFileURL = URL(fileURLWithPath: #filePath)
@@ -434,6 +523,34 @@ final class HarborSecurityTests: XCTestCase {
                 return
             }
         }
+    }
+
+    // MARK: - mTLS Host Scoping Tests
+
+    func testMTLSHostsAreNormalizedIntoTheExtractedIdentity() async throws {
+        // Given an mTLS configuration scoped to hosts spelled in mixed case / with a root dot
+        let unwrappedP12URL = try XCTUnwrap(testP12URL, "certificate.p12 not found")
+        let mTLS = HMTLS(p12FileUrl: unwrappedP12URL, hosts: ["API.Example.com.", "mtls.example.com"]) { "notapassword" }
+
+        // When
+        let identity = try await mTLS.extractIdentity()
+
+        // Then the identity carries the normalized scope and applies only to those hosts
+        XCTAssertEqual(identity.hosts, ["api.example.com", "mtls.example.com"])
+        XCTAssertTrue(identity.applies(toHost: "api.example.com"))
+        XCTAssertTrue(identity.applies(toHost: "MTLS.example.com"))
+        XCTAssertFalse(identity.applies(toHost: "evil.example.com"))
+        XCTAssertTrue(String(describing: mTLS).contains("api.example.com"))
+    }
+
+    func testMTLSWithoutHostsAppliesToEveryHost() async throws {
+        // Given the source-compatible initializer (no host scope)
+        let unwrappedP12URL = try XCTUnwrap(testP12URL, "certificate.p12 not found")
+        let identity = try await makeMTLS(url: unwrappedP12URL, password: testPassword).extractIdentity()
+
+        // Then
+        XCTAssertNil(identity.hosts)
+        XCTAssertTrue(identity.applies(toHost: "any.example.com"))
     }
 
     // MARK: - HMTLS Password Handling Tests

@@ -20,7 +20,7 @@ public extension HCache {
         /// Memory cache capacity in megabytes for L1 cache. Values below 1 are clamped to 1.
         public let memoryCacheCapacityInMBs: Int
 
-        /// Disk cache capacity in megabytes for L2 cache. When exceeded, the oldest entries are evicted. Values below 1 are clamped to 1.
+        /// Disk cache capacity in megabytes for L2 cache. When exceeded, the least recently used entries are evicted. Values below 1 are clamped to 1.
         public let diskCacheCapacityInMBs: Int
 
         /// Creates a cache configuration.

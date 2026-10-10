@@ -7,8 +7,17 @@
 
 import Foundation
 
-/// Mock configuration for testing network requests.
-/// Use this to simulate API responses during development and testing.
+/// A canned response for every request of a given type, used to develop and test without a server.
+///
+/// Mocks are resolved inside Harbor's request pipeline, per attempt, so status handling,
+/// retries, authentication and decoding run exactly as for a real response. Register one with
+/// `Harbor.register(mock:)`; it only answers while mocks are enabled (`Harbor.setMocksEnabled(_:)`,
+/// on by default in DEBUG builds).
+///
+/// ```swift
+/// await Harbor.register(mock: HMock(request: GetUserRequest.self, statusCode: 200,
+///                                   jsonResponse: #"{"id": 1, "name": "Jane"}"#))
+/// ```
 public struct HMock: Sendable {
     /// The request type to mock.
     public let request: HRequestBaseRequestProtocol.Type
@@ -16,7 +25,8 @@ public struct HMock: Sendable {
     public let statusCode: Int
     /// Optional JSON response body. When `nil`, the mock produces an empty body.
     public let jsonResponse: String?
-    /// Optional error to return instead of success.
+    /// Optional error the attempt fails with instead of producing a response (e.g. `.timeout`).
+    /// It goes through the retry policy like the real failure it stands for.
     public let error: HRequestError?
     /// Optional delay in seconds before returning the response.
     public let delay: Double?
@@ -25,12 +35,12 @@ public struct HMock: Sendable {
 
     /// Creates a new mock configuration.
     /// - Parameters:
-    ///   - request: The request type to mock
-    ///   - statusCode: The HTTP status code to return
-    ///   - jsonResponse: Optional JSON response body
-    ///   - error: Optional error to return instead of success
-    ///   - delay: Optional delay in seconds before returning the response
-    ///   - headers: Optional HTTP response headers
+    ///   - request: The request type to mock.
+    ///   - statusCode: The HTTP status code to return.
+    ///   - jsonResponse: Optional JSON response body. Default: `nil` (empty body).
+    ///   - error: Optional error the attempt fails with instead of producing a response.
+    ///   - delay: Optional delay in seconds before the response is delivered.
+    ///   - headers: Optional HTTP response headers.
     public init(request: HRequestBaseRequestProtocol.Type,
                 statusCode: Int,
                 jsonResponse: String? = nil,
@@ -50,10 +60,5 @@ extension HMock {
     /// The response bytes for this mock. Returns empty data when no JSON body is configured.
     var responseBody: Data {
         jsonResponse?.data(using: .utf8) ?? Data()
-    }
-
-    /// Whether the mock has an explicit JSON body configured.
-    var hasBody: Bool {
-        jsonResponse != nil
     }
 }

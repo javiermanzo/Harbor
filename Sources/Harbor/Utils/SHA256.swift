@@ -45,16 +45,12 @@ enum SHA256 {
 
 // MARK: - String Extension for Cache Keys
 
+/// SHA-256 helpers for cache keys.
 extension String {
     /// Lowercase hex-encoded SHA-256 digest of the string's UTF-8 bytes. Used for cache keys.
     var sha256Hex: String {
         let data = Data(self.utf8)
         let hash = SHA256.sha256Data(data: data)
         return hash.map { String(format: "%02x", $0) }.joined()
-    }
-
-    @available(*, deprecated, renamed: "sha256Hex")
-    var sha256Hash: String {
-        sha256Hex
     }
 }

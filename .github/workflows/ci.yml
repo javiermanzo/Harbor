@@ -16,14 +16,30 @@ permissions:
 
 jobs:
   unit-tests-and-coverage:
-    runs-on: macos-15
+    runs-on: macos-26
     steps:
     - name: Checkout
       uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
         fetch-depth: 0
-    - name: Build
-      run: swift build
+    - name: Build library
+      # `swift build` only builds the library products; test targets are built by `swift test`.
+      # A fresh runner compiles every module, so every warning is emitted into the log.
+      # `-warnings-as-errors` is not used: it would also fail the build on warnings from the
+      # dependencies compiled from `.build/checkouts`.
+      run: |
+        set -o pipefail
+        swift build -v 2>&1 | tee build.log
+    - name: Fail on warnings in Harbor sources
+      # Only warnings located under this repository's `Sources/` are fatal. The pattern is
+      # anchored to the workspace path so dependency paths (`.build/checkouts/*/Sources/`)
+      # can never match.
+      run: |
+        if grep -E "^${GITHUB_WORKSPACE}/Sources/[^:]+:[0-9]+:[0-9]+: warning:" build.log; then
+          echo "::error::Compiler warnings found in Sources/. Fix them locally with: swift build -Xswiftc -warnings-as-errors"
+          exit 1
+        fi
+        echo "No compiler warnings in Sources/"
     - name: Test
       run: swift test --enable-code-coverage
     - name: Setup llvm-cov
@@ -113,7 +129,7 @@ jobs:
       uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
     
     # Run Example App Tests (Integration via xcodebuild)
-    # Using iPhone 16 on macos-26 (available on the latest simulator runtime)
+    # Using iPhone 17 on macos-26 (available on the latest simulator runtime)
     - name: Run Example App Tests
       run: |
         xcodebuild test \

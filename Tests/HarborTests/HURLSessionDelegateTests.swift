@@ -18,7 +18,7 @@ final class HURLSessionDelegateTests: XCTestCase {
 
     // MARK: - mTLS Challenge Tests
 
-    func testDelegateHandlesMissingIdentity() {
+    func testDelegateHandlesMissingIdentityWithDefaultHandling() {
         // Given
         // Initialize delegate with nil identity
         let delegate = HURLSessionDelegate(mTLSIdentity: nil, sslPinningKeys: nil)
@@ -28,10 +28,11 @@ final class HURLSessionDelegateTests: XCTestCase {
         let expectation = XCTestExpectation(description: "Challenge with nil identity")
 
         // When
-        delegate.urlSession(URLSession.shared, didReceive: challenge) { disposition, credential in
+        delegate.handleChallenge(challenge, task: nil) { disposition, credential in
             // Then
-            // Should cancel because identity is missing
-            XCTAssertEqual(disposition, .cancelAuthenticationChallenge)
+            // Without an identity the challenge gets default handling (no certificate is
+            // presented), as for a session without Harbor's delegate
+            XCTAssertEqual(disposition, .performDefaultHandling)
             XCTAssertNil(credential)
             expectation.fulfill()
         }
@@ -52,7 +53,7 @@ final class HURLSessionDelegateTests: XCTestCase {
         let expectation = XCTestExpectation(description: "Challenge with identity and chain")
 
         // When
-        delegate.urlSession(URLSession.shared, didReceive: challenge) { disposition, credential in
+        delegate.handleChallenge(challenge, task: nil) { disposition, credential in
             // Then
             XCTAssertEqual(disposition, .useCredential)
             XCTAssertEqual(credential?.identity, identity.identity)
@@ -73,7 +74,7 @@ final class HURLSessionDelegateTests: XCTestCase {
         let expectation = XCTestExpectation(description: "SSL Pinning with nil trust")
 
         // When
-        delegate.urlSession(URLSession.shared, didReceive: challenge) { disposition, _ in
+        delegate.handleChallenge(challenge, task: nil) { disposition, _ in
             // Then
             // Should cancel because serverTrust is nil
             XCTAssertEqual(disposition, .cancelAuthenticationChallenge)
@@ -168,7 +169,7 @@ final class HURLSessionDelegateTests: XCTestCase {
         let expectation = XCTestExpectation(description: "Pinning enforced for configured host")
 
         // When
-        delegate.urlSession(URLSession.shared, didReceive: challenge) { disposition, _ in
+        delegate.handleChallenge(challenge, task: nil) { disposition, _ in
             // Then pinning applies: without a serverTrust the challenge is cancelled, not passed through
             XCTAssertEqual(disposition, .cancelAuthenticationChallenge)
             expectation.fulfill()
@@ -185,7 +186,7 @@ final class HURLSessionDelegateTests: XCTestCase {
         let expectation = XCTestExpectation(description: "Default handling for unconfigured host")
 
         // When
-        delegate.urlSession(URLSession.shared, didReceive: challenge) { disposition, credential in
+        delegate.handleChallenge(challenge, task: nil) { disposition, credential in
             // Then the host is not pinned and gets default handling
             XCTAssertEqual(disposition, .performDefaultHandling)
             XCTAssertNil(credential)
@@ -203,7 +204,7 @@ final class HURLSessionDelegateTests: XCTestCase {
         let expectation = XCTestExpectation(description: "Global pins apply to unscoped host")
 
         // When
-        delegate.urlSession(URLSession.shared, didReceive: challenge) { disposition, _ in
+        delegate.handleChallenge(challenge, task: nil) { disposition, _ in
             // Then the global pins apply, so the missing serverTrust cancels the challenge
             XCTAssertEqual(disposition, .cancelAuthenticationChallenge)
             expectation.fulfill()
@@ -229,7 +230,7 @@ final class HURLSessionDelegateTests: XCTestCase {
         let expectation = XCTestExpectation(description: "Pinning enforced for differently-cased host")
 
         // When
-        delegate.urlSession(URLSession.shared, didReceive: challenge) { disposition, _ in
+        delegate.handleChallenge(challenge, task: nil) { disposition, _ in
             // Then pinning applies: without a serverTrust the challenge is cancelled, not passed through
             XCTAssertEqual(disposition, .cancelAuthenticationChallenge)
             expectation.fulfill()
@@ -246,7 +247,7 @@ final class HURLSessionDelegateTests: XCTestCase {
         let expectation = XCTestExpectation(description: "Pinning enforced for host with trailing dot")
 
         // When
-        delegate.urlSession(URLSession.shared, didReceive: challenge) { disposition, _ in
+        delegate.handleChallenge(challenge, task: nil) { disposition, _ in
             // Then pinning applies: without a serverTrust the challenge is cancelled, not passed through
             XCTAssertEqual(disposition, .cancelAuthenticationChallenge)
             expectation.fulfill()
@@ -284,7 +285,150 @@ final class HURLSessionDelegateTests: XCTestCase {
         Harbor.setSSLPinningKeys(nil, forHosts: ["   "])
     }
 
+    // MARK: - mTLS Host Scoping Tests
+
+    func testMTLSIdentityIsPresentedOnlyToScopedHosts() async throws {
+        // Given an identity scoped to a single host
+        let loaded = try await loadTestIdentity()
+        let identity = HMTLSIdentity(identity: loaded.identity, certificateChain: loaded.certificateChain, hosts: ["mtls.example.com"])
+        let delegate = HURLSessionDelegate(mTLSIdentity: identity, sslPinningKeys: nil)
+
+        // When a scoped host (differently cased) asks for a client certificate
+        let scoped = await answer(delegate, makeChallenge(host: "MTLS.example.com", authenticationMethod: NSURLAuthenticationMethodClientCertificate))
+
+        // Then the identity is presented
+        XCTAssertEqual(scoped.disposition, .useCredential)
+        XCTAssertEqual(scoped.credential?.identity, identity.identity)
+
+        // When any other host asks for one
+        let other = await answer(delegate, makeChallenge(host: "other.example.com", authenticationMethod: NSURLAuthenticationMethodClientCertificate))
+
+        // Then no identity is offered: default handling
+        XCTAssertEqual(other.disposition, .performDefaultHandling)
+        XCTAssertNil(other.credential)
+    }
+
+    // MARK: - Trust Failure Reporting Tests
+
+    func testRejectedChallengeIsRecordedOnTheTaskContext() async throws {
+        // Given a pinned host and a Harbor task context attached to the task
+        let delegate = HURLSessionDelegate(mTLSIdentity: nil, sslPinningKeys: [testPin])
+        let (task, context) = makeTask(authHeaderKey: nil)
+        defer { task.cancel() }
+
+        // When the challenge is rejected (no server trust to evaluate)
+        let result = await answer(delegate, makeChallenge(host: "secure.example.com", authenticationMethod: NSURLAuthenticationMethodServerTrust), task: task)
+
+        // Then the rejection is recorded so the request reports .certificate
+        XCTAssertEqual(result.disposition, .cancelAuthenticationChallenge)
+        XCTAssertTrue(context.trustEvaluationFailed)
+    }
+
+    func testDefaultHandledChallengeIsNotRecordedAsFailure() async throws {
+        // Given an unpinned host
+        let delegate = HURLSessionDelegate(mTLSIdentity: nil, sslPinningKeys: nil)
+        let (task, context) = makeTask(authHeaderKey: nil)
+        defer { task.cancel() }
+
+        // When
+        let result = await answer(delegate, makeChallenge(host: "open.example.com", authenticationMethod: NSURLAuthenticationMethodServerTrust), task: task)
+
+        // Then
+        XCTAssertEqual(result.disposition, .performDefaultHandling)
+        XCTAssertFalse(context.trustEvaluationFailed)
+    }
+
+    // MARK: - Redirect Tests
+
+    func testCrossOriginRedirectStripsCredentialHeaders() async throws {
+        // Given a task authenticated through a custom auth header and a redirect to another host
+        let delegate = HURLSessionDelegate(mTLSIdentity: nil, sslPinningKeys: nil)
+        let (task, _) = makeTask(authHeaderKey: "X-Auth-Token")
+        defer { task.cancel() }
+        let redirect = makeRedirectRequest(to: "https://evil.example.org/landing")
+
+        // When the delegate decides the request to follow
+        let followed = try await follow(delegate, task: task, redirectFrom: "https://api.example.com/start", to: redirect)
+
+        // Then credentials are removed and other headers are kept
+        XCTAssertNil(followed.value(forHTTPHeaderField: "X-Auth-Token"))
+        XCTAssertNil(followed.value(forHTTPHeaderField: "Authorization"))
+        XCTAssertNil(followed.value(forHTTPHeaderField: "Cookie"))
+        XCTAssertNil(followed.value(forHTTPHeaderField: "Proxy-Authorization"))
+        XCTAssertNil(followed.value(forHTTPHeaderField: "X-API-Key"))
+        XCTAssertEqual(followed.value(forHTTPHeaderField: "X-Trace"), "keep-me")
+        XCTAssertEqual(followed.url?.host, "evil.example.org")
+    }
+
+    func testSameOriginRedirectKeepsCredentialHeaders() async throws {
+        // Given a redirect to another path on the same origin (default port spelled out)
+        let delegate = HURLSessionDelegate(mTLSIdentity: nil, sslPinningKeys: nil)
+        let (task, _) = makeTask(authHeaderKey: "X-Auth-Token")
+        defer { task.cancel() }
+        let redirect = makeRedirectRequest(to: "https://API.example.com:443/landing")
+
+        // When
+        let followed = try await follow(delegate, task: task, redirectFrom: "https://api.example.com/start", to: redirect)
+
+        // Then nothing is stripped
+        XCTAssertEqual(followed.value(forHTTPHeaderField: "X-Auth-Token"), "secret")
+        XCTAssertEqual(followed.value(forHTTPHeaderField: "Cookie"), "session=abc")
+    }
+
+    func testRedirectChangingSchemeOrPortStripsCredentialHeaders() {
+        let origin = URL(string: "https://api.example.com/start")
+        for target in ["http://api.example.com/landing", "https://api.example.com:8443/landing"] {
+            // When
+            let followed = HURLSessionDelegate.redirectRequest(makeRedirectRequest(to: target), originURL: origin, authHeaderKey: "X-Auth-Token")
+
+            // Then
+            XCTAssertNil(followed.value(forHTTPHeaderField: "X-Auth-Token"), target)
+            XCTAssertNil(followed.value(forHTTPHeaderField: "Cookie"), target)
+            XCTAssertEqual(followed.value(forHTTPHeaderField: "X-Trace"), "keep-me", target)
+        }
+    }
+
     // MARK: - Helpers
+
+    /// Answers a challenge through the delegate's forwarding entry point.
+    private func answer(_ delegate: HURLSessionDelegate, _ challenge: URLAuthenticationChallenge, task: URLSessionTask? = nil) async -> (disposition: URLSession.AuthChallengeDisposition, credential: URLCredential?) {
+        await withCheckedContinuation { continuation in
+            delegate.handleChallenge(challenge, task: task) { disposition, credential in
+                continuation.resume(returning: (disposition, credential))
+            }
+        }
+    }
+
+    /// Calls the delegate's redirect callback for a task whose original request targets `originURL`.
+    private func follow(_ delegate: HURLSessionDelegate, task: URLSessionTask, redirectFrom originURL: String, to redirect: URLRequest) async throws -> URLRequest {
+        let response = try XCTUnwrap(HTTPURLResponse(url: try XCTUnwrap(URL(string: originURL)), statusCode: 302, httpVersion: nil, headerFields: ["Location": redirect.url?.absoluteString ?? ""]))
+        let followed: URLRequest? = await withCheckedContinuation { continuation in
+            delegate.urlSession(URLSession.shared, task: task, willPerformHTTPRedirection: response, newRequest: redirect) { request in
+                continuation.resume(returning: request)
+            }
+        }
+        return try XCTUnwrap(followed)
+    }
+
+    /// A never-resumed task for https://api.example.com/start carrying a Harbor task context.
+    private func makeTask(authHeaderKey: String?) -> (URLSessionDataTask, HTaskContext) {
+        let task = URLSession.shared.dataTask(with: URL(string: "https://api.example.com/start")!)
+        let context = HTaskContext(authHeaderKey: authHeaderKey)
+        task.delegate = context
+        return (task, context)
+    }
+
+    /// The request URLSession proposes for a redirect: the original headers carried over.
+    private func makeRedirectRequest(to url: String) -> URLRequest {
+        var request = URLRequest(url: URL(string: url)!)
+        request.setValue("secret", forHTTPHeaderField: "X-Auth-Token")
+        request.setValue("Bearer token", forHTTPHeaderField: "Authorization")
+        request.setValue("session=abc", forHTTPHeaderField: "Cookie")
+        request.setValue("Basic proxy", forHTTPHeaderField: "Proxy-Authorization")
+        request.setValue("api-key", forHTTPHeaderField: "X-API-Key")
+        request.setValue("keep-me", forHTTPHeaderField: "X-Trace")
+        return request
+    }
 
     private func makeChallenge(host: String, authenticationMethod: String) -> URLAuthenticationChallenge {
         let protectionSpace = URLProtectionSpace(host: host,

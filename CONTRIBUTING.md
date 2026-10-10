@@ -11,6 +11,7 @@ First of all, thank you for your interest in contributing to Harbor! We welcome 
    - Update tests if you are modifying behavior or adding new features.
    - Run the Example app (Swift 6 language mode, complete concurrency checking) to verify no UI or compilation warnings exist.
    - Add user-facing changes to the `[Unreleased]` section of `CHANGELOG.md`.
+   - Update `README.md` and the AI skills under `.agents/skills/` when behavior or public API changes.
 4. **Run Tests**: Execute `swift test` and XCTest in the Example app (`xcodebuild test -project Example/HarborExample.xcodeproj -scheme HarborExample -destination 'platform=iOS Simulator,name=<iPhone>'`) to ensure everything is passing.
 5. **Commit**: Use Conventional Commits (`feat: ...`, `fix: ...`, `docs: ...`, `chore: ...`).
 6. **Push and PR**: Push to your fork and submit a Pull Request against the active release branch.

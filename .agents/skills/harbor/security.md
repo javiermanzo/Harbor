@@ -79,7 +79,7 @@ func configureMTLS() async {
 ```
 
 - The password provider is called once, during import, and the password isn't retained. `HMTLS(p12FileUrl:hosts:passwordProvider:)` is the only initializer.
-- The P12 is read and imported off the actor. On macOS 15 / iOS 18 and later the identity is imported into memory only (`kSecImportToMemoryOnly`). On earlier systems, `SecPKCS12Import` may persist it to the keychain.
+- The P12 is read and imported off the actor. The identity is imported into memory only (`kSecImportToMemoryOnly`) on iOS and on macOS 15 and later. On macOS 14, `SecPKCS12Import` has no in-memory option and persists the key and certificates to the default (login) keychain.
 - The identity and its certificate chain are presented only to the `hosts` you list (case-insensitive). With `hosts: nil` they go to every host that asks for a client certificate, so scoping is recommended. Other hosts get default handling.
 - On failure, mTLS stays disabled and the error is thrown.
 
@@ -108,7 +108,7 @@ func secureCustomSession() async {
 If you need your own delegate, forward its calls to an `HURLSessionDelegate`:
 
 ```swift
-final class AppSessionDelegate: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
+final class AppSessionDelegate: NSObject, URLSessionTaskDelegate, Sendable {
     let harbor: HURLSessionDelegate
 
     init(harbor: HURLSessionDelegate) {

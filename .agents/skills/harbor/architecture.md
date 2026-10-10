@@ -17,7 +17,7 @@ Harbor depends on [LogBird](https://github.com/javiermanzo/LogBird) (`from: "2.1
 HRequestBaseRequestProtocol            url, httpMethod, needsAuth, retryPolicy,
 │                                      pathParameters, headerParameters, timeoutInterval
 ├── HRequestWithResultProtocol         associatedtype Model: HModel; parseData; request() -> HResponseWithResult<Model>
-│   └── HGetRequestProtocol            queryParameters, cacheType, cache(), requestStream(source:)
+│   └── HGetRequestProtocol            queryParameters, cacheType, shouldCache(statusCode:), cache(), requestStream(source:)
 └── HRequestWithEmptyResponseProtocol  request() -> HResponse
     ├── HRequestWithBodyProtocol       bodyParameters, multipartBody, rawBody (first non-nil of rawBody, multipartBody, bodyParameters)
     │   ├── HPostRequestProtocol
@@ -49,10 +49,7 @@ request()
  │       so an HMockSequence advances across retries and 401 re-attempts)
  ├─ offline (NWPathMonitor path is .unsatisfied)?
  │    └─ GET: serve a fresh custom-cache entry / URLCache response / stale-if-error entry,
- │       else fail with .noConnection (needsAuth: the credential remembered from the last
- │       online success for that URL is used without asking the provider; when nothing is
- │       remembered the provider is asked for its current header; the un-namespaced entry
- │       is never served)
+ │       else fail with .noConnection (needsAuth lookup rules: cache.md)
  ├─ needsAuth? → authProvider.getAuthorizationHeader()  (no provider → .authProviderNeeded)
  └─ attempt loop (runAttempts)
       ├─ HURLBuilder.prepareRequest: URL + path/query encoding, timeout, cookies, body,
@@ -63,10 +60,8 @@ request()
       │         before clearAllCache() / setAuthProvider(_:)) → .success
       ├─ 304  → serve + refresh the cached entry; if no cached body and Harbor injected the
       │         validators: re-send once without them (caller-set validators: .api(304))
-      ├─ 401  → provider already rotated the header? retry with it without authFailed();
-      │         else authFailed() (once per request, coalesced across concurrent requests)
-      │         → retry once if the provider returns a different header, else .authNeeded.
-      │         A request that ends in .authNeeded after a 401 has always triggered authFailed()
+      ├─ 401  → refresh the header once (HRequestManager+Auth; flow in security.md),
+      │         re-send, else .authNeeded
       ├─ retryable status / URLError and attempts left → wait (Retry-After or backoff) → next attempt
       ├─ 5xx (GET, retries exhausted) → stale-if-error entry if available
       └─ otherwise → .error(HRequestError)
@@ -96,8 +91,8 @@ Notes:
 
 ## Related files
 
-- `Sources/Harbor/Request/HRequestManager.swift` (shared state and attempt outcomes) and its extensions: `+Execution` (request flows, attempt loop), `+Auth` (authorization, refresh), `+Mock`, `+Retry` (error mapping, `Retry-After`, backoff), `+URLSessionPool` (session cache).
-- `Sources/Harbor/Request/HRequestProtocol.swift`: protocols, defaults, streaming.
+- `Sources/Harbor/Request/HRequestManager.swift` (global actor, shared state and attempt outcomes) and its extensions: `+Execution` (request flows, attempt loop), `+Auth` (authorization, refresh), `+Mock`, `+Retry` (error mapping, `Retry-After`, backoff), `+URLSessionPool` (session cache).
+- `Sources/Harbor/Request/HGetRequestProtocol.swift` (defaults, `requestStream`) and the other protocol files (one per protocol).
 - `Sources/Harbor/Request/HRetryPolicy.swift`: retry classification.
 - `Sources/Harbor/Utils/HURLBuilder.swift`: URL, header and body construction.
 - `Sources/Harbor/Request/HURLSessionDelegate.swift`: pinning, mTLS, redirects.

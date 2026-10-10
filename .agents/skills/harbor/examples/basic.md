@@ -241,6 +241,8 @@ func loadUser(id: Int) async -> String {
 
 ## SwiftUI
 
+The SwiftUI snippets in these examples assume `import SwiftUI`.
+
 ```swift
 @MainActor
 final class UserViewModel: ObservableObject {
@@ -292,10 +294,11 @@ func configureHeaders() async {
 
 ```swift
 func configure() async {
-    await Harbor.setDefaultTimeoutInterval(30)
+    await Harbor.setDefaultTimeoutInterval(30)               // per-request idle timeout (default 15 s)
+    await Harbor.setDefaultResourceTimeoutInterval(300)      // whole-transfer limit of Harbor-built sessions (default: system, 7 days)
     await Harbor.setDefaultCacheType(.custom(HCache.Configuration(expirationTime: .oneHour)))
-    await Harbor.setLoggingEnabled(true)
-    await Harbor.setHTTPShouldHandleCookies(true)
+    await Harbor.setLoggingEnabled(true)                    // default: on in DEBUG, off in release
+    await Harbor.setHTTPShouldHandleCookies(true)            // default: false
 
     let delegate = await Harbor.makeURLSessionDelegate()   // keeps pinning / mTLS / redirect policy
     await Harbor.setCustomURLSession(URLSession(configuration: .default, delegate: delegate, delegateQueue: nil))

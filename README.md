@@ -304,7 +304,7 @@ struct SubmitOrderRequest: HPostRequestProtocol {
 #### SSL Pinning
 Pins are `base64(SHA256(SubjectPublicKeyInfo))` hashes (RSA keys of any size and EC P-256, P-384 and P-521 keys). Generate them with `Harbor.computePin(for:)` or OpenSSL:
 
-```
+```bash
 openssl x509 -in cert.pem -pubkey -noout | openssl pkey -pubin -outform der | openssl dgst -sha256 -binary | openssl base64
 ```
 
@@ -338,7 +338,7 @@ func configureMTLS(certURL: URL) async throws {
 }
 ```
 
-On macOS 15 / iOS 18 and later the identity is imported into memory only; on earlier systems `SecPKCS12Import` may persist it to the keychain.
+The identity is imported into memory only on iOS and on macOS 15 and later; on macOS 14, `SecPKCS12Import` persists it to the login keychain.
 
 #### Redirects
 When a redirect leaves the original origin (scheme, host or port), Harbor strips credentials from the redirected request: the auth provider's header, `Authorization`, `Cookie`, `Proxy-Authorization` and the other sensitive headers.
@@ -381,6 +381,8 @@ The custom cache:
 - ignores the shared-cache-only directives `s-maxage` and `proxy-revalidate` (it is a private cache);
 - evicts least-recently-used entries when the disk capacity is exceeded;
 - namespaces entries of `needsAuth` requests by credential (see [Authentication](#authentication)).
+
+A GET request can keep a success status out of the cache by overriding `shouldCache(statusCode:)` (for example to return `false` for a `202 Accepted`, so it doesn't replace the good copy).
 
 Override the cache per request with `.custom(...)`, `.urlCache(urlCache:requestCachePolicy:)` or `.disabled`:
 
@@ -437,7 +439,7 @@ struct UploadAvatarRequest: HPostRequestProtocol {
 
 ### Streaming Requests
 
-`requestStream(source:)` returns an `AsyncThrowingStream` that yields the cached model and/or the remote model, each tagged with its origin. It yields at most one cached element and one remote element. An answer served from the cache because the network could not answer (offline, or `stale-if-error` after a failing server) is tagged `.cache`: it is the device's copy, not the server's word. A GET request can keep a status out of the cache with `shouldCache(statusCode:)` (for example a `202 Accepted`).
+`requestStream(source:)` returns an `AsyncThrowingStream` that yields the cached model and/or the remote model, each tagged with its origin. It yields at most one cached element and one remote element. An answer served from the cache because the network could not answer (offline, or `stale-if-error` after a failing server) is tagged `.cache`: it is the device's copy, not the server's word.
 
 ```swift
 func streamUser() async {
@@ -585,8 +587,8 @@ func registerMocks() async {
 
 If you use an AI coding assistant, Harbor ships documentation written for it:
 
-- [**AGENTS.md**](AGENTS.md): root instructions with Harbor's architecture and rules.
-- [**.agents/skills/harbor/SKILL.md**](.agents/skills/harbor/SKILL.md): the detailed skill, with deep dives on caching, security, architecture and testing.
+- [**AGENTS.md**](AGENTS.md): instructions for working on this repository (design rules, code organization, testing, CI).
+- [**.agents/skills/harbor/SKILL.md**](.agents/skills/harbor/SKILL.md): the skill for writing code with Harbor, with deep dives on request protocols, caching, security, architecture and testing, and copy-ready examples.
 - [**.agents/skills/harbor-migration-v3-to-v4/SKILL.md**](.agents/skills/harbor-migration-v3-to-v4/SKILL.md): the v3 → v4 migration guide, listing every breaking change and how to refactor it.
 
 ---

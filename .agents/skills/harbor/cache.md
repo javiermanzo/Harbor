@@ -111,27 +111,7 @@ Only `cache()`, `cachedETag()` and `clearCache()` are public. For `needsAuth` re
 
 ## Streaming with cache
 
-```swift
-struct FeedRequest: HGetRequestProtocol {
-    typealias Model = [String]
-    let url = "https://api.example.com/feed"
-    let cacheType: HCache.CacheType? = .custom(HCache.Configuration(expirationTime: .fiveMinutes))
-}
-
-func loadFeed() async {
-    do {
-        for try await (items, origin) in FeedRequest().requestStream(source: .cacheAndRemote) {
-            print(origin == .cache ? "cached" : "fresh", items.count)
-        }
-    } catch {
-        // .cacheAndRemote: thrown when the remote request fails, even after a cached element
-        // .cacheOnly: HRequestError.noCachedDataFound on a miss
-        print(error)
-    }
-}
-```
-
-The stream yields at most one `.cache` element (only when `cache()` returns a value) and one `.remote` element. It is not a chunked download.
+`requestStream(source:)` yields at most one `.cache` element (only when `cache()` returns a value) and one `.remote` element; it is not a chunked download. With `.cacheAndRemote` it throws when the remote request fails, even after a cached element; `.cacheOnly` throws `HRequestError.noCachedDataFound` on a miss. A cached copy that stands in for the network (offline, or `stale-if-error`) is tagged `.cache` and yielded once. Example: `examples/advanced.md`.
 
 ## Best practices
 

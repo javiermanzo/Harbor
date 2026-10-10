@@ -12,7 +12,7 @@ import Foundation
 /// The JSON-RPC 2.0 specification allows the `id` member to be a string, a number or `null`.
 /// Numeric identifiers must be integers that fit in `Int`; decoding a fractional or
 /// out-of-range number (e.g. `1.5` or `1e30`) throws a `DecodingError`.
-public enum HJRPCId: Sendable, Equatable {
+public enum HJRPCId: Sendable {
     /// A string identifier.
     case string(String)
     /// A numeric identifier.
@@ -25,6 +25,10 @@ public enum HJRPCId: Sendable, Equatable {
         .string(UUID().uuidString)
     }
 }
+
+// MARK: - Equatable
+
+extension HJRPCId: Equatable {}
 
 // MARK: - Codable
 

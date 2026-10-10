@@ -22,7 +22,7 @@ import Foundation
 /// decodes `Decimal` through `Double`, so an integer outside `Int`'s range may be rounded to
 /// the nearest `Double`-representable value (about 16 significant digits). Encoding is exact
 /// everywhere: `JSONEncoder` writes the `Decimal`'s digits as-is.
-public enum HJSONValue: Sendable, Equatable {
+public enum HJSONValue: Sendable {
     /// A JSON `null` value.
     case null
     /// A JSON boolean value.
@@ -43,6 +43,10 @@ public enum HJSONValue: Sendable, Equatable {
     /// A JSON object.
     case object([String: HJSONValue])
 }
+
+// MARK: - Equatable
+
+extension HJSONValue: Equatable {}
 
 // MARK: - Codable
 

@@ -19,7 +19,7 @@ public enum HJRPCBatchResponse: Sendable {
 // MARK: - Internal Batch Payload
 
 /// The body of a response to a JSON-RPC batch.
-enum HJRPCBatchPayload: HModel {
+enum HJRPCBatchPayload {
     /// An empty (or whitespace-only) body: the server's answer to a batch of notifications.
     case empty
     /// An array with one response object per answered request.
@@ -27,7 +27,11 @@ enum HJRPCBatchPayload: HModel {
     /// A single response object, sent when the server rejects the batch as a whole
     /// (e.g. a parse error or an invalid batch, JSON-RPC 2.0 section 6).
     case single(HJRPCResult<HJSONValue>)
+}
 
+// MARK: - HModel
+
+extension HJRPCBatchPayload: HModel {
     /// Decodes an array of responses, or a single response object rejecting the whole batch.
     init(from decoder: Decoder) throws {
         let container = try decoder.singleValueContainer()
@@ -55,10 +59,7 @@ enum HJRPCBatchPayload: HModel {
 // MARK: - Internal Batch Wrapper
 
 /// Internal wrapper that adapts a JSON-RPC batch payload to Harbor's request protocol.
-struct HJRPCBatchWrapper: HJRPCTransportRequest {
-    /// The decoded batch response body.
-    typealias Model = HJRPCBatchPayload
-
+struct HJRPCBatchWrapper {
     /// The debug type to log with, or `nil` when no batched request opted into logging.
     let requestedDebugType: HDebugRequestType?
     /// The encoded batch array that is sent.
@@ -73,6 +74,13 @@ struct HJRPCBatchWrapper: HJRPCTransportRequest {
     let retryPolicy: HRetryPolicy?
     /// The merged headers of the batched requests.
     let headerParameters: [String: String]?
+}
+
+// MARK: - HJRPCTransportRequest
+
+extension HJRPCBatchWrapper: HJRPCTransportRequest {
+    /// The decoded batch response body.
+    typealias Model = HJRPCBatchPayload
 
     /// The batch is sent from `rawBody`; there are no dictionary body parameters.
     var bodyParameters: [String: Any]? { nil }

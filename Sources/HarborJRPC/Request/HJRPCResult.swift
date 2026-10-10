@@ -12,7 +12,7 @@ import Harbor
 ///
 /// A JSON-RPC response contains either a `result` or an `error` member, never both.
 /// The `result` member may also be present with an explicit `null` value.
-struct HJRPCResult<Model: HModel>: HModel {
+struct HJRPCResult<Model: HModel> {
     /// The JSON-RPC protocol version declared by the server.
     let jsonrpc: String?
     /// The identifier of the request this response belongs to.
@@ -43,9 +43,9 @@ struct HJRPCResult<Model: HModel>: HModel {
     }
 }
 
-// MARK: - Decodable
+// MARK: - HModel
 
-extension HJRPCResult {
+extension HJRPCResult: HModel {
     /// The members of a JSON-RPC response object.
     private enum CodingKeys: String, CodingKey {
         /// The `jsonrpc` member.

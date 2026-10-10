@@ -8,6 +8,8 @@
 import Foundation
 import LogBird
 
+// MARK: - Debug Protocol
+
 /// Protocol for adding debug capabilities to network requests.
 /// Implement this protocol to enable detailed logging of requests and responses.
 ///
@@ -23,12 +25,16 @@ public protocol HDebugRequestProtocol: Sendable {
     var debugType: HDebugRequestType { get }
 }
 
+// MARK: - Default Implementation
+
 /// Default implementation providing `.requestAndResponse` as the default debug type.
 /// This ensures comprehensive logging by default while allowing customization.
 public extension HDebugRequestProtocol {
     /// Default: `.requestAndResponse`.
     var debugType: HDebugRequestType { .requestAndResponse }
 }
+
+// MARK: - Debug Type
 
 /// Specifies the type of debug information to log for network requests.
 public enum HDebugRequestType: Sendable {
@@ -41,6 +47,8 @@ public enum HDebugRequestType: Sendable {
     /// Both request and response information is logged.
     case requestAndResponse
 }
+
+// MARK: - Logging Helpers
 
 /// Debug logging helpers. These methods are intentionally not actor-isolated so
 /// adopters can call them from any context; access to Harbor's actor-isolated

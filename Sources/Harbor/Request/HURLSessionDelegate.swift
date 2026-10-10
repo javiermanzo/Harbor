@@ -33,7 +33,7 @@ import Security
 /// the session-level `urlSession(_:didReceive:completionHandler:)`, so `URLSession` routes
 /// server-trust and client-certificate challenges to the task-level method, which knows
 /// the task and can report a rejected handshake to Harbor as `HRequestError.certificate`.
-public final class HURLSessionDelegate: NSObject, URLSessionTaskDelegate, Sendable {
+public final class HURLSessionDelegate: NSObject, Sendable {
 
     /// Result tuple of an authentication challenge resolution.
     typealias HChallengeResult = (disposition: URLSession.AuthChallengeDisposition, credential: URLCredential?)
@@ -62,8 +62,11 @@ public final class HURLSessionDelegate: NSObject, URLSessionTaskDelegate, Sendab
         self.sslPinningKeys = sslPinningKeys
         self.sslPinningKeysByHost = sslPinningKeysByHost
     }
+}
 
-    // MARK: - URLSessionTaskDelegate
+// MARK: - URLSessionTaskDelegate
+
+extension HURLSessionDelegate: URLSessionTaskDelegate {
 
     /// Handles client certificate (mTLS) and server trust (SSL pinning) challenges for a task.
     /// - Parameters:
@@ -89,8 +92,11 @@ public final class HURLSessionDelegate: NSObject, URLSessionTaskDelegate, Sendab
         let authHeaderKey = (task.delegate as? HTaskContext)?.authHeaderKey
         completionHandler(Self.redirectRequest(request, originURL: originURL, authHeaderKey: authHeaderKey))
     }
+}
 
-    // MARK: - Challenge Handling
+// MARK: - Challenge Handling
+
+extension HURLSessionDelegate {
 
     /// Applies Harbor's challenge policy. Use it to forward challenges from your own delegate,
     /// including a session-level `urlSession(_:didReceive:completionHandler:)` (pass `nil` as
@@ -163,8 +169,11 @@ public final class HURLSessionDelegate: NSObject, URLSessionTaskDelegate, Sendab
                                        persistence: .none)
         return HChallengeResult(.useCredential, credential)
     }
+}
 
-    // MARK: - Redirects
+// MARK: - Redirects
+
+extension HURLSessionDelegate {
 
     /// Returns the request to follow for a redirect. When the redirect target has a different
     /// origin (scheme, host or port) than `originURL`, credentials are removed: the auth
@@ -212,8 +221,11 @@ public final class HURLSessionDelegate: NSObject, URLSessionTaskDelegate, Sendab
         default: return nil
         }
     }
+}
 
-    // MARK: - SSL Pinning
+// MARK: - SSL Pinning
+
+extension HURLSessionDelegate {
 
     /// Concurrent queue for server trust evaluation, keeping the potentially slow
     /// evaluation off the session's serial delegate queue.
@@ -336,7 +348,7 @@ public final class HURLSessionDelegate: NSObject, URLSessionTaskDelegate, Sendab
 /// changes how a session's own delegate handles the task; `HURLSessionDelegate` reads it
 /// through `URLSessionTask.delegate` to learn the auth header key to strip on cross-origin
 /// redirects and to report a rejected TLS handshake back to the request.
-final class HTaskContext: NSObject, URLSessionTaskDelegate, Sendable {
+final class HTaskContext: NSObject, Sendable {
     /// The header key the auth provider set on the request, if any.
     let authHeaderKey: String?
 
@@ -359,3 +371,7 @@ final class HTaskContext: NSObject, URLSessionTaskDelegate, Sendable {
         didFailTrustEvaluation.withLock { $0 = true }
     }
 }
+
+// MARK: - URLSessionTaskDelegate
+
+extension HTaskContext: URLSessionTaskDelegate {}

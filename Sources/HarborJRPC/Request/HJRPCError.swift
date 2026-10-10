@@ -9,7 +9,7 @@ import Foundation
 import Harbor
 
 /// Represents a JSON-RPC error returned by the server.
-public struct HJRPCError: HModel {
+public struct HJRPCError {
     /// The error code as defined by the JSON-RPC specification.
     public let code: Int
     /// A human-readable error message.
@@ -44,6 +44,10 @@ public struct HJRPCError: HModel {
         self.httpStatusCode = httpStatusCode
     }
 }
+
+// MARK: - HModel
+
+extension HJRPCError: HModel {}
 
 // MARK: - Standard Codes
 

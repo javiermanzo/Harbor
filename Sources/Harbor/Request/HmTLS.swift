@@ -9,7 +9,7 @@ import Foundation
 @preconcurrency import Security
 
 /// Errors thrown when extracting a client identity from a P12 file.
-public enum HMTLSError: Error, Sendable {
+public enum HMTLSError: Sendable {
     /// The P12 file does not exist or could not be read.
     case fileNotFound
     /// The password provider failed to supply a password.
@@ -21,6 +21,12 @@ public enum HMTLSError: Error, Sendable {
     /// The P12 file was imported but contains no identity.
     case noIdentity
 }
+
+// MARK: - Error
+
+extension HMTLSError: Error {}
+
+// MARK: - Identity
 
 /// A client identity extracted from a PKCS#12 file, with the certificate chain and the hosts
 /// it is presented to. Built from an `HMTLS` configuration by `Harbor.setMTLS(_:)`.
@@ -57,6 +63,8 @@ struct HMTLSIdentity: Sendable {
         return hosts.contains(HURLSessionDelegate.normalizedHost(host))
     }
 }
+
+// MARK: - mTLS Configuration
 
 /// Configuration for mutual TLS (mTLS) authentication: the client certificate (a PKCS#12
 /// file) Harbor presents when a server requests one. Apply it with `Harbor.setMTLS(_:)`.
@@ -129,6 +137,8 @@ public struct HMTLS: Sendable {
         return HMTLSIdentity(identity: identity, certificateChain: p12Contents.certChain, hosts: hosts)
     }
 }
+
+// MARK: - CustomStringConvertible
 
 extension HMTLS: CustomStringConvertible {
     /// Redacted description; the password is never included.

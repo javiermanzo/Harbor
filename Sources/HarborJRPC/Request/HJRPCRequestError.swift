@@ -13,7 +13,7 @@ import Harbor
 ///
 /// Transport failures mirror `HRequestError`; `.jrpcError`, `.invalidResponse`, `.idMismatch`,
 /// `.urlNeeded` and `.invalidRequest` are specific to JSON-RPC.
-public enum HJRPCRequestError: Error, Sendable {
+public enum HJRPCRequestError: Sendable {
     /// The server answered with a non-2xx status code and a body that is not a JSON-RPC error
     /// object. Carries the status code and the response body.
     case api(statusCode: Int, data: Data)
@@ -94,6 +94,10 @@ extension HJRPCRequestError {
         }
     }
 }
+
+// MARK: - Error
+
+extension HJRPCRequestError: Error {}
 
 // MARK: - LocalizedError
 

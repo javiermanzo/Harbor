@@ -219,10 +219,7 @@ extension HJRPCTransportRequest {
 }
 
 /// Internal wrapper that adapts JSON-RPC requests to Harbor's request protocol.
-struct HJRPCRequestWrapper<RawModel: HModel>: HJRPCTransportRequest {
-    /// The JSON-RPC response envelope wrapping the request's model.
-    typealias Model = HJRPCResult<RawModel>
-
+struct HJRPCRequestWrapper<RawModel: HModel> {
     /// The debug type to log with, or `nil` when the request did not opt into logging.
     let requestedDebugType: HDebugRequestType?
     /// The request object (`jsonrpc`, `method`, `id`, `params`).
@@ -239,6 +236,13 @@ struct HJRPCRequestWrapper<RawModel: HModel>: HJRPCTransportRequest {
     let retryPolicy: HRetryPolicy?
     /// The headers of the JSON-RPC request.
     let headerParameters: [String: String]?
+}
+
+// MARK: - HJRPCTransportRequest
+
+extension HJRPCRequestWrapper: HJRPCTransportRequest {
+    /// The JSON-RPC response envelope wrapping the request's model.
+    typealias Model = HJRPCResult<RawModel>
 
     /// The body as a dictionary, used by debug logs. The request itself is sent from `rawBody`.
     var bodyParameters: [String: Any]? {
@@ -257,14 +261,18 @@ struct HJRPCRequestWrapper<RawModel: HModel>: HJRPCTransportRequest {
 }
 
 /// Internal wrapper that sends a JSON-RPC transport request with debug logging enabled.
-struct HJRPCDebugRequest<Base: HJRPCTransportRequest>: HPostRequestProtocol, HRequestWithResultProtocol, HDebugRequestProtocol {
-    /// The model of the wrapped request.
-    typealias Model = Base.Model
-
+struct HJRPCDebugRequest<Base: HJRPCTransportRequest> {
     /// The wrapped transport request.
     let base: Base
     /// The debug type requested by the JSON-RPC request(s).
     let debugType: HDebugRequestType
+}
+
+// MARK: - HPostRequestProtocol, HRequestWithResultProtocol, HDebugRequestProtocol
+
+extension HJRPCDebugRequest: HPostRequestProtocol, HRequestWithResultProtocol, HDebugRequestProtocol {
+    /// The model of the wrapped request.
+    typealias Model = Base.Model
 
     /// Forwarded from `base`.
     var url: String { base.url }

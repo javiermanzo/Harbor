@@ -26,14 +26,18 @@ protocol HRequestManagerMonitorProtocol: Sendable {
     func isConnectedToNetwork() -> Bool
 }
 
+// MARK: - Default Implementations
+
 extension HRequestManagerMonitorProtocol {
     /// Default empty implementation for stopping the network monitor.
     func stop() {}
 }
 
+// MARK: - Default Monitor
+
 /// Default connectivity monitor backed by NWPathMonitor.
 @HRequestManagerActor
-final class HRequestManagerMonitor: HRequestManagerMonitorProtocol {
+final class HRequestManagerMonitor {
     /// A cancelled NWPathMonitor cannot be restarted, so the instance is recreated on each start.
     private var monitor: NWPathMonitor?
     /// The dispatch queue used by the network monitor.
@@ -42,7 +46,11 @@ final class HRequestManagerMonitor: HRequestManagerMonitorProtocol {
     private var isMonitorStarted = false
     /// Tracks if the monitor has received its first path update.
     private var hasReceivedInitialUpdate = false
+}
 
+// MARK: - HRequestManagerMonitorProtocol
+
+extension HRequestManagerMonitor: HRequestManagerMonitorProtocol {
     /// Starts the network monitor if it is not already running.
     /// Called lazily on the first connectivity check.
     func start() {
@@ -83,7 +91,11 @@ final class HRequestManagerMonitor: HRequestManagerMonitorProtocol {
                                        pathStatus: monitor?.currentPath.status ?? .satisfied,
                                        allowsDebugFallback: allowsDebugFallback)
     }
+}
 
+// MARK: - Request Gating
+
+extension HRequestManagerMonitor {
     /// Decides whether a request should proceed based on the monitor state.
     /// - Parameters:
     ///   - hasReceivedInitialUpdate: Whether the monitor has delivered its first path update.

@@ -10,7 +10,7 @@ import Network
 
 /// The reason a request failed. Returned in `HResponse.error` and `HResponseWithResult.error`
 /// (REST requests never throw) and thrown by `requestStream(source:)`.
-public enum HRequestError: Error, Sendable {
+public enum HRequestError: Sendable {
     /// The server answered with a non-2xx status code. Carries the status code and the response body.
     case api(statusCode: Int, data: Data)
     /// Invalid HTTP response received.

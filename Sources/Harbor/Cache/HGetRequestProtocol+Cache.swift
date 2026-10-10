@@ -7,6 +7,8 @@
 
 import Foundation
 
+// MARK: - Public Cache API
+
 public extension HGetRequestProtocol {
 
     /// Returns the cached response of this request, decoded with `parseData(data:model:)`,
@@ -72,6 +74,8 @@ public extension HGetRequestProtocol {
         }
     }
 }
+
+// MARK: - Cache Lookup
 
 extension HGetRequestProtocol {
     /// Implementation of `cache()` for a known authorization header.
@@ -170,6 +174,8 @@ extension HGetRequestProtocol {
     }
 }
 
+// MARK: - Offline Fallback
+
 extension HGetRequestProtocol {
     /// Returns a cached body that can stand in for the network while offline:
     /// - `.custom`: a still-fresh entry or, failing that, an expired one whose
@@ -212,6 +218,8 @@ extension HGetRequestProtocol {
         compositeURL().map { HCache.Manager.cacheKey(for: $0, authHeader: nil) }
     }
 }
+
+// MARK: - Private Helpers
 
 private extension HGetRequestProtocol {
 

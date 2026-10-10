@@ -9,13 +9,17 @@ import Foundation
 import LogBird
 
 /// Errors thrown when parsing a PKCS#12 archive.
-enum PKCS12Error: Error, Equatable {
+enum PKCS12Error {
     /// `SecPKCS12Import` rejected the archive; carries the returned status
     /// (`errSecAuthFailed` for a wrong password, other codes for malformed data).
     case importFailed(OSStatus)
     /// The import reported success but the returned items are missing or malformed.
     case malformedContents
 }
+
+// MARK: - Error, Equatable
+
+extension PKCS12Error: Error, Equatable {}
 
 /// Helper class to extract client identity and certificates from a PKCS#12 archive.
 struct PKCS12 {

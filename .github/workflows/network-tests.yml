@@ -17,7 +17,7 @@ concurrency:
 
 jobs:
   network-tests:
-    runs-on: macos-15
+    runs-on: macos-26
     env:
       HARBOR_RUN_NETWORK_TESTS: "1"
     steps:

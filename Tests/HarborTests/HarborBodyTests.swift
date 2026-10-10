@@ -84,6 +84,19 @@ final class HarborBodyTests: XCTestCase {
         XCTAssertEqual(request.allHTTPHeaderFields?.keys.filter { $0.lowercased() == "content-type" }.count, 1)
     }
 
+    func testMultipartContentTypeKeepsItsBoundaryDespiteDefaultAndRequestContentTypeHeaders() async throws {
+        await Harbor.setDefaultHeaderParameters(["Content-Type": "application/json", "X-Default": "1"])
+        defer { Harbor.setDefaultHeaderParameters(nil) }
+        let service = MockPostBodyRequest(headerParameters: ["content-type": "text/plain"], url: "https://example.com", multipartBody: ["foo": .text("bar")])
+
+        let request = try await HURLBuilder.buildUrlRequest(request: service)
+
+        let contentType = try XCTUnwrap(request.value(forHTTPHeaderField: "Content-Type"))
+        XCTAssertTrue(contentType.hasPrefix("multipart/form-data; boundary=Boundary-"))
+        XCTAssertEqual(request.allHTTPHeaderFields?.keys.filter { $0.lowercased() == "content-type" }.count, 1)
+        XCTAssertEqual(request.value(forHTTPHeaderField: "X-Default"), "1")
+    }
+
     func testMultipartBodyWithFile() async throws {
         let fileContents = "multipart file contents"
         let fileURL = FileManager.default.temporaryDirectory.appendingPathComponent("harbor-test-\(UUID().uuidString).txt")

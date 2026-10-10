@@ -82,6 +82,15 @@ enum HLogger {
     // MARK: - Logging
 
     /// Records a debug log entry through Harbor's logger if logging is enabled.
+    /// - Parameters:
+    ///   - message: The log message.
+    ///   - extraMessages: Additional keyed messages (e.g. a cURL command).
+    ///   - additionalInfo: Structured metadata; LogBird redacts sensitive keys.
+    ///   - error: An error to attach.
+    ///   - level: The severity. Default: `.debug`.
+    ///   - file: The calling file, filled in by the compiler.
+    ///   - function: The calling function, filled in by the compiler.
+    ///   - line: The calling line, filled in by the compiler.
     static func log(
         _ message: String? = nil,
         extraMessages: [LBExtraMessage]? = nil,
@@ -109,6 +118,11 @@ enum HLogger {
     /// Records a warning regardless of `isLoggingEnabled` and of the build configuration,
     /// through ``securityLogger``. Reserved for configuration mistakes that silently weaken
     /// security (e.g. SSL pinning not enforced), which must be visible in release builds too.
+    /// - Parameters:
+    ///   - message: The warning text.
+    ///   - file: The calling file, filled in by the compiler.
+    ///   - function: The calling function, filled in by the compiler.
+    ///   - line: The calling line, filled in by the compiler.
     static func securityWarning(
         _ message: String,
         file: String = #fileID,

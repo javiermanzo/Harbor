@@ -139,6 +139,8 @@ extension HRequestManager {
     }
 
     /// Computes the signature that uniquely identifies the required session configuration for the given request.
+    /// - Parameter request: The request whose cache type selects the cache configuration.
+    /// - Returns: The signature under which the session is cached.
     private static func sessionSignature(for request: any HRequestBaseRequestProtocol) -> SessionSignature {
         // Non-GET requests keep the configuration defaults (URLCache.shared with
         // .useProtocolCachePolicy). The signature must mirror what buildURLSession
@@ -159,6 +161,8 @@ extension HRequestManager {
     /// Builds a new URLSession tailored to the request's configuration. The session always
     /// gets an `HURLSessionDelegate`: besides SSL pinning and mTLS it strips credentials
     /// from cross-origin redirects.
+    /// - Parameter request: The request whose cache type selects the session's `URLCache`.
+    /// - Returns: A new session built from the current configuration.
     private static func buildURLSession(for request: any HRequestBaseRequestProtocol) -> URLSession {
         let configuration = URLSessionConfiguration.default
         // Each URLRequest carries its own timeout (see HURLBuilder); this is the fallback.

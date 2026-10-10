@@ -182,6 +182,7 @@ extension HDebugRequestProtocol {
 
     /// Placeholder describing a dictionary that cannot be serialized as JSON. Only key names
     /// and value types are listed, never values.
+    /// - Parameter dictionary: The dictionary that failed validation.
     private static func unserializablePlaceholder(for dictionary: [String: Any]) -> String {
         let fields = dictionary.keys.sorted().map { key in
             "\(key): \(type(of: dictionary[key]!))"
@@ -277,13 +278,18 @@ extension HDebugRequestProtocol {
     }
 
     /// Returns the value to print for a header in debug output, redacting sensitive ones
-    /// (see `HRedactionPolicy`) unless `HConfig.logSensitiveValues` is enabled.
+    /// (see `HRedactionPolicy`) unless `Harbor.setLogSensitiveValues(true)` is set.
+    /// - Parameters:
+    ///   - name: The header name.
+    ///   - value: The header value.
+    /// - Returns: The value, or `<redacted>` when the header is sensitive.
     internal func redactedHeaderValue(name: String, value: String) async -> String {
         HRedactionPolicy.current.redactedHeaderValue(name: name, value: value)
     }
 
     /// Returns a copy of the headers dictionary with sensitive values redacted,
     /// using the same rules as `redactedHeaderValue(name:value:)`.
+    /// - Parameter headers: The headers to redact, or `nil` for none.
     internal func redactedHeaders(_ headers: [String: String]?) async -> [String: String]? {
         HRedactionPolicy.current.redactedHeaders(headers)
     }
@@ -306,8 +312,12 @@ extension HDebugRequestProtocol {
     /// The body is decoded as UTF-8; non-UTF-8 (binary) content is represented as
     /// `<binary N bytes>`. Values of sensitive keys (e.g. login/refresh tokens) are replaced
     /// with `<redacted>` at any nesting depth in JSON bodies and in form-encoded bodies, unless
-    /// `HConfig.logSensitiveValues` is enabled; a JSON body that cannot be parsed is omitted.
+    /// `Harbor.setLogSensitiveValues(true)` is set; a JSON body that cannot be parsed is omitted.
     /// Bodies longer than 16 K characters are truncated.
+    /// - Parameters:
+    ///   - data: The raw response body.
+    ///   - httpResponse: The response the body belongs to.
+    /// - Returns: The printable, redacted body.
     internal func redactedResponseBody(data: Data, httpResponse: HTTPURLResponse) async -> String? {
         guard let raw = String(data: data, encoding: .utf8) else {
             return "<binary \(data.count) bytes>"
@@ -319,12 +329,14 @@ extension HDebugRequestProtocol {
     }
 
     /// Truncates `body` to the maximum logged length, appending a marker when cut.
+    /// - Parameter body: The already redacted body.
     private static func truncatedBody(_ body: String) -> String {
         guard body.count > maxLoggedBodyLength else { return body }
         return String(body.prefix(maxLoggedBodyLength)) + "… <truncated>"
     }
 
     /// Escapes `value` for use inside a double-quoted shell argument.
+    /// - Parameter value: The text to embed.
     private static func shellEscapeDoubleQuoted(_ value: String) -> String {
         value
             .replacingOccurrences(of: "\\", with: "\\\\")
@@ -335,6 +347,7 @@ extension HDebugRequestProtocol {
 
     /// Quotes `value` as a single-quoted shell argument, escaping embedded
     /// single quotes. Inside single quotes no other character needs escaping.
+    /// - Parameter value: The text to quote.
     private static func shellEscapeSingleQuoted(_ value: String) -> String {
         "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }

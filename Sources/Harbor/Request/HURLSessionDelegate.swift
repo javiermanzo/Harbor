@@ -202,6 +202,9 @@ extension HURLSessionDelegate {
     }
 
     /// Whether two URLs share scheme, host and port (default ports made explicit).
+    /// - Parameters:
+    ///   - lhs: The first URL.
+    ///   - rhs: The second URL.
     private static func isSameOrigin(_ lhs: URL, _ rhs: URL) -> Bool {
         let lhsScheme = lhs.scheme?.lowercased()
         let rhsScheme = rhs.scheme?.lowercased()
@@ -211,6 +214,8 @@ extension HURLSessionDelegate {
     }
 
     /// The URL's port, or the scheme's default port when none is given.
+    /// - Parameter url: The URL to inspect.
+    /// - Returns: The port, or `nil` for a scheme without a known default.
     private static func effectivePort(of url: URL) -> Int? {
         if let port = url.port {
             return port
@@ -238,6 +243,10 @@ extension HURLSessionDelegate {
     /// Answers a server-trust challenge against the configured pins. A challenge without
     /// a server trust is cancelled; otherwise the trust is evaluated off the session's
     /// serial delegate queue before matching the pins.
+    /// - Parameters:
+    ///   - challenge: The server-trust challenge.
+    ///   - sslPinningKeys: The pins that apply to the challenge host.
+    ///   - completionHandler: Completion closure called with disposition and credential.
     private func processSSLPinning(_ challenge: URLAuthenticationChallenge, sslPinningKeys: [String], completionHandler: @escaping @Sendable (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
         guard challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodServerTrust,
               let serverTrust = challenge.protectionSpace.serverTrust else {

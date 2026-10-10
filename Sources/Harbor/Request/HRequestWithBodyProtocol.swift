@@ -22,6 +22,8 @@ public protocol HRequestWithBodyProtocol: HRequestWithEmptyResponseProtocol {
     var bodyParameters: [String: Any]? { get }
     /// Multipart form values (`Content-Type: multipart/form-data`): text fields and files.
     /// When set, it is sent instead of `bodyParameters`. File parts are streamed from disk.
+    /// Harbor always sends its own `Content-Type: multipart/form-data; boundary=...`: a
+    /// `Content-Type` in `headerParameters` or in the default headers is ignored for these requests.
     /// Default: `nil`.
     var multipartBody: [String: HFormValue]? { get }
     /// Pre-encoded body sent as-is, instead of `multipartBody` and `bodyParameters`. It is sent

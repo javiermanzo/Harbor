@@ -1,3 +1,8 @@
+//
+//  HCacheFallbackProbe.swift
+//  Harbor
+//
+
 import Foundation
 
 /// Records that a request was answered from a cached copy as a fallback (offline, or a failing server with
@@ -7,6 +12,7 @@ final class HCacheFallbackProbe: Sendable {
     /// The probe of the stream request running on this task, if any.
     @TaskLocal static var current: HCacheFallbackProbe?
 
+    /// Whether the last answer came from a cached fallback; read and written from arbitrary tasks.
     private let served = HLockedState(false)
 
     /// Whether a cached copy answered in place of the network.

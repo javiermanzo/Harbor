@@ -200,6 +200,8 @@ extension HJRPCRequestManager {
     }
 
     /// The endpoint shared by every request in a batch.
+    /// - Parameter requests: The requests of the batch.
+    /// - Returns: The shared endpoint URL string.
     /// - Throws: `.urlNeeded` when no endpoint is configured, or `.malformedRequest` when the
     ///   requests target different endpoints.
     private static func batchURL(for requests: [any HJRPCRequestProtocol]) throws(HJRPCRequestError) -> String {
@@ -215,6 +217,8 @@ extension HJRPCRequestManager {
 
     /// The headers of every request merged; the first request that sets a header
     /// (compared case-insensitively) wins.
+    /// - Parameter requests: The requests of the batch.
+    /// - Returns: The merged headers, or `nil` when no request sets any.
     static func batchHeaders(for requests: [any HJRPCRequestProtocol]) -> [String: String]? {
         var merged: [String: String] = [:]
         var seenNames: Set<String> = []
@@ -230,6 +234,8 @@ extension HJRPCRequestManager {
     /// The first non-nil retry policy. Its `retryNonIdempotentRequests` is kept only when every
     /// request opts in, so a batch that contains a write is not re-sent after it may have
     /// reached the server.
+    /// - Parameter requests: The requests of the batch.
+    /// - Returns: The merged policy, or `nil` when no request has one.
     static func batchRetryPolicy(for requests: [any HJRPCRequestProtocol]) -> HRetryPolicy? {
         guard var policy = requests.lazy.compactMap(\.retryPolicy).first else {
             return nil
@@ -241,6 +247,8 @@ extension HJRPCRequestManager {
     /// The most verbose debug type requested by the requests that opt into logging, or `nil`
     /// when none does. Request and response logging requested by different requests combine
     /// into `.requestAndResponse`.
+    /// - Parameter requests: The requests of the batch.
+    /// - Returns: The combined debug type, or `nil` when no request logs.
     static func batchDebugType(for requests: [any HJRPCRequestProtocol]) -> HDebugRequestType? {
         let debugTypes = requests.compactMap(\.requestedDebugType)
         guard !debugTypes.isEmpty else {
@@ -261,6 +269,10 @@ extension HJRPCRequestManager {
     }
 
     /// Maps one response object of a batch to an `HJRPCBatchResponse`.
+    /// - Parameters:
+    ///   - envelope: The response object.
+    ///   - httpStatusCode: The non-2xx HTTP status of the response carrying it, or `nil` for a 2xx.
+    /// - Returns: `.error` for an error object or a response with neither `result` nor `error`, `.success` otherwise.
     private static func batchResponse(for envelope: HJRPCResult<HJSONValue>, httpStatusCode: Int?) -> HJRPCBatchResponse {
         if var error = envelope.error {
             error.httpStatusCode = httpStatusCode
@@ -275,6 +287,10 @@ extension HJRPCRequestManager {
     }
 
     /// The error for a single response object returned for a whole batch.
+    /// - Parameters:
+    ///   - envelope: The response object.
+    ///   - httpStatusCode: The non-2xx HTTP status of the response carrying it, or `nil` for a 2xx.
+    /// - Returns: `.jrpcError` when the object carries an error, `.invalidResponse` otherwise.
     private static func batchLevelError(for envelope: HJRPCResult<HJSONValue>, httpStatusCode: Int?) -> HJRPCRequestError {
         guard var error = envelope.error else {
             return .invalidResponse

@@ -24,8 +24,9 @@ public enum HarborJRPC {
     /// `endpoint`) and the protocol version sent in the `jsonrpc` member.
     /// - Parameters:
     ///   - url: The JSON-RPC endpoint.
-    ///   - jrpcVersion: The JSON-RPC version string sent with every request and expected in every
-    ///     response. Default: `"2.0"`.
+    ///   - jrpcVersion: The JSON-RPC version string sent with every request and expected in the
+    ///     response of `request()` and `requestResult()` (otherwise `.invalidResponse`). The elements
+    ///     of a batch response are not checked against it. Default: `"2.0"`.
     public static func configure(url: URL, jrpcVersion: String = "2.0") {
         HJRPCRequestManager.config = HJRPCConfig(url: url.absoluteString, jrpcVersion: jrpcVersion)
     }

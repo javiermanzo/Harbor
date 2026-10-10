@@ -34,6 +34,10 @@ enum HURLBuilder {
     /// Builds a complete URLRequest from a Harbor request protocol, with the whole body in
     /// memory (`httpBody`), including multipart file parts.
     ///
+    /// A `Content-Type` set in the default or request headers replaces the one Harbor sets for
+    /// `rawBody` and `bodyParameters`, but never the `multipart/form-data` one (it carries the
+    /// generated boundary).
+    ///
     /// For GET requests using the custom cache, the stored validators are injected as
     /// `If-None-Match` / `If-Modified-Since` so the server can answer `304 Not Modified`,
     /// unless the request already carries either conditional header.
@@ -82,6 +86,7 @@ enum HURLBuilder {
         var urlRequest = URLRequest(url: url)
         var bodyFileURL: URL?
         var injectedConditionalValidators = false
+        var multipartContentType: String?
 
         urlRequest.httpMethod = request.httpMethod.rawValue
         // Set per request so it holds for custom sessions and alternating timeouts never require a new session.
@@ -95,7 +100,8 @@ enum HURLBuilder {
                 urlRequest.httpBody = rawBody
             } else if let multipartBody = request.multipartBody {
                 let boundary = "Boundary-\(UUID().uuidString)"
-                urlRequest.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+                multipartContentType = "multipart/form-data; boundary=\(boundary)"
+                urlRequest.setValue(multipartContentType, forHTTPHeaderField: "Content-Type")
                 if streamFileParts, Self.hasFileParts(multipartBody) {
                     bodyFileURL = try writeMultipartBody(fields: multipartBody, boundary: boundary)
                 } else {
@@ -115,6 +121,12 @@ enum HURLBuilder {
 
         for (key, value) in request.headerParameters ?? [:] {
             urlRequest.setValue(value, forHTTPHeaderField: key)
+        }
+
+        // A multipart body is only parseable with the boundary Harbor generated for it, so a
+        // `Content-Type` from the default or request headers (e.g. `application/json`) never wins.
+        if let multipartContentType {
+            urlRequest.setValue(multipartContentType, forHTTPHeaderField: "Content-Type")
         }
 
         if let authHeader {

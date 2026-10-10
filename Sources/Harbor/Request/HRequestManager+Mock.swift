@@ -48,7 +48,10 @@ extension HRequestManager {
         return .finish(errorResponse(hError))
     }
 
-    /// Builds the URL used for synthetic mock responses.
+    /// Builds the URL used for synthetic mock responses: the request's composite URL (path and,
+    /// for GET requests, query parameters applied), or `file:///` when it cannot be built.
+    /// - Parameter request: The mocked request.
+    /// - Returns: The URL of the synthetic `HTTPURLResponse`.
     static func mockURL(for request: any HRequestBaseRequestProtocol) -> URL {
         if let getRequest = request as? any HGetRequestProtocol,
            let url = try? HURLBuilder.compositeURL(url: getRequest.url, pathParameters: getRequest.pathParameters, queryParameters: getRequest.queryParameters) {

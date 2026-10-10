@@ -20,7 +20,8 @@ public enum HRequestError: Sendable {
     /// The server rejected the credentials (`401`) and they could not be refreshed through
     /// `HAuthProviderProtocol.authFailed()`.
     case authNeeded
-    /// The response body could not be decoded into the model, or a body could not be encoded.
+    /// The response body could not be decoded into the model. A request body that cannot be
+    /// encoded fails with `.malformedRequest(reason:)` instead.
     case codable(modelName: String, error: Error)
     /// The device is offline (and no usable cached response was found for a GET request).
     case noConnection

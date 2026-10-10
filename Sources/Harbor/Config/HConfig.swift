@@ -50,20 +50,10 @@ struct HConfig {
     /// Harbor's SSL pinning, mTLS and redirect policies only apply when its delegate is
     /// `HURLSessionDelegate` (see `Harbor.makeURLSessionDelegate()`) or forwards to one.
     var customURLSession: URLSession?
-    #if DEBUG
     /// Whether registered mocks answer requests. Default is true in DEBUG builds, false otherwise.
-    var mocksEnabled: Bool = true
-    #else
-    /// Whether registered mocks answer requests. Default is true in DEBUG builds, false otherwise.
-    var mocksEnabled: Bool = false
-    #endif
-    #if DEBUG
+    var mocksEnabled: Bool = HBuild.isDebug
     /// Whether debug logging is enabled. Default is true in DEBUG builds, false in RELEASE builds.
-    var isLoggingEnabled: Bool = true
-    #else
-    /// Whether debug logging is enabled. Default is true in DEBUG builds, false in RELEASE builds.
-    var isLoggingEnabled: Bool = false
-    #endif
+    var isLoggingEnabled: Bool = HBuild.isDebug
     /// Whether sensitive values (headers, query values, body fields, error bodies) are printed
     /// unredacted in debug logs, generated cURL commands and `HRequestError` descriptions.
     /// Default is false (redacted). Backed by `HRedactionPolicy` so nonisolated code

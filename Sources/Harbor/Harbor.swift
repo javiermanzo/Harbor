@@ -302,25 +302,28 @@ extension Harbor {
     /// logging, as the misconfiguration silently disables security checks.
     /// - Parameter afterSecurityChange: Whether pins or mTLS just changed. A custom session
     ///   using Harbor's delegate then holds a stale snapshot and must be rebuilt.
-    /// - Returns: The logged warning, or `nil` when none was needed.
-    @discardableResult
-    static func warnIfCustomURLSessionBypassesSecurity(afterSecurityChange: Bool) -> String? {
+    static func warnIfCustomURLSessionBypassesSecurity(afterSecurityChange: Bool) {
+        guard let warning = customURLSessionSecurityWarning(afterSecurityChange: afterSecurityChange) else { return }
+        HLogger.securityWarning(warning)
+    }
+
+    /// The warning that applies to the current custom session and security configuration.
+    /// - Parameter afterSecurityChange: Whether pins or mTLS just changed (see
+    ///   `warnIfCustomURLSessionBypassesSecurity(afterSecurityChange:)`).
+    /// - Returns: The warning text, or `nil` when none is needed.
+    static func customURLSessionSecurityWarning(afterSecurityChange: Bool) -> String? {
         guard let customURLSession = HConfig.shared.customURLSession else { return nil }
         let hasTransportSecurity = HConfig.shared.mTLSIdentity != nil
             || HConfig.shared.sslPinningKeys != nil
             || HConfig.shared.sslPinningKeysByHost != nil
 
-        let warning: String
         if customURLSession.delegate is HURLSessionDelegate {
             guard afterSecurityChange else { return nil }
-            warning = "SSL pinning / mTLS configuration changed while a custom URLSession is set. Its HURLSessionDelegate keeps the previous configuration; create a new one with Harbor.makeURLSessionDelegate() and set a new session."
+            return "SSL pinning / mTLS configuration changed while a custom URLSession is set. Its HURLSessionDelegate keeps the previous configuration; create a new one with Harbor.makeURLSessionDelegate() and set a new session."
         } else if hasTransportSecurity {
-            warning = "SSL pinning / mTLS are configured but the custom URLSession does not use Harbor's delegate, so they are NOT enforced for its requests. Create the session with Harbor.makeURLSessionDelegate() or forward its delegate callbacks to one."
-        } else {
-            return nil
+            return "SSL pinning / mTLS are configured but the custom URLSession does not use Harbor's delegate, so they are NOT enforced for its requests. Create the session with Harbor.makeURLSessionDelegate() or forward its delegate callbacks to one."
         }
-        HLogger.securityWarning(warning)
-        return warning
+        return nil
     }
 }
 

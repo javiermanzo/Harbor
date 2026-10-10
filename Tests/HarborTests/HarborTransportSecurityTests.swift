@@ -146,7 +146,7 @@ final class HarborTransportSecurityTests: XCTestCase {
         HConfig.shared.customURLSession = URLSession(configuration: .ephemeral)
 
         // Then a warning is produced
-        let warning = Harbor.warnIfCustomURLSessionBypassesSecurity(afterSecurityChange: false)
+        let warning = Harbor.customURLSessionSecurityWarning(afterSecurityChange: false)
         XCTAssertNotNil(warning)
         XCTAssertTrue(warning?.contains("NOT enforced") == true)
     }
@@ -154,11 +154,11 @@ final class HarborTransportSecurityTests: XCTestCase {
     func testPinningConfiguredAfterCustomSessionWarns() async {
         // Given a custom session without Harbor's delegate and no pins: nothing to warn about
         Harbor.setCustomURLSession(URLSession(configuration: .ephemeral))
-        XCTAssertNil(Harbor.warnIfCustomURLSessionBypassesSecurity(afterSecurityChange: false))
+        XCTAssertNil(Harbor.customURLSessionSecurityWarning(afterSecurityChange: false))
 
         // When pins are configured afterwards, the bypass is reported
         Harbor.setSSLPinningKeys([wrongPin])
-        XCTAssertNotNil(Harbor.warnIfCustomURLSessionBypassesSecurity(afterSecurityChange: true))
+        XCTAssertNotNil(Harbor.customURLSessionSecurityWarning(afterSecurityChange: true))
     }
 
     func testCustomSessionWithHarborDelegateWarnsOnlyWhenConfigurationChanges() async {
@@ -169,13 +169,13 @@ final class HarborTransportSecurityTests: XCTestCase {
         HConfig.shared.customURLSession = session
 
         // Then setting it is fine, but a later pin change makes its snapshot stale
-        XCTAssertNil(Harbor.warnIfCustomURLSessionBypassesSecurity(afterSecurityChange: false))
-        XCTAssertNotNil(Harbor.warnIfCustomURLSessionBypassesSecurity(afterSecurityChange: true))
+        XCTAssertNil(Harbor.customURLSessionSecurityWarning(afterSecurityChange: false))
+        XCTAssertNotNil(Harbor.customURLSessionSecurityWarning(afterSecurityChange: true))
     }
 
     func testNoWarningWithoutCustomSession() async {
         Harbor.setSSLPinningKeys([wrongPin])
-        XCTAssertNil(Harbor.warnIfCustomURLSessionBypassesSecurity(afterSecurityChange: true))
+        XCTAssertNil(Harbor.customURLSessionSecurityWarning(afterSecurityChange: true))
     }
 
     // MARK: - Redirects (F5)

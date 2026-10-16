@@ -223,7 +223,7 @@ final class HarborWebSocketHandshakeTests: XCTestCase {
         // Given a port nobody listens on
         let responder = try await startResponder { _ in .ignore }
         let port = responder.port
-        responder.stop()
+        await responder.stopAndWait()
 
         // When
         let error = await connectError(TestSocket(url: "ws://127.0.0.1:\(port)/"))
@@ -236,7 +236,7 @@ final class HarborWebSocketHandshakeTests: XCTestCase {
         // Given
         let responder = try await startResponder { _ in .ignore }
         let port = responder.port
-        responder.stop()
+        await responder.stopAndWait()
         let policy = HRetryPolicy(maxRetries: 1, baseDelay: 0, jitter: 0...0)
         let started = Date()
 

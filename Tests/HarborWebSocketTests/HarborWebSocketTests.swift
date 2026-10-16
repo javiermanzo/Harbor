@@ -471,13 +471,15 @@ final class HarborWebSocketTests: XCTestCase {
     }
 
     func testServerCloseWhileAPingIsInFlightReportsTheCloseCode() async throws {
-        // Given a server that never answers pings and closes while a keep-alive ping is pending
+        // Given a server that never answers pings and closes as soon as the first one arrives,
+        // so the close frame always lands while that ping is pending
         let server = try await startServer(autoReplyPing: false) { connection in
-            DispatchQueue.global().asyncAfter(deadline: .now() + 0.35) {
+            Task {
+                _ = await connection.waitForFrames(count: 1)
                 connection.close(code: .protocolCode(.policyViolation), reason: Data("banned".utf8))
             }
         }
-        let socket = try await TestSocket(url: server.url(), pingInterval: 0.25).connect()
+        let socket = try await TestSocket(url: server.url(), pingInterval: 0.5).connect()
 
         // When
         let result = await drain(socket)

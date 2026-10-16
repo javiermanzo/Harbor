@@ -123,6 +123,13 @@ final class LoopbackHTTPResponder: @unchecked Sendable {
         open.forEach { $0.cancel() }
     }
 
+    /// Stops the responder and waits until the port is released, so a connection attempt made
+    /// right after is refused instead of racing the asynchronous listener cancellation.
+    func stopAndWait() async {
+        stop()
+        try? await Task.sleep(nanoseconds: 300_000_000)
+    }
+
     private func accept(_ connection: NWConnection) {
         lock.lock()
         connections.append(connection)

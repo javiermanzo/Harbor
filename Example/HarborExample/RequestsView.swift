@@ -214,6 +214,11 @@ struct RequestsView: View {
             .onAppear {
                 setupOnAppear()
             }
+            .onDisappear {
+                // Close the demo connection with the view; its reader task then ends too.
+                let socket = webSocket
+                Task { await socket?.close(code: .goingAway) }
+            }
             .navigationTitle("Harbor Examples")
             .navigationBarItems(trailing:
                 Button(action: { isSettingsPresented = true }) {
@@ -794,7 +799,11 @@ struct RequestsView: View {
                         }
                     }
                     await MainActor.run {
-                        webSocket = nil
+                        // Only clear the socket this reader belongs to: a newer connection may
+                        // already have replaced it.
+                        if webSocket === socket {
+                            webSocket = nil
+                        }
                     }
                 }
             } catch {

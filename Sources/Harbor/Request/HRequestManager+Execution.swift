@@ -17,7 +17,7 @@ extension HRequestManager {
     static func request<Model: HModel, Request: HRequestWithResultProtocol>(model: Model.Type, request: Request) async -> HResponseWithResult<Model> {
         let retryPolicy = request.retryPolicy
 
-        if HConfig.shared.mocksEnabled, HMocker.isRegistered(type(of: request)) {
+        if HRESTConfig.shared.mocksEnabled, HMocker.isRegistered(type(of: request)) {
             return await runAttempts(
                 request: request,
                 retryPolicy: retryPolicy,
@@ -313,7 +313,7 @@ extension HRequestManager {
     static func request<Request: HRequestWithEmptyResponseProtocol>(request: Request) async -> HResponse {
         let retryPolicy = request.retryPolicy
 
-        if HConfig.shared.mocksEnabled, HMocker.isRegistered(type(of: request)) {
+        if HRESTConfig.shared.mocksEnabled, HMocker.isRegistered(type(of: request)) {
             return await runAttempts(
                 request: request,
                 retryPolicy: retryPolicy,

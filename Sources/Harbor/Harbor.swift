@@ -30,7 +30,7 @@ public extension Harbor {
     /// - Parameter authProvider: The provider supplying authorization headers, or `nil` to remove it.
     static func setAuthProvider(_ authProvider: HAuthProviderProtocol?) {
         HConfig.shared.authProvider = authProvider
-        HRequestManager.forgetRememberedAuthHeaders()
+        HRequestManager.authGeneration &+= 1
     }
 
     /// Sets default headers applied to all requests.
@@ -176,7 +176,7 @@ public extension Harbor {
     /// - Note: This is a method rather than a `get set` property to allow cross-actor mutation, as Swift forbids mutating actor-isolated static properties from outside the actor's context.
     /// - Parameter cacheType: The cache type applied to GET requests whose `cacheType` is `nil`.
     static func setDefaultCacheType(_ cacheType: HCache.CacheType) {
-        HConfig.shared.cacheType = cacheType
+        HRESTConfig.shared.cacheType = cacheType
         HCache.Manager.shared.applyDefaultCacheType(cacheType)
     }
 
@@ -207,7 +207,7 @@ public extension Harbor {
     ///
     /// Default: `true` in DEBUG builds and `false` otherwise. Change it with `setMocksEnabled(_:)`.
     static var mocksEnabled: Bool {
-        HConfig.shared.mocksEnabled
+        HRESTConfig.shared.mocksEnabled
     }
 
     /// Turns mocks on or off. While mocks are off, registered mocks are kept but ignored and
@@ -219,7 +219,7 @@ public extension Harbor {
     /// - Note: This is a method rather than a `get set` property to allow cross-actor mutation, as Swift forbids mutating actor-isolated static properties from outside the actor's context.
     /// - Parameter enabled: Whether registered mocks answer requests.
     static func setMocksEnabled(_ enabled: Bool) {
-        HConfig.shared.mocksEnabled = enabled
+        HRESTConfig.shared.mocksEnabled = enabled
     }
 
     /// Configures whether debug logs are enabled.
@@ -399,7 +399,7 @@ public extension Harbor {
         await HCache.Manager.shared.clearAllCache()
         URLCache.shared.removeAllCachedResponses()
 
-        if case .urlCache(let cache, _) = HConfig.shared.cacheType, cache !== URLCache.shared {
+        if case .urlCache(let cache, _) = HRESTConfig.shared.cacheType, cache !== URLCache.shared {
             cache.removeAllCachedResponses()
         }
 

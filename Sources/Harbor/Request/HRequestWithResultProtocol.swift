@@ -40,7 +40,7 @@ public extension HRequestWithResultProtocol {
     /// - Returns: The decoded model instance.
     /// - Throws: Decoding error if data cannot be parsed.
     func parseData<T: Codable>(data: Data, model: T.Type) throws -> T {
-        let decoder = HConfig.jsonDecoder
+        let decoder = HRESTConfig.jsonDecoder
         return try decoder.decode(T.self, from: data)
     }
 }

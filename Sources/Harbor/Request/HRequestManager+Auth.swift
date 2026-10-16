@@ -9,18 +9,8 @@ import Foundation
 
 // MARK: - Authorization
 extension HRequestManager {
-    /// Fetches the provider's authorization header for requests that need auth.
-    /// Fails with `.authProviderNeeded` when the request needs auth but no provider is
-    /// configured. A provider returning `nil` means no credentials are available and the
-    /// request goes out without an authorization header.
-    /// - Parameter request: The target request.
-    /// - Returns: `Result` containing optional header or error.
-    static func authorizationHeaderIfNeeded<P: HRequestBaseRequestProtocol>(for request: P) async -> Result<HAuthorizationHeader?, HRequestError> {
-        await authorizationHeader(needsAuth: request.needsAuth)
-    }
-
-    /// Fetches the provider's authorization header when `needsAuth` is set. Shared by the REST
-    /// pipeline and the other Harbor modules (e.g. the WebSocket handshake).
+    /// Fetches the provider's authorization header when `needsAuth` is set. Used by the REST
+    /// pipeline and the other products (e.g. the WebSocket handshake).
     /// - Parameter needsAuth: Whether the operation needs auth.
     /// - Returns: `.success(nil)` when no auth is needed or the provider has no credentials,
     ///   `.failure(.authProviderNeeded)` when auth is needed but no provider is configured.
@@ -32,45 +22,6 @@ extension HRequestManager {
         }
 
         return .success(await authProvider.getAuthorizationHeader())
-    }
-
-    /// Resolves the authorization header for cache vary-key computation without failing the
-    /// flow: a missing provider must not turn a cache lookup into an error.
-    /// - Parameter request: The target request.
-    /// - Returns: Optional authorization header.
-    static func cacheAuthHeader<P: HRequestBaseRequestProtocol>(for request: P) async -> HAuthorizationHeader? {
-        guard case .success(let authHeader) = await authorizationHeaderIfNeeded(for: request) else { return nil }
-        return authHeader
-    }
-
-    /// Records the credential an authenticated GET request succeeded with, so offline lookups
-    /// can find its credential-namespaced cache entry without consulting the provider.
-    /// Requests that do not need auth or were sent without credentials record nothing.
-    /// - Parameters:
-    ///   - authHeader: The authorization header the successful attempt was sent with.
-    ///   - request: The request that succeeded.
-    static func rememberAuthHeader(_ authHeader: HAuthorizationHeader?, for request: any HGetRequestProtocol) {
-        guard request.needsAuth, let authHeader, let key = request.cacheNamespaceKey() else { return }
-        if rememberedAuthHeaders.count >= maxRememberedAuthHeaders, rememberedAuthHeaders[key] == nil {
-            rememberedAuthHeaders.removeAll()
-        }
-        rememberedAuthHeaders[key] = authHeader
-    }
-
-    /// The credential an authenticated GET request last succeeded with, if remembered.
-    /// - Parameter request: The request being looked up.
-    static func rememberedAuthHeader(for request: any HGetRequestProtocol) -> HAuthorizationHeader? {
-        guard request.needsAuth, let key = request.cacheNamespaceKey() else { return nil }
-        return rememberedAuthHeaders[key]
-    }
-
-    /// Forgets the credentials remembered for offline lookups. Called when the auth provider
-    /// is replaced and when the cache is cleared, so a previous user's credential never keys a
-    /// lookup for the next one. Also starts a new `cacheGeneration`, so responses of requests
-    /// already in flight are not written back to the cache.
-    static func forgetRememberedAuthHeaders() {
-        rememberedAuthHeaders.removeAll()
-        cacheGeneration &+= 1
     }
 
     /// Handles a 401 for a request that needs auth. While an auth retry remains, the provider's

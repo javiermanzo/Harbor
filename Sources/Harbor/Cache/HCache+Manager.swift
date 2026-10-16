@@ -873,17 +873,17 @@ extension HCache {
 extension HCache.Manager {
     /// Retrieves cached data decoded with Harbor's shared `JSONDecoder` (see `getCachedData(forKey:config:requestHeaders:decode:)`).
     func getCachedData<T: HModel>(forKey key: String, type: T.Type, config: HCache.Configuration, requestHeaders: [String: String]? = nil) async -> T? {
-        await getCachedData(forKey: key, config: config, requestHeaders: requestHeaders) { try HConfig.jsonDecoder.decode(T.self, from: $0) }
+        await getCachedData(forKey: key, config: config, requestHeaders: requestHeaders) { try HRESTConfig.jsonDecoder.decode(T.self, from: $0) }
     }
 
     /// Retrieves a revalidatable body decoded with Harbor's shared `JSONDecoder` (see `getRevalidatableCachedData(forKey:requestHeaders:decode:)`).
     func getRevalidatableCachedData<T: HModel>(forKey key: String, type: T.Type, requestHeaders: [String: String]? = nil) async -> T? {
-        await getRevalidatableCachedData(forKey: key, requestHeaders: requestHeaders) { try HConfig.jsonDecoder.decode(T.self, from: $0) }
+        await getRevalidatableCachedData(forKey: key, requestHeaders: requestHeaders) { try HRESTConfig.jsonDecoder.decode(T.self, from: $0) }
     }
 
     /// Retrieves a `stale-if-error` body decoded with Harbor's shared `JSONDecoder` (see `getStaleOnErrorData(forKey:requestHeaders:decode:)`).
     func getStaleOnErrorData<T: HModel>(forKey key: String, type: T.Type, requestHeaders: [String: String]? = nil) async -> T? {
-        await getStaleOnErrorData(forKey: key, requestHeaders: requestHeaders) { try HConfig.jsonDecoder.decode(T.self, from: $0) }
+        await getStaleOnErrorData(forKey: key, requestHeaders: requestHeaders) { try HRESTConfig.jsonDecoder.decode(T.self, from: $0) }
     }
 }
 

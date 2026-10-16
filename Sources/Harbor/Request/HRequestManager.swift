@@ -33,21 +33,10 @@ package enum HRequestManager {
     /// instead of triggering one refresh each.
     static var inFlightAuthFailures: [HAuthorizationHeader?: Task<Void, Never>] = [:]
 
-    /// The authorization header each authenticated GET request last succeeded with, keyed by
-    /// its plain cache key (the composite URL). Offline lookups use it to find the
-    /// credential-namespaced cache entry without consulting the auth provider, whose header
-    /// resolution may refresh a token over the network. Cleared by `forgetRememberedAuthHeaders()`
-    /// (`Harbor.setAuthProvider(_:)` and `Harbor.clearAllCache()`).
-    static var rememberedAuthHeaders: [String: HAuthorizationHeader] = [:]
-
-    /// Bound of `rememberedAuthHeaders`; past it the map is reset before recording a new entry.
-    static let maxRememberedAuthHeaders = 512
-
-    /// Incremented whenever cached content must not be written back by requests already in
-    /// flight: when the cache is cleared or the auth provider is replaced (e.g. on logout). A
-    /// response whose attempt started under an earlier generation is returned to its caller
-    /// but neither stored nor remembered, so it cannot resurrect a previous user's data.
-    static var cacheGeneration = 0
+    /// Incremented by `Harbor.setAuthProvider(_:)`. The REST layer derives from it when its
+    /// remembered credentials and in-flight cache writes stop being valid (see
+    /// `HRequestManager+RESTState.swift`), so shared code never has to know about them.
+    package static var authGeneration = 0
 }
 
 // MARK: - Retry Loop Outcomes

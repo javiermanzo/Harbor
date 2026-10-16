@@ -90,7 +90,7 @@ extension HWebSocketManager {
 
         // Leased until the connection closes (see `HWebSocket`), so a configuration change
         // meanwhile only retires the session instead of invalidating it under the task.
-        let session = HRequestManager.leaseWebSocketURLSession()
+        let session = HRequestManager.leaseURLSession(profile: .webSocket)
         let delegate = HWebSocketTaskDelegate(authHeaderKey: authHeader?.key)
         let task = session.webSocketTask(with: urlRequest)
         task.delegate = delegate

@@ -50,8 +50,6 @@ package struct HConfig {
     /// Harbor's SSL pinning, mTLS and redirect policies only apply when its delegate is
     /// `HURLSessionDelegate` (see `Harbor.makeURLSessionDelegate()`) or forwards to one.
     var customURLSession: URLSession?
-    /// Whether registered mocks answer requests. Default is true in DEBUG builds, false otherwise.
-    var mocksEnabled: Bool = HBuild.isDebug
     /// Whether debug logging is enabled. Default is true in DEBUG builds, false in RELEASE builds.
     var isLoggingEnabled: Bool = HBuild.isDebug
     /// Whether sensitive values (headers, query values, body fields, error bodies) are printed
@@ -66,8 +64,6 @@ package struct HConfig {
     /// origin (see `HURLSessionDelegate.redirectRequest`). Debug output redaction is governed
     /// by `HRedactionPolicy`, which covers these names and more.
     nonisolated static let sensitiveHeaders: Set<String> = ["authorization", "cookie", "set-cookie", "x-api-key", "proxy-authorization"]
-    /// Default cache type for requests without explicit cache settings. Default is `.urlCache`.
-    var cacheType: HCache.CacheType = .urlCache()
     /// Default timeout interval for requests. Default is 15 seconds. Applied to every
     /// `URLRequest` (`timeoutInterval`) unless the request overrides it, so it also holds
     /// for custom sessions. It bounds the idle time between packets, not the whole transfer.
@@ -83,11 +79,6 @@ package struct HConfig {
     /// URLProtocol classes injected into internally built sessions, allowing networking
     /// to be stubbed per session instead of registering protocols globally.
     var protocolClasses: [AnyClass]?
-    /// Default JSON decoder used for parsing responses.
-    nonisolated static var jsonDecoder: JSONDecoder {
-        get { HJSONDecoderStorage.decoder }
-        set { HJSONDecoderStorage.decoder = newValue }
-    }
 
     /// Logs a security warning (visible even with debug logging disabled) for every pin that
     /// is not a valid base64 SHA-256 hash.
@@ -95,16 +86,5 @@ package struct HConfig {
         for key in keys where !HSPKI.isValidPin(key) {
             HLogger.securityWarning("SSL pinning key \"\(key)\" is not a valid base64 SHA-256 hash and will never match. Pins must be base64(SHA256(SPKI)).")
         }
-    }
-}
-
-/// Thread-safe storage for the default JSON decoder used across Harbor.
-private enum HJSONDecoderStorage {
-    /// The shared decoder, protected by a lock.
-    private static let storage = HLockedState(JSONDecoder())
-    /// Accessor for the thread-safe JSON decoder instance.
-    static var decoder: JSONDecoder {
-        get { storage.withLock { $0 } }
-        set { storage.withLock { $0 = newValue } }
     }
 }

@@ -335,7 +335,7 @@ private func clearCustomURLSession() {
 
 @HRequestManagerActor
 private func mocksEnabledValue() -> Bool {
-    HConfig.shared.mocksEnabled
+    HRESTConfig.shared.mocksEnabled
 }
 
 // MARK: - Test Models

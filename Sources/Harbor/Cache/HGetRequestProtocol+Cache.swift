@@ -234,7 +234,7 @@ private extension HGetRequestProtocol {
         if let requestCacheType = self.cacheType {
            return requestCacheType
         } else {
-            return await HConfig.shared.cacheType
+            return await HRESTConfig.shared.cacheType
         }
     }
 

@@ -66,6 +66,8 @@ Then add the products you need to your target:
 )
 ```
 
+`HarborWebSocket` does not need `Harbor`: it carries the shared configuration (`Harbor.setAuthProvider(_:)`, SSL pinning, mTLS, logging, retry policy) and links none of the REST code (cache, mocks, request protocols). Add `Harbor` only if you also make REST requests.
+
 ---
 
 ## Basic Usage

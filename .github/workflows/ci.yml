@@ -42,6 +42,12 @@ jobs:
         echo "No compiler warnings in Sources/"
     - name: Test
       run: swift test --enable-code-coverage
+    - name: Check the module boundaries
+      # HarborCore must stay REST-free, and an app that imports only HarborWebSocket must not link
+      # Harbor's REST code (see Fixtures/WebSocketOnly).
+      run: |
+        scripts/check_core_independence.sh
+        scripts/check_websocket_only_link.sh
     - name: Setup llvm-cov
       run: sudo ln -s $(xcrun --find llvm-cov) /usr/local/bin/llvm-cov
     - name: Generate LCOV

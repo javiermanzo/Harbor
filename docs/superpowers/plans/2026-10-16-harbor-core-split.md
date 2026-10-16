@@ -79,3 +79,15 @@ Original questions, kept for reference:
 2. `HarborJRPC` stays on `Harbor` (recommended) or moves to Core with a generic HTTP engine?
 3. Do it before 4.0.0 ships (recommended: names change only once) or defer to a later major?
 4. Internal names: `HTransport` for the Core manager; `HarborCore` as the module. Any preference?
+
+## Outcome (implemented on `refactor/harbor-core`)
+
+Done as planned (steps 1-5), with these deviations and findings:
+
+- **No `HTransport` type.** Swift allows static stored properties in extensions, including from another module, so `HRequestManager` stays in `HarborCore` and `Harbor` extends it with the REST-only state (`HRequestManager+RESTState.swift`, `+RESTSession.swift`). Splitting the type would have renamed hundreds of references across 21 test files for no benefit.
+- **`authGeneration` instead of a hook.** `Harbor.setAuthProvider(_:)` (shared, in Core) bumps `HRequestManager.authGeneration`; the REST state derives `cacheGeneration` from it and drops its remembered credentials lazily. Same observable behavior, no REST callback in Core.
+- **`HSessionProfile`** (`defaults`, `urlCache`, `isolated`, `webSocket`) replaces the request-aware session selection; REST maps a request to a profile.
+- **`HHTTPDate`** (Core) replaces `HCache.Manager.parseHTTPDate` for `Retry-After`; the cache keeps a thin wrapper.
+- **`HRequestManagerActor.run`** (`package`): `HConfig` is isolated to the actor and, now that it lives in another module, can no longer be read with `await HConfig.shared.x` from non-isolated code.
+- **Guards:** `scripts/check_core_independence.sh` (no REST names in `Sources/HarborCore`) and `scripts/check_websocket_only_link.sh` (the `Fixtures/WebSocketOnly` consumer imports only `HarborWebSocket`; 1,488 Core symbols, 0 REST symbols, and the handshake sees `Harbor.setAuthProvider`), both run in CI. A cross-product test in the Example app checks, in the simulator, that `Harbor` and `HarborWebSocket` share one configuration.
+- **Process finding:** earlier "no warnings" checks used a pattern that never matched the compiler's output order (path first). The real CI pattern found an unused-result warning in PR #67, fixed in `88bb088`.

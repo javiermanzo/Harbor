@@ -136,4 +136,4 @@ Requirements, defaults, the `HWebSocket` actor (`messages`, `send`, `ping()`, `c
 
 - `Sources/Harbor/Request/`: one file per protocol (`HRequestBaseRequestProtocol.swift`, `HRequestWithResultProtocol.swift`, `HRequestWithEmptyResponseProtocol.swift`, `HRequestWithBodyProtocol.swift`, `HGetRequestProtocol.swift`, `HPostRequestProtocol.swift`, ...), plus `HRetryPolicy.swift`, `HRequestError.swift`, `HResponse.swift` and `HFormValue.swift`.
 - `Sources/Harbor/Cache/HGetRequestProtocol+Cache.swift`: `cache()`, `cachedETag()`, `clearCache()`.
-- `Sources/Harbor/Debug/HDebugRequestProtocol.swift`.
+- `Sources/HarborCore/Debug/HDebugRequestProtocol.swift`.

@@ -6,11 +6,18 @@ How a request moves through Harbor, and where each concern lives in `Sources/`.
 
 | Module | Purpose | Key files |
 |---|---|---|
-| `Harbor` | REST requests, cache, auth, retry, security, mocks, logging | `Harbor.swift`, `Request/`, `Cache/`, `Config/`, `Debug/`, `Mock/`, `Auth/`, `Utils/` |
-| `HarborJRPC` | JSON-RPC 2.0 on top of Harbor | `HarborJRPC.swift`, `Request/`, `Config/` |
-| `HarborWebSocket` | WebSocket connections on top of Harbor | `HarborWebSocket.swift`, `Request/`, `Connection/`, `Config/`, `Debug/` |
+| `HarborCore` (not a product) | What several products share: auth provider and refresh, pinning/mTLS/redirects, logging and redaction, session pool, retry policy and attempt loop, URL composition, shared `Harbor.setX(_:)` setters | `Harbor.swift`, `Auth/`, `Config/`, `Debug/`, `Request/`, `Utils/` |
+| `Harbor` | REST requests, cache, mocks, multipart, request execution (re-exports `HarborCore`) | `Harbor+REST.swift`, `Request/`, `Cache/`, `Config/`, `Debug/`, `Mock/`, `Utils/` |
+| `HarborJRPC` | JSON-RPC 2.0 on top of Harbor's REST pipeline | `HarborJRPC.swift`, `Request/`, `Config/` |
+| `HarborWebSocket` | WebSocket connections on top of `HarborCore` only (re-exports it) | `HarborWebSocket.swift`, `Request/`, `Connection/`, `Config/`, `Debug/` |
 
-Harbor depends on [LogBird](https://github.com/javiermanzo/LogBird) (`from: "2.1.0"`) for logging, behind the `HLogger` facade. `HarborJRPC` and `HarborWebSocket` reach Harbor's internals (`HConfig`, `HLogger`, `HRedactionPolicy`, the session pool, the auth refresh and the error mapping of `HRequestManager`, `HURLBuilder`) through Swift's `package` access level, so nothing internal becomes public and no separate core module is needed.
+```text
+HarborCore ◄── Harbor ◄── HarborJRPC
+    ▲
+    └────────── HarborWebSocket
+```
+
+`HarborCore` and `Harbor` depend on [LogBird](https://github.com/javiermanzo/LogBird) (`from: "2.1.0"`) for logging, behind the `HLogger` facade. `HarborCore` is not a product: its internals (`HConfig`, `HLogger`, `HRedactionPolicy`, the session pool, the auth refresh, the attempt loop and the error mapping of `HRequestManager`, `HURLBuilder.compositeURL`) are `package`, and the types that were already public (`HRetryPolicy`, `HRequestError`, `HAuthProviderProtocol`, `HDebugRequestProtocol`, `HMTLS`, `HURLSessionDelegate`, the shared `Harbor` setters, ...) are re-exported with `@_exported import HarborCore` by `Harbor` and `HarborWebSocket`. A WebSocket-only app therefore links no cache, mocks, request protocols or multipart code, and can still call `Harbor.setAuthProvider(_:)`. `HarborJRPC` stays on `Harbor` because a JSON-RPC call is a REST POST.
 
 ## Protocol hierarchy
 
@@ -37,7 +44,7 @@ HWebSocketRequestProtocol (HarborWebSocket)  url, subprotocols, pingInterval, co
 ## Concurrency model
 
 - `@globalActor public actor HRequestManagerActor` serializes all of Harbor's mutable state.
-- `public enum Harbor` (the configuration API) and the internal `HRequestManager`, `HConfig` (`HConfig.shared`), `HMocker`, `HarborJRPC` and `HarborWebSocket` (with its `HWebSocketManager`) are isolated to that actor. That's why every `Harbor.setX(...)` call needs `await` from outside the actor.
+- `public enum Harbor` (the configuration API) and the internal `HRequestManager`, `HConfig` (`HConfig.shared`, shared) and `HRESTConfig` (REST only), `HMocker`, `HarborJRPC` and `HarborWebSocket` (with its `HWebSocketManager`) are isolated to that actor. That's why every `Harbor.setX(...)` call needs `await` from outside the actor.
 - Each open WebSocket connection is its own actor (`HWebSocket`): its send/receive state is independent of the global actor, which only runs the handshake.
 - Response decoding (`parseData(data:model:)`) runs off the actor, in a `nonisolated` function, so concurrent requests don't serialize their decoding.
 - The cache manager (`HCache.Manager.shared`) keeps memory and index state on the actor and does disk I/O on a concurrent queue (writes and deletes under a barrier).
@@ -55,7 +62,7 @@ request()
  │       else fail with .noConnection (needsAuth lookup rules: cache.md)
  ├─ needsAuth? → authProvider.getAuthorizationHeader()  (no provider → .authProviderNeeded)
  └─ attempt loop (runAttempts)
-      ├─ HURLBuilder.prepareRequest: URL + path/query encoding, timeout, cookies, body,
+      ├─ HURLBuilder.prepareRequest (+Request): URL + path/query encoding, timeout, cookies, body,
       │  default headers → request headers → auth header, conditional validators (custom cache)
       ├─ URLSession data/upload task with a per-task HTaskContext delegate
       ├─ 2xx  → decode off-actor, store in cache (GET; needsAuth: only under the credential it
@@ -117,11 +124,11 @@ connect()
 
 ## Related files
 
-- `Sources/Harbor/Request/HRequestManager.swift` (global actor, shared state and attempt outcomes) and its extensions: `+Execution` (request flows, attempt loop), `+Auth` (authorization, refresh), `+Mock`, `+Retry` (error mapping, `Retry-After`, backoff), `+URLSessionPool` (session cache).
+- `Sources/HarborCore/Request/HRequestManager.swift` (global actor, shared state and attempt outcomes) and its shared extensions: `+Auth` (authorization, refresh), `+AttemptLoop` (retry/401 loop used by REST and WebSocket), `+Retry` (error mapping, `Retry-After`, backoff), `+URLSessionPool` (session cache, `HSessionProfile`). REST-only extensions in `Sources/Harbor/Request/`: `+Execution` (request flows), `+Mock`, `+RESTSession` (request to session profile), `+RESTState` (remembered credentials, cache generation).
 - `Sources/Harbor/Request/HGetRequestProtocol.swift` (defaults, `requestStream`) and the other protocol files (one per protocol).
-- `Sources/Harbor/Request/HRetryPolicy.swift`: retry classification.
-- `Sources/Harbor/Utils/HURLBuilder.swift`: URL, header and body construction.
-- `Sources/Harbor/Request/HURLSessionDelegate.swift`: pinning, mTLS, redirects.
-- `Sources/Harbor/Config/HConfig.swift`: global state.
+- `Sources/HarborCore/Request/HRetryPolicy.swift`: retry classification.
+- `Sources/HarborCore/Utils/HURLBuilder.swift`: URL composition and encoding (shared); `Sources/Harbor/Utils/HURLBuilder+Request.swift`: header, body, multipart and cache-validator construction (REST).
+- `Sources/HarborCore/Request/HURLSessionDelegate.swift`: pinning, mTLS, redirects.
+- `Sources/HarborCore/Config/HConfig.swift`: global state shared by every product; `Sources/Harbor/Config/HRESTConfig.swift`: REST-only state (cache type, mocks, JSON decoder).
 - `Sources/HarborJRPC/Request/HJRPCRequestManager.swift`: JSON-RPC execution and batches.
 - `Sources/HarborWebSocket/Request/HWebSocketManager.swift`: handshake pipeline; `Sources/HarborWebSocket/Connection/HWebSocket.swift`: the connection actor; `HWebSocketTaskDelegate.swift`: task delegate.

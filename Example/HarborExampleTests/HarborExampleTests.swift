@@ -7,6 +7,7 @@
 
 import XCTest
 import Harbor
+import HarborWebSocket
 @testable import HarborExample
 
 /// Tests of the demo requests, models and auth providers. None of them reaches the real network:
@@ -152,5 +153,37 @@ final class HarborExampleTests: XCTestCase {
         await provider.setToken("abc", expiresIn: -1)
         let expired = await provider.getAuthorizationHeader()
         XCTAssertNil(expired)
+    }
+
+    // MARK: - Shared configuration across products
+
+    /// `Harbor` and `HarborWebSocket` both re-export `HarborCore`. Embedded as separate frameworks
+    /// (as Xcode does for packages), they must still share one configuration: a provider set
+    /// through `Harbor` has to be the one the WebSocket handshake consults.
+    func testWebSocketHandshakeSeesTheAuthProviderSetThroughHarbor() async {
+        struct AuthenticatedSocket: HWebSocketRequestProtocol {
+            let url = "ws://127.0.0.1:1/unreachable"
+            let needsAuth = true
+            let timeoutInterval: TimeInterval? = 2
+        }
+        await Harbor.setAuthProvider(nil)
+
+        // Without a provider the handshake refuses to start.
+        do {
+            _ = try await AuthenticatedSocket().connect()
+            XCTFail("Expected connect() to fail")
+        } catch {
+            XCTAssertEqual(error, .authProviderNeeded)
+        }
+
+        // With a provider set through Harbor, the handshake gets past the auth step (and only
+        // fails because nothing listens on the port).
+        await Harbor.setAuthProvider(TokenAuthProvider())
+        do {
+            _ = try await AuthenticatedSocket().connect()
+            XCTFail("Expected connect() to fail")
+        } catch {
+            XCTAssertNotEqual(error, .authProviderNeeded, "HarborWebSocket does not share Harbor's configuration")
+        }
     }
 }

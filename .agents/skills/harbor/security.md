@@ -212,8 +212,8 @@ func configureRedaction() async {
 
 ## Related files
 
-- `Sources/Harbor/Request/HURLSessionDelegate.swift`: challenges, pin matching, redirects.
-- `Sources/Harbor/Utils/HSPKI.swift`: SPKI reconstruction and pin computation.
-- `Sources/Harbor/Request/HmTLS.swift`, `Sources/Harbor/Utils/PKCS12.swift`: mTLS import.
-- `Sources/Harbor/Debug/HRedactionPolicy.swift`: log redaction.
-- `Sources/Harbor/Auth/HAuthProviderProtocol.swift`.
+- `Sources/HarborCore/Request/HURLSessionDelegate.swift`: challenges, pin matching, redirects.
+- `Sources/HarborCore/Utils/HSPKI.swift`: SPKI reconstruction and pin computation.
+- `Sources/HarborCore/Request/HmTLS.swift`, `Sources/HarborCore/Utils/PKCS12.swift`: mTLS import.
+- `Sources/HarborCore/Debug/HRedactionPolicy.swift`: log redaction.
+- `Sources/HarborCore/Auth/HAuthProviderProtocol.swift`.

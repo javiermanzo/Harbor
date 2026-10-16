@@ -56,7 +56,7 @@ package enum HRequestManager {
 /// loop should exit; otherwise signals a retry, a 401 that may be retried with refreshed
 /// credentials, or (inside the attempt only) a `304` without a cached body that is
 /// re-fetched unconditionally (`.refetchUnconditionally`).
-enum HAttemptOutcome<Response: Sendable> {
+package enum HAttemptOutcome<Response: Sendable> {
     /// The request is done; return the response to the caller.
     case finish(Response)
     /// The attempt failed in a retryable way; the loop runs another attempt after the given

@@ -10,28 +10,16 @@ import Harbor
 
 /// Runs the WebSocket handshake pipeline: URL building, connectivity pre-check, authentication
 /// (with the `401` refresh flow), retries and session leasing. Isolated to Harbor's global
-/// actor so it reads the shared configuration safely.
+/// actor so it reads the shared configuration safely. The attempt loop itself (retries,
+/// `Retry-After`, the auth refresh and the cancellation check) is Harbor's
+/// `HRequestManager.runAttemptLoop`, shared with REST requests.
 @HRequestManagerActor
 enum HWebSocketManager {
     /// Schemes accepted in a request URL. `http`/`https` are rewritten to `ws`/`wss`.
     static let allowedSchemes: Set<String> = ["ws", "wss", "http", "https"]
 
-    /// Maximum number of times the handshake is re-sent with a refreshed authorization header
-    /// after a 401, on top of the retry policy's `maxRetries` (same rule as REST requests).
-    static let maxAuthRetries = 1
-
-    /// Outcome of a single handshake attempt.
-    private enum AttemptOutcome {
-        /// The connection is open.
-        case open(HWebSocket)
-        /// The attempt failed in a retryable way; the next one runs after the given delay
-        /// (from `Retry-After`), or after the policy's backoff when `nil`.
-        case retry(after: TimeInterval?)
-        /// The server rejected the credentials.
-        case unauthorized
-        /// The attempt failed for good.
-        case fail(HWebSocketError)
-    }
+    /// Outcome of the handshake loop: the open connection, or the error to throw.
+    private typealias ConnectResult = Result<HWebSocket, HWebSocketError>
 }
 
 // MARK: - Connect
@@ -56,7 +44,7 @@ extension HWebSocketManager {
             throw .noConnection
         }
 
-        var authHeader: HAuthorizationHeader?
+        let authHeader: HAuthorizationHeader?
         switch await HRequestManager.authorizationHeader(needsAuth: request.needsAuth) {
         case .failure(let hError):
             let error = HWebSocketError(hRequestError: hError)
@@ -66,49 +54,24 @@ extension HWebSocketManager {
             authHeader = header
         }
 
-        let retryPolicy = request.retryPolicy
-        let maxRetries = retryPolicy?.maxRetries ?? 0
-        var retriesPerformed = 0
-        var authRetriesRemaining = maxAuthRetries
-        var providerNotified = false
-        var pendingDelay: TimeInterval?
-
-        while true {
-            if let delay = pendingDelay {
-                pendingDelay = nil
-                _ = await HRequestManager.sleep(seconds: delay)
-            }
-
-            guard !Task.isCancelled else {
-                await logContext?.logError(.cancelled)
-                throw .cancelled
-            }
-
-            let canRetry = retriesPerformed < maxRetries
-            switch await attempt(request: request, url: url, authHeader: authHeader, canRetry: canRetry, logContext: logContext) {
-            case .open(let socket):
-                return socket
-            case .retry(let retryAfter):
-                retriesPerformed += 1
-                pendingDelay = retryAfter ?? retryPolicy?.delay(forRetry: retriesPerformed) ?? 0
-            case .unauthorized:
-                switch await HRequestManager.refreshAuthorization(needsAuth: request.needsAuth,
-                                                                  usedHeader: authHeader,
-                                                                  authRetriesRemaining: authRetriesRemaining,
-                                                                  providerNotified: providerNotified) {
-                case .retry(let freshHeader, let notified):
-                    authHeader = freshHeader
-                    authRetriesRemaining -= 1
-                    providerNotified = providerNotified || notified
-                case .giveUp(let hError):
-                    let error = HWebSocketError(hRequestError: hError)
-                    await logContext?.logError(error)
-                    throw error
-                }
-            case .fail(let error):
+        let result: ConnectResult = await HRequestManager.runAttemptLoop(
+            needsAuth: request.needsAuth,
+            retryPolicy: request.retryPolicy,
+            authHeader: authHeader,
+            failWith: { hError in
+                let error = HWebSocketError(hRequestError: hError)
                 await logContext?.logError(error)
-                throw error
+                return .failure(error)
             }
+        ) { currentAuthHeader, canRetry in
+            await attempt(request: request, url: url, authHeader: currentAuthHeader, canRetry: canRetry, logContext: logContext)
+        }
+
+        switch result {
+        case .success(let socket):
+            return socket
+        case .failure(let error):
+            throw error
         }
     }
 
@@ -121,13 +84,13 @@ extension HWebSocketManager {
     ///   - authHeader: The authorization header to send, if any.
     ///   - canRetry: Whether the loop can run another attempt.
     ///   - logContext: The logging context when the request opted into logging.
-    private static func attempt<Request: HWebSocketRequestProtocol>(request: Request, url: URL, authHeader: HAuthorizationHeader?, canRetry: Bool, logContext: HWebSocketLogContext?) async -> AttemptOutcome {
+    private static func attempt<Request: HWebSocketRequestProtocol>(request: Request, url: URL, authHeader: HAuthorizationHeader?, canRetry: Bool, logContext: HWebSocketLogContext?) async -> HAttemptOutcome<ConnectResult> {
         let urlRequest = handshakeRequest(for: request, url: url, authHeader: authHeader)
         await logContext?.logHandshake(urlRequest: urlRequest, subprotocols: request.subprotocols)
 
         // Leased until the connection closes (see `HWebSocket`), so a configuration change
         // meanwhile only retires the session instead of invalidating it under the task.
-        let session = HRequestManager.leaseURLSession()
+        let session = HRequestManager.leaseWebSocketURLSession()
         let delegate = HWebSocketTaskDelegate(authHeaderKey: authHeader?.key)
         let task = session.webSocketTask(with: urlRequest)
         task.delegate = delegate
@@ -146,6 +109,15 @@ extension HWebSocketManager {
             } onCancel: {
                 task.cancel()
             }
+
+            // A cancellation that lands right after the handshake succeeded has already
+            // cancelled the task: never hand out a connection that is dying.
+            guard !Task.isCancelled else {
+                task.cancel(with: .goingAway, reason: nil)
+                HRequestManager.releaseURLSession(session)
+                return .finish(.failure(.cancelled))
+            }
+
             let socket = HWebSocket(task: task,
                                     session: session,
                                     delegate: delegate,
@@ -154,10 +126,14 @@ extension HWebSocketManager {
                                     logContext: logContext)
             await socket.start()
             await logContext?.logOpen(subprotocol: subprotocol, duration: Date().timeIntervalSince(startTime) * 1000)
-            return .open(socket)
+            return .finish(.success(socket))
         } catch {
             HRequestManager.releaseURLSession(session)
-            return failureOutcome(error, task: task, delegate: delegate, request: request, canRetry: canRetry)
+            let outcome = failureOutcome(error, task: task, delegate: delegate, request: request, canRetry: canRetry)
+            if case .finish(.failure(let failure)) = outcome {
+                await logContext?.logError(failure)
+            }
+            return outcome
         }
     }
 
@@ -171,7 +147,7 @@ extension HWebSocketManager {
     ///   - delegate: The task delegate, which knows whether TLS was rejected.
     ///   - request: The endpoint description.
     ///   - canRetry: Whether the loop can run another attempt.
-    private static func failureOutcome<Request: HWebSocketRequestProtocol>(_ error: Error, task: URLSessionWebSocketTask, delegate: HWebSocketTaskDelegate, request: Request, canRetry: Bool) -> AttemptOutcome {
+    private static func failureOutcome<Request: HWebSocketRequestProtocol>(_ error: Error, task: URLSessionWebSocketTask, delegate: HWebSocketTaskDelegate, request: Request, canRetry: Bool) -> HAttemptOutcome<ConnectResult> {
         if let httpResponse = task.response as? HTTPURLResponse, httpResponse.statusCode != 101, !delegate.trustEvaluationFailed {
             let statusCode = httpResponse.statusCode
             if statusCode == 401 {
@@ -181,7 +157,7 @@ extension HWebSocketManager {
                case .retry(let retryAfter) = HRequestManager.statusRetry(statusCode: statusCode, httpResponse: httpResponse) {
                 return .retry(after: retryAfter)
             }
-            return .fail(.handshakeFailed(statusCode: statusCode))
+            return .finish(.failure(.handshakeFailed(statusCode: statusCode)))
         }
 
         if let urlError = error as? URLError {
@@ -190,10 +166,10 @@ extension HWebSocketManager {
                request.retryPolicy?.shouldRetry(urlError: urlError, method: .get) == true {
                 return .retry(after: nil)
             }
-            return .fail(HWebSocketError(hRequestError: hError))
+            return .finish(.failure(HWebSocketError(hRequestError: hError)))
         }
 
-        return .fail(HWebSocketError(hRequestError: HRequestManager.mapNonURLError(error)))
+        return .finish(.failure(HWebSocketError(hRequestError: HRequestManager.mapNonURLError(error))))
     }
 }
 

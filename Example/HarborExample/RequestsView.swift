@@ -763,36 +763,39 @@ struct RequestsView: View {
                     addResult("Connected (subprotocol: \(socket.negotiatedSubprotocol ?? "none"))")
                 }
 
-                // Read messages until the connection closes: the loop ends normally on a close
-                // frame (see `state`) and throws when the connection is lost.
-                do {
-                    for try await message in socket.messages {
-                        let text: String
-                        switch message {
-                        case .text(let value):
-                            if let payload = try? message.decode(EchoPayload.self) {
-                                text = "Echoed payload #\(payload.id): \(payload.text)"
-                            } else {
-                                text = "Received: \(value)"
+                // Read messages in a task of its own, for as long as the connection lives, so
+                // the loading overlay only covers the handshake. The loop ends normally on a
+                // close frame (see `state`) and throws when the connection is lost.
+                Task {
+                    do {
+                        for try await message in socket.messages {
+                            let text: String
+                            switch message {
+                            case .text(let value):
+                                if let payload = try? message.decode(EchoPayload.self) {
+                                    text = "Echoed payload #\(payload.id): \(payload.text)"
+                                } else {
+                                    text = "Received: \(value)"
+                                }
+                            case .data(let data):
+                                text = "Received \(data.count) bytes"
                             }
-                        case .data(let data):
-                            text = "Received \(data.count) bytes"
+                            await MainActor.run {
+                                addResult(text)
+                            }
                         }
+                        let state = await socket.state
                         await MainActor.run {
-                            addResult(text)
+                            addResult("Connection closed: \(state)")
+                        }
+                    } catch {
+                        await MainActor.run {
+                            addResult("Connection lost: \(error.localizedDescription)")
                         }
                     }
-                    let state = await socket.state
                     await MainActor.run {
-                        addResult("Connection closed: \(state)")
+                        webSocket = nil
                     }
-                } catch {
-                    await MainActor.run {
-                        addResult("Connection lost: \(error.localizedDescription)")
-                    }
-                }
-                await MainActor.run {
-                    webSocket = nil
                 }
             } catch {
                 await MainActor.run {

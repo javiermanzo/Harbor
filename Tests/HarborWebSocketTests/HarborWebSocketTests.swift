@@ -400,6 +400,59 @@ final class HarborWebSocketTests: XCTestCase {
         await socket.close()
     }
 
+    func testManualPingOnADeadLinkThrowsPingTimeoutAndClosesTheConnection() async throws {
+        // Given a server that never answers pings and a short ping interval (the ping timeout)
+        let server = try await startServer(autoReplyPing: false)
+        let socket = try await TestSocket(url: server.url(), pingInterval: 0.3).connect()
+
+        // When
+        do {
+            try await socket.ping()
+            XCTFail("Expected ping() to throw")
+        } catch {
+            XCTAssertEqual(error, .pingTimeout)
+        }
+
+        // Then
+        let result = await drain(socket)
+        XCTAssertEqual(result.error, .pingTimeout)
+        let state = await socket.state
+        XCTAssertEqual(state, .closed(code: .abnormalClosure, reason: nil))
+    }
+
+    func testServerCloseWhileAPingIsInFlightReportsTheCloseCode() async throws {
+        // Given a server that never answers pings and closes while a keep-alive ping is pending
+        let server = try await startServer(autoReplyPing: false) { connection in
+            DispatchQueue.global().asyncAfter(deadline: .now() + 0.35) {
+                connection.close(code: .protocolCode(.policyViolation), reason: Data("banned".utf8))
+            }
+        }
+        let socket = try await TestSocket(url: server.url(), pingInterval: 0.25).connect()
+
+        // When
+        let result = await drain(socket)
+
+        // Then: the close frame wins over the ping failure
+        XCTAssertNil(result.error)
+        let state = await socket.state
+        XCTAssertEqual(state, .closed(code: .policyViolation, reason: Data("banned".utf8)))
+    }
+
+    func testNonFinitePingIntervalDisablesPings() async throws {
+        // Given
+        let server = try await startServer()
+
+        // When
+        let socket = try await TestSocket(url: server.url(), pingInterval: .infinity).connect()
+        try await Task.sleep(nanoseconds: 200_000_000)
+
+        // Then: no trap, no pings
+        let state = await socket.state
+        XCTAssertEqual(state, .open)
+        XCTAssertTrue(server.connections.first?.received.isEmpty ?? true)
+        await socket.close()
+    }
+
     func testMissingPongClosesTheConnectionWithPingTimeout() async throws {
         // Given a server that never answers pings
         let server = try await startServer(autoReplyPing: false)
@@ -440,6 +493,26 @@ final class HarborWebSocketTests: XCTestCase {
     }
 
     // MARK: - Session Pool
+
+    func testResourceTimeoutDoesNotApplyToConnections() async throws {
+        // Given a whole-transfer timeout meant for REST transfers
+        Harbor.setDefaultResourceTimeoutInterval(1)
+        defer { Harbor.setDefaultResourceTimeoutInterval(nil) }
+        let server = try await startServer()
+        let socket = try await TestSocket(url: server.url()).connect()
+        try await Task.sleep(nanoseconds: 1_500_000_000)
+
+        // When
+        try await socket.send("outlived the resource timeout")
+
+        // Then
+        let connection = try XCTUnwrap(server.connections.first)
+        let frames = await connection.waitForFrames(count: 1)
+        XCTAssertEqual(frames.first, .text("outlived the resource timeout"))
+        let state = await socket.state
+        XCTAssertEqual(state, .open)
+        await socket.close()
+    }
 
     func testConnectionHoldsItsSessionLeaseUntilClosed() async throws {
         // Given

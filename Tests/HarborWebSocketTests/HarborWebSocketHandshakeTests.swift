@@ -204,6 +204,19 @@ final class HarborWebSocketHandshakeTests: XCTestCase {
         XCTAssertNil(responder.receivedRequests.first?.headers["authorization"])
     }
 
+    func testFailedHandshakeReleasesItsSessionLease() async throws {
+        // Given a rejected handshake
+        let responder = try await startResponder { _ in .reply(LoopbackHTTPReply(statusCode: 404)) }
+        _ = await connectError(TestSocket(url: responder.url()))
+
+        // When the sessions are retired by a configuration change
+        Harbor.setHTTPShouldHandleCookies(true)
+        defer { Harbor.setHTTPShouldHandleCookies(false) }
+
+        // Then no lease keeps the retired session alive
+        XCTAssertEqual(HRequestManager.retiredURLSessionCount, 0)
+    }
+
     // MARK: - Transport Failures
 
     func testConnectionRefusedFailsWithCannotConnectToHost() async throws {

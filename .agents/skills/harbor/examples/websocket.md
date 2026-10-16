@@ -55,20 +55,27 @@ func chat() async {
         try await socket.send("hello")                           // text frame
         try await socket.send(Data([0x01, 0x02]))                // binary frame
 
-        // Iterate from one place. The loop ends when the connection closes.
-        for try await message in socket.messages {
-            switch message {
-            case .text(let text):
-                let event = try message.decode(ChatEvent.self)   // JSON helper, also for .data
-                print(event.user, event.text, text.count)
-            case .data(let data):
-                print(data.count)
+        do {
+            // Iterate from one place. The loop ends when the connection closes.
+            for try await message in socket.messages {
+                switch message {
+                case .text(let text):
+                    let event = try message.decode(ChatEvent.self)   // JSON helper, also for .data
+                    print(event.user, event.text, text.count)
+                case .data(let data):
+                    print(data.count)
+                }
             }
-        }
 
-        // Closed by a close frame: the code and reason are in `state`.
-        if case .closed(let code, let reason) = await socket.state {
-            print(code, reason.map { String(decoding: $0, as: UTF8.self) } ?? "")
+            // Closed by a close frame: the code and reason are in `state`.
+            if case .closed(let code, let reason) = await socket.state {
+                print(code, reason.map { String(decoding: $0, as: UTF8.self) } ?? "")
+            }
+        } catch {
+            // The connection was lost, or `decode` threw: leaving the loop by `throw`, `break`
+            // or `return` does not close the connection, so close it explicitly.
+            await socket.close()
+            throw error
         }
     } catch let error as HWebSocketError {
         // Thrown by connect(), send, ping() and the stream (connection lost without a close frame).
@@ -86,9 +93,9 @@ func leave(_ socket: HWebSocket) async {
 Lifecycle rules:
 
 - `messages` **finishes** when the connection closes through a close frame, sent by the server or by `close(code:reason:)`; `state` becomes `.closed(code:reason:)` with that code.
-- `messages` **throws** an `HWebSocketError` when the connection is lost without a close frame (`.networkFailure`, `.unknown` with the POSIX error, `.certificate`, `.pingTimeout`, `.messageTooBig`, `.cancelled`); `state` is `.closed(code: .abnormalClosure, reason: nil)`.
+- `messages` **throws** an `HWebSocketError` when the connection is lost without a close frame (`.networkFailure`, `.unknown` with the POSIX error, `.pingTimeout`, `.messageTooBig`); `state` is `.closed(code: .abnormalClosure, reason: nil)`.
 - Messages are read continuously and buffered until iterated, so close frames and pings are handled even while the app is not reading.
-- Cancelling the task that iterates `messages` closes the connection with `.goingAway`.
+- Cancelling the task that iterates `messages` closes the connection with `.goingAway`. Leaving the loop any other way (`break`, `return`, a `throw` of your own such as a failed `decode`) does **not** close it: call `close()`.
 - `send` and `ping()` on a closed connection throw `.notConnected`.
 - A connection stays open (and the `HWebSocket` alive) until it is closed by either side: call `close()` when done, as with a `URLSessionTask`.
 
@@ -105,11 +112,11 @@ struct PricesSocket: HWebSocketRequestProtocol {
 }
 
 func manualPing(_ socket: HWebSocket) async throws {
-    try await socket.ping()                             // waits for the pong
+    try await socket.ping()                             // waits for the pong (pingInterval, or 10 s without one)
 }
 ```
 
-A ping is sent after every `pingInterval` seconds; when the pong does not arrive within the same interval the connection is closed and `messages` throws `.pingTimeout`.
+A ping is sent every `pingInterval` seconds, regardless of traffic; when the pong does not arrive within the same interval the connection is closed and `messages` throws `.pingTimeout`. `ping()` applies the same timeout (`HWebSocket.defaultPingTimeout`, 10 seconds, when the request has no `pingInterval`) and throws `.pingTimeout` after closing the connection, so it can be used to probe a half-open link.
 
 ## Authentication
 
@@ -149,8 +156,13 @@ final class LiveFeed: ObservableObject {
             do {
                 let socket = try await ChatSocket(room: "swift").connect()
                 failures = 0
-                for try await message in socket.messages {
-                    events.append(try message.decode(ChatEvent.self))
+                do {
+                    for try await message in socket.messages {
+                        events.append(try message.decode(ChatEvent.self))
+                    }
+                } catch {
+                    await socket.close()   // a failed decode leaves the loop with the socket open
+                    throw error
                 }
                 // Server closed the connection with a close frame: reconnect unless told not to.
                 if case .closed(let code, _) = await socket.state, code == .policyViolation { return }

@@ -65,10 +65,11 @@ public protocol HWebSocketRequestProtocol: Sendable {
     /// (`Harbor.setDefaultTimeoutInterval(_:)`).
     var timeoutInterval: TimeInterval? { get }
 
-    /// Interval between keep-alive pings, in seconds. A pong that does not arrive within the
-    /// same interval closes the connection and the `messages` stream throws
-    /// `HWebSocketError.pingTimeout`. Default: `nil`, the interval set with
-    /// `HarborWebSocket.setDefaultPingInterval(_:)` (no pings unless configured).
+    /// Interval between keep-alive pings, in seconds, sent regardless of traffic. A pong that
+    /// does not arrive within the same interval closes the connection and the `messages`
+    /// stream throws `HWebSocketError.pingTimeout`; the interval is also how long `ping()`
+    /// waits. Default: `nil`, the interval set with `HarborWebSocket.setDefaultPingInterval(_:)`
+    /// (no pings unless configured). Values that are not finite and greater than zero disable the pings.
     var pingInterval: TimeInterval? { get }
 
     /// Maximum size of a received message in bytes; larger messages fail the connection.
@@ -104,6 +105,8 @@ public extension HWebSocketRequestProtocol {
     /// Default: `nil`, the system default.
     var maximumMessageSize: Int? { nil }
 }
+
+// MARK: - Connecting
 
 /// Default connection implementation.
 public extension HWebSocketRequestProtocol {

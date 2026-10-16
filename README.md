@@ -554,18 +554,21 @@ func chat() async throws {
 
     // Ends when the connection closes: normally after a close frame (see `state`),
     // throwing when the connection is lost without one.
-    for try await message in socket.messages {
-        let event = try message.decode(ChatEvent.self)
-        print(event.user, event.text)
+    do {
+        for try await message in socket.messages {
+            let event = try message.decode(ChatEvent.self)
+            print(event.user, event.text)
+        }
+    } catch {
+        await socket.close()   // leaving the loop by throw/break does not close the connection
+        throw error
     }
-
-    await socket.close(code: .normalClosure, reason: nil)
 }
 ```
 
 Other details:
 - Every requirement except `url` has a default: `pathParameters`, `queryParameters`, `headerParameters`, `subprotocols`, `needsAuth`, `retryPolicy` (handshake only; connections are never reconnected automatically), `timeoutInterval` (handshake), `pingInterval` (or `HarborWebSocket.setDefaultPingInterval(_:)`) and `maximumMessageSize`.
-- `state` is `.open` or `.closed(code:reason:)`. Messages are read continuously and buffered until iterated; iterate `messages` from one place. Cancelling the iterating task closes the connection with `.goingAway`. Call `close()` when done: a connection stays open until either side closes it.
+- `state` is `.open` or `.closed(code:reason:)`. Messages are read continuously and buffered until iterated; iterate `messages` from one place. Cancelling the iterating task closes the connection with `.goingAway`; leaving the loop any other way does not. Call `close()` when done: a connection stays open until either side closes it.
 - `HWebSocketError` mirrors `HRequestError`'s transport cases and adds `.handshakeFailed(statusCode:)`, `.notConnected`, `.pingTimeout`, `.messageTooBig` and `.invalidURL(reason:)`. `send`, `ping()` and `decode(_:)` use typed throws.
 - `HMock` does not apply to WebSocket connections; test against a loopback server (see `.agents/skills/harbor/examples/websocket.md`).
 

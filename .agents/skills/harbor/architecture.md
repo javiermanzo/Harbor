@@ -87,7 +87,7 @@ Notes:
 - Otherwise Harbor builds sessions with `HURLSessionDelegate` and caches up to **4** of them, keyed by cache configuration and cookie handling. When the limit is reached, only the least recently used session is dropped; it is invalidated once no in-flight attempt holds it, and rebuilt on demand. Changing timeouts, mTLS, pins or cookie handling retires all of them the same way.
 - The per-request timeout (`timeoutInterval` or the default) is set on each `URLRequest`, so it also applies to custom sessions. `setDefaultResourceTimeoutInterval(_:)` applies only to Harbor-built sessions.
 - Requests with a `.custom` or `.disabled` cache type use sessions isolated from `URLCache.shared`.
-- WebSocket connections lease the cache-less session (the one non-GET requests use) for as long as they are open, so a configuration change meanwhile retires the session without invalidating it under the task.
+- WebSocket connections lease a session of their own (no `URLCache`, no resource timeout: a connection may stay open longer than any transfer) for as long as they are open, so a configuration change meanwhile retires the session without invalidating it under the task. A custom session is used as-is, as for REST.
 
 ## JSON-RPC adapter
 
@@ -108,11 +108,12 @@ connect()
       │  keeps handling challenges through the package HTaskDelegateContext protocol)
       ├─ open  → HWebSocket actor (receive loop + optional ping loop) → return
       ├─ 401   → HRequestManager.refreshAuthorization (same rules as REST), re-send once
+      │  (the loop itself is HRequestManager.runAttemptLoop, shared with REST requests)
       ├─ other non-101 status → retry per policy / Retry-After, else .handshakeFailed
       └─ URLError → mapTransportError (.certificate never retried), retry if transient
 ```
 
-`HWebSocket` reads messages continuously into an unbounded `AsyncThrowingStream`. When `receive()` fails it waits (bounded) for the task completion, then ends the stream normally if a close frame was recorded (`task.closeCode` or the delegate's `didCloseWith`), or throws the mapped error otherwise. `close(code:reason:)` cancels the task with the close code, finishes the stream and releases the session lease. Keep-alive pings race `sendPing` against a timer; a missing pong closes the connection with `.pingTimeout`. See `examples/websocket.md`.
+`HWebSocket` reads messages continuously into an unbounded `AsyncThrowingStream`. When `receive()` fails it waits (bounded) for the task completion, then ends the stream normally if a close frame was recorded (`task.closeCode` or the delegate's `didCloseWith`), or throws the mapped error otherwise. `close(code:reason:)` cancels the task with the close code, finishes the stream and releases the session lease. Keep-alive pings race `sendPing` against a timer: a missing pong closes the connection with `.pingTimeout`, while a ping that fails with an error leaves the classification to the receive loop (the connection is closing or lost). See `examples/websocket.md`.
 
 ## Related files
 

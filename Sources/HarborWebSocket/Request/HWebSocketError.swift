@@ -41,8 +41,9 @@ public enum HWebSocketError: Sendable {
     case cannotFindHost
     /// The host was resolved but a connection to it could not be established.
     case cannotConnectToHost
-    /// The operation was cancelled: the `Task` calling `connect()` was cancelled, or the task
-    /// iterating `messages` was cancelled, which closes the connection.
+    /// The `Task` calling `connect()`, `send`, or `ping()` was cancelled. (Cancelling the task
+    /// that iterates `messages` closes the connection instead: the stream finishes and `state`
+    /// is `.closed(code: .goingAway, reason: nil)`.)
     case cancelled
     /// The TLS handshake failed: SSL pinning rejected the server, its certificate chain is
     /// invalid, or the client certificate was missing or rejected.

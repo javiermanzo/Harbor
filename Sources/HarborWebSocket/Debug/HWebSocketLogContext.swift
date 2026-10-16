@@ -119,7 +119,10 @@ extension HWebSocketLogContext {
     /// - Parameter error: The error.
     func logError(_ error: HWebSocketError) async {
         guard await HLogger.isLoggingEnabled else { return }
-        await HLogger.log("WebSocket error \(requestName)", extraMessages: [LBExtraMessage(key: "Error Type", value: "\(error)")], additionalInfo: ["request": .string(requestName)], level: .error)
+        // The description, not the raw value: a wrapped URLError's userInfo carries the full
+        // URL, whose query string may hold a token.
+        let description = error.errorDescription ?? String(describing: type(of: error))
+        await HLogger.log("WebSocket error \(requestName)", extraMessages: [LBExtraMessage(key: "Error Type", value: description)], additionalInfo: ["request": .string(requestName)], level: .error)
     }
 }
 

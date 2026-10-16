@@ -18,21 +18,28 @@ import Harbor
 /// let socket = try await ChatSocket().connect()
 /// try await socket.send(json: JoinRoom(name: "swift"))
 ///
-/// for try await message in socket.messages {
-///     let event = try message.decode(ChatEvent.self)
-///     print(event)
+/// do {
+///     for try await message in socket.messages {
+///         let event = try message.decode(ChatEvent.self)
+///         print(event)
+///     }
+///     // The loop ended because the connection closed; `state` carries the close code.
+/// } catch {
+///     // The connection was lost, or the loop left through `throw`: close it explicitly.
+///     await socket.close()
 /// }
-/// // The loop ends when the connection closes; `state` carries the close code.
 /// ```
 ///
 /// Lifecycle:
 /// - `messages` **finishes** when the connection closes through a close frame, sent by the
 ///   server or by `close(code:reason:)`. `state` is then `.closed` with that code.
 /// - `messages` **throws** an `HWebSocketError` when the connection is lost without a close
-///   frame: a transport failure, a rejected TLS handshake, a keep-alive ping without pong
-///   (`.pingTimeout`) or a message larger than `maximumMessageSize`. `state` is then
+///   frame: a transport failure, a keep-alive ping without pong (`.pingTimeout`) or a message
+///   larger than `maximumMessageSize` (`.messageTooBig`). `state` is then
 ///   `.closed(code: .abnormalClosure, reason: nil)`.
 /// - Cancelling the task that iterates `messages` closes the connection with `.goingAway`.
+///   Leaving the loop any other way (`break`, `return`, a `throw` of your own) does not:
+///   call `close(code:reason:)`.
 /// - Messages are read continuously and buffered until iterated, so close frames and pings
 ///   are handled even while the app is not reading. Iterate `messages` from one place.
 /// - A connection that is no longer needed must be closed with `close(code:reason:)`: like a
@@ -74,7 +81,8 @@ public actor HWebSocket {
     ///   - session: The leased session the task runs on.
     ///   - delegate: The task delegate.
     ///   - negotiatedSubprotocol: The subprotocol the server selected.
-    ///   - pingInterval: The keep-alive ping interval, or `nil`.
+    ///   - pingInterval: The keep-alive ping interval, or `nil`. Values that are not finite
+    ///     and positive disable the pings.
     ///   - logContext: Debug logging, when the request opted in.
     init(task: URLSessionWebSocketTask,
          session: URLSession,
@@ -86,7 +94,7 @@ public actor HWebSocket {
         self.session = session
         self.delegate = delegate
         self.negotiatedSubprotocol = negotiatedSubprotocol
-        self.pingInterval = (pingInterval ?? 0) > 0 ? pingInterval : nil
+        self.pingInterval = pingInterval.flatMap { $0.isFinite && $0 > 0 ? $0 : nil }
         self.logContext = logContext
         (messages, continuation) = AsyncThrowingStream.makeStream(of: HWebSocketMessage.self, bufferingPolicy: .unbounded)
     }
@@ -129,14 +137,22 @@ public extension HWebSocket {
         try await send(message: .text(text))
     }
 
-    /// Sends a ping frame and waits for the server's pong.
-    /// - Throws: `.notConnected` when the connection is closed, or the transport error.
+    /// Sends a ping frame and waits for the server's pong, for at most the request's
+    /// `pingInterval` (or `HWebSocket.defaultPingTimeout` when none is set). A pong that does
+    /// not arrive in time means the connection is dead: it is closed, `messages` throws
+    /// `.pingTimeout` and so does this call.
+    /// - Throws: `.notConnected` when the connection is closed, `.pingTimeout` when the pong
+    ///   did not arrive in time, or the transport error.
     func ping() async throws(HWebSocketError) {
         guard case .open = state else { throw .notConnected }
-        do {
-            try await Self.sendPing(on: task)
-        } catch {
+        switch await Self.ping(task, timeout: pingInterval ?? Self.defaultPingTimeout) {
+        case .pong:
+            return
+        case .failed(let error):
             throw mapped(error)
+        case .timedOut:
+            await pingTimedOut()
+            throw .pingTimeout
         }
     }
 
@@ -150,6 +166,9 @@ public extension HWebSocket {
         task.cancel(with: code, reason: reason)
         await finish(code: code, reason: reason, error: nil, initiatedLocally: true)
     }
+
+    /// How long `ping()` waits for the pong when the request sets no `pingInterval`: 10 seconds.
+    static let defaultPingTimeout: TimeInterval = 10
 }
 
 // MARK: - Lifecycle
@@ -180,7 +199,14 @@ extension HWebSocket {
             pingTask = Task { [task] in
                 while !Task.isCancelled {
                     guard await Self.sleep(seconds: pingInterval) else { return }
-                    guard await Self.pingWithTimeout(pingInterval, on: task) else {
+                    switch await Self.ping(task, timeout: pingInterval) {
+                    case .pong:
+                        continue
+                    case .failed:
+                        // The connection is closing or lost: the receive loop classifies it
+                        // (close frame vs. transport failure) so the real reason is reported.
+                        return
+                    case .timedOut:
                         await self.pingTimedOut()
                         return
                     }
@@ -191,9 +217,10 @@ extension HWebSocket {
 
     /// Handles the end of the receive loop. A close frame (the task's close code, or the one
     /// the delegate recorded) ends the stream normally; anything else is a lost connection and
-    /// the stream throws the mapped error. `receive()` can fail before `URLSession` records
-    /// the close frame, so the decision waits for the task to complete (bounded, in case the
-    /// completion never arrives).
+    /// the stream throws the mapped error. `receive()` can fail before `URLSession` delivers
+    /// the close frame to the delegate, so the decision waits for the task to complete
+    /// (`didCompleteWithError`, which follows `didCloseWith`), bounded by
+    /// `completionGracePeriod` in case the completion never arrives.
     /// - Parameter error: The error `receive()` failed with.
     private func handleReceiveFailure(_ error: Error) async {
         guard case .open = state else { return }
@@ -212,7 +239,7 @@ extension HWebSocket {
         }
     }
 
-    /// Closes a connection whose keep-alive ping was not answered in time.
+    /// Closes a connection whose ping was not answered in time.
     private func pingTimedOut() async {
         guard case .open = state else { return }
         task.cancel()
@@ -273,22 +300,44 @@ extension HWebSocket {
 // MARK: - Pings
 
 extension HWebSocket {
+    /// How a ping ended.
+    private enum PingOutcome: Sendable {
+        /// The pong arrived.
+        case pong
+        /// `URLSession` reported an error (the connection is closing or lost).
+        case failed(Error)
+        /// Neither a pong nor an error arrived within the timeout.
+        case timedOut
+    }
+
+    /// How long a failed `receive()` waits for the task completion before treating the
+    /// connection as lost.
+    private static let completionGracePeriod: TimeInterval = 3
+
     /// Sends a ping and waits for the pong. `sendPing(pongReceiveHandler:)` has no `async`
     /// form and its handler has been seen to fire twice (or never, on a dead connection), so
     /// the continuation is resumed once, and cancelling the waiting task resumes it with
-    /// `CancellationError`.
+    /// `CancellationError` (also when the task was already cancelled on entry).
     /// - Parameter task: The task to ping.
     /// - Throws: The error reported with the pong, if any.
     private static func sendPing(on task: URLSessionWebSocketTask) async throws {
         let pending = HLockedState<CheckedContinuation<Void, Error>?>(nil)
+        let takePending: @Sendable () -> CheckedContinuation<Void, Error>? = {
+            pending.withLock { pending in
+                defer { pending = nil }
+                return pending
+            }
+        }
         try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
                 pending.withLock { $0 = continuation }
+                // `onCancel` already ran (to no effect) when the task was cancelled on entry.
+                if Task.isCancelled {
+                    takePending()?.resume(throwing: CancellationError())
+                    return
+                }
                 task.sendPing { error in
-                    guard let continuation = pending.withLock({ pending -> CheckedContinuation<Void, Error>? in
-                        defer { pending = nil }
-                        return pending
-                    }) else { return }
+                    guard let continuation = takePending() else { return }
                     if let error {
                         continuation.resume(throwing: error)
                     } else {
@@ -297,30 +346,28 @@ extension HWebSocket {
                 }
             }
         } onCancel: {
-            let continuation = pending.withLock { pending -> CheckedContinuation<Void, Error>? in
-                defer { pending = nil }
-                return pending
-            }
-            continuation?.resume(throwing: CancellationError())
+            takePending()?.resume(throwing: CancellationError())
         }
     }
 
     /// Pings the task and waits at most `timeout` seconds for the pong.
     /// - Parameters:
-    ///   - timeout: The time to wait for the pong, in seconds.
     ///   - task: The task to ping.
-    /// - Returns: `true` when the pong arrived in time, `false` on timeout or error.
-    private static func pingWithTimeout(_ timeout: TimeInterval, on task: URLSessionWebSocketTask) async -> Bool {
-        await withTimeout(timeout) {
-            (try? await sendPing(on: task)) != nil
-        } ?? false
+    ///   - timeout: The time to wait for the pong, in seconds.
+    private static func ping(_ task: URLSessionWebSocketTask, timeout: TimeInterval) async -> PingOutcome {
+        let outcome: PingOutcome? = await withTimeout(timeout) {
+            do {
+                try await sendPing(on: task)
+                return .pong
+            } catch {
+                return .failed(error)
+            }
+        }
+        return outcome ?? .timedOut
     }
 
-    /// How long a failed `receive()` waits for the task completion before treating the
-    /// connection as lost.
-    private static let completionGracePeriod: TimeInterval = 1
-
-    /// Runs `operation` and gives up after `timeout` seconds.
+    /// Runs `operation` and gives up after `timeout` seconds. Both children honor
+    /// cancellation, so the group never waits past the timeout.
     /// - Parameters:
     ///   - timeout: The time to wait, in seconds.
     ///   - operation: The operation.
@@ -341,13 +388,17 @@ extension HWebSocket {
         }
     }
 
-    /// Sleeps for the given number of seconds.
+    /// Longest sleep accepted, so the conversion to nanoseconds never traps: one day.
+    private static let maxSleep: TimeInterval = 86_400
+
+    /// Sleeps for the given number of seconds (clamped to `maxSleep`).
     /// - Parameter seconds: The duration.
     /// - Returns: `false` when the task was cancelled before or during the sleep.
     private static func sleep(seconds: TimeInterval) async -> Bool {
-        guard seconds > 0 else { return !Task.isCancelled }
+        let clamped = min(max(seconds.isFinite ? seconds : maxSleep, 0), maxSleep)
+        guard clamped > 0 else { return !Task.isCancelled }
         do {
-            try await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+            try await Task.sleep(nanoseconds: UInt64(clamped * 1_000_000_000))
             return !Task.isCancelled
         } catch {
             return false

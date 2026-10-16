@@ -24,6 +24,18 @@ extension HRequestManager {
         var cache: CacheSignature
         /// Whether the session handles cookies through the shared cookie storage.
         var httpShouldHandleCookies: Bool
+        /// Whether the session is built for WebSocket connections (see `SessionPurpose`).
+        var isWebSocket: Bool
+    }
+
+    /// What a session is built for. WebSocket connections live as long as the app keeps them
+    /// open, so their session never gets the whole-transfer resource timeout meant for REST
+    /// transfers (`Harbor.setDefaultResourceTimeoutInterval(_:)`) and uses no `URLCache`.
+    private enum SessionPurpose {
+        /// A REST request with the given cache configuration (`nil` keeps the defaults).
+        case request(cacheType: HCache.CacheType?)
+        /// A WebSocket connection.
+        case webSocket
     }
 
     /// Maximum number of internally built sessions kept alive at once. Requests alternating
@@ -64,19 +76,18 @@ extension HRequestManager {
     /// so the session cannot be invalidated while they hold it.
     /// - Parameter request: The request whose cache type and configuration select the session.
     static func getURLSession(for request: any HRequestBaseRequestProtocol) -> URLSession {
-        getURLSession(cacheType: cacheType(for: request))
+        getURLSession(purpose: .request(cacheType: cacheType(for: request)))
     }
 
-    /// The session for the given cache configuration (`nil` for operations without a cache,
-    /// such as non-GET requests and WebSocket handshakes). See `getURLSession(for:)`.
-    /// - Parameter cacheType: The cache type selecting the session's `URLCache`, if any.
-    private static func getURLSession(cacheType: HCache.CacheType?) -> URLSession {
+    /// The session for the given purpose. See `getURLSession(for:)`.
+    /// - Parameter purpose: What the session is used for.
+    private static func getURLSession(purpose: SessionPurpose) -> URLSession {
         if let customURLSession = HConfig.shared.customURLSession {
             return customURLSession
         }
 
         sessionUseTick &+= 1
-        let signature = sessionSignature(cacheType: cacheType)
+        let signature = sessionSignature(purpose: purpose)
         if let cached = cachedSessions[signature] {
             cachedSessions[signature]?.lastUse = sessionUseTick
             return cached.session
@@ -87,7 +98,7 @@ extension HRequestManager {
             cachedSessions[leastRecentlyUsed.key] = nil
             retire(leastRecentlyUsed.value.session)
         }
-        let session = buildURLSession(cacheType: cacheType)
+        let session = buildURLSession(purpose: purpose)
         cachedSessions[signature] = CachedSession(session: session, lastUse: sessionUseTick)
         return session
     }
@@ -101,13 +112,14 @@ extension HRequestManager {
         lease(getURLSession(for: request))
     }
 
-    /// Returns a session without cache configuration (the one non-GET requests use) and
-    /// records that the caller holds it, as `leaseURLSession(for:)` does. Used by the other
-    /// Harbor modules for tasks that are not REST requests (e.g. WebSocket connections, which
-    /// hold the lease for as long as the connection is open). Release it with `releaseURLSession(_:)`.
+    /// Returns the session WebSocket connections run on and records that the caller holds it,
+    /// as `leaseURLSession(for:)` does; the connection keeps the lease for as long as it is
+    /// open and releases it with `releaseURLSession(_:)`. The session has no `URLCache` and no
+    /// resource timeout (a connection may stay open indefinitely); a custom session is used
+    /// as-is, like for REST requests.
     /// - Returns: The leased session.
-    package static func leaseURLSession() -> URLSession {
-        lease(getURLSession(cacheType: nil))
+    package static func leaseWebSocketURLSession() -> URLSession {
+        lease(getURLSession(purpose: .webSocket))
     }
 
     /// Records a lease on the session.
@@ -118,8 +130,8 @@ extension HRequestManager {
         return session
     }
 
-    /// Releases a session obtained with `leaseURLSession(for:)` or `leaseURLSession()`. A
-    /// retired session is invalidated once its last lease is released.
+    /// Releases a session obtained with `leaseURLSession(for:)` or `leaseWebSocketURLSession()`.
+    /// A retired session is invalidated once its last lease is released.
     /// - Parameter session: The leased session.
     package static func releaseURLSession(_ session: URLSession) {
         let id = ObjectIdentifier(session)
@@ -169,40 +181,50 @@ extension HRequestManager {
     }
 
     /// Computes the signature that uniquely identifies the required session configuration.
-    /// - Parameter cacheType: The cache type selecting the cache configuration, or `nil` for
-    ///   the configuration defaults.
+    /// - Parameter purpose: What the session is used for.
     /// - Returns: The signature under which the session is cached.
-    private static func sessionSignature(cacheType: HCache.CacheType?) -> SessionSignature {
+    private static func sessionSignature(purpose: SessionPurpose) -> SessionSignature {
         // Without a cache type the configuration defaults apply (URLCache.shared with
         // .useProtocolCachePolicy). The signature must mirror what buildURLSession
         // installs so functionally identical configurations share one cached session.
         var cache: SessionSignature.CacheSignature = .urlCache(ObjectIdentifier(URLCache.shared), .useProtocolCachePolicy)
-        switch cacheType {
-        case .urlCache(let urlCache, let requestPolicy):
+        var isWebSocket = false
+        switch purpose {
+        case .request(.urlCache(let urlCache, let requestPolicy)):
             cache = .urlCache(ObjectIdentifier(urlCache), requestPolicy)
-        case .custom, .disabled:
+        case .request(.custom), .request(.disabled):
             cache = .isolated
-        case nil:
+        case .request(nil):
             break
+        case .webSocket:
+            cache = .isolated
+            isWebSocket = true
         }
 
-        return SessionSignature(cache: cache, httpShouldHandleCookies: HConfig.shared.httpShouldHandleCookies)
+        return SessionSignature(cache: cache, httpShouldHandleCookies: HConfig.shared.httpShouldHandleCookies, isWebSocket: isWebSocket)
     }
 
     /// Builds a new URLSession tailored to the configuration. The session always
     /// gets an `HURLSessionDelegate`: besides SSL pinning and mTLS it strips credentials
     /// from cross-origin redirects.
-    /// - Parameter cacheType: The cache type selecting the session's `URLCache`, or `nil` for
-    ///   the configuration defaults.
+    /// - Parameter purpose: What the session is used for.
     /// - Returns: A new session built from the current configuration.
-    private static func buildURLSession(cacheType: HCache.CacheType?) -> URLSession {
+    private static func buildURLSession(purpose: SessionPurpose) -> URLSession {
         let configuration = URLSessionConfiguration.default
         // Each URLRequest carries its own timeout (see HURLBuilder); this is the fallback.
         configuration.timeoutIntervalForRequest = HConfig.shared.timeoutInterval
         // The whole-transfer limit is independent of the idle timeout. Leaving it unset keeps
-        // the system default (7 days) so long transfers are not cut off.
-        if let resourceTimeoutInterval = HConfig.shared.resourceTimeoutInterval {
-            configuration.timeoutIntervalForResource = resourceTimeoutInterval
+        // the system default (7 days) so long transfers are not cut off. It never applies to
+        // WebSocket connections, which may legitimately stay open longer than any transfer.
+        let cacheType: HCache.CacheType?
+        switch purpose {
+        case .request(let requestCacheType):
+            cacheType = requestCacheType
+            if let resourceTimeoutInterval = HConfig.shared.resourceTimeoutInterval {
+                configuration.timeoutIntervalForResource = resourceTimeoutInterval
+            }
+        case .webSocket:
+            cacheType = .disabled
         }
         // Cookie handling is governed at the session-configuration level on Darwin; the
         // request-level flag set by HURLBuilder alone is not enough.

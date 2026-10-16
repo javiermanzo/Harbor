@@ -31,9 +31,10 @@ public enum HarborWebSocket {
     /// Sets the keep-alive ping interval applied to connections whose request leaves
     /// `pingInterval` as `nil`. Default: `nil`, no keep-alive pings are sent.
     ///
-    /// While set, every connection sends a ping frame each interval of inactivity and closes
-    /// itself (the `messages` stream throws `HWebSocketError.pingTimeout`) when the pong does
-    /// not arrive within the same interval. Values that are not greater than zero disable pings.
+    /// While set, every connection sends a ping frame every `interval` seconds, regardless of
+    /// traffic, and closes itself (the `messages` stream throws `HWebSocketError.pingTimeout`)
+    /// when the pong does not arrive within the same interval. Values that are not finite and
+    /// greater than zero disable the pings.
     /// - Note: This is a method rather than a `get set` property to allow cross-actor mutation, as Swift forbids mutating actor-isolated static properties from outside the actor's context.
     /// - Parameter interval: The interval between pings in seconds, or `nil` to disable them.
     public static func setDefaultPingInterval(_ interval: TimeInterval?) {

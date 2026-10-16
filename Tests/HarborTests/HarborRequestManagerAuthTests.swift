@@ -7,6 +7,7 @@
 
 import XCTest
 @testable import Harbor
+@testable import HarborCore
 
 private final class MockAuthProvider: HAuthProviderProtocol {
     func getAuthorizationHeader() async -> HAuthorizationHeader? {

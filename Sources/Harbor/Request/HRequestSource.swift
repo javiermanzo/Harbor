@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import HarborCore
 
 // MARK: - Request Source
 /// Where `requestStream(source:)` reads from.

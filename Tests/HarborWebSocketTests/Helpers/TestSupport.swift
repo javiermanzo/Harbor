@@ -8,7 +8,7 @@
 
 import Foundation
 import XCTest
-@testable import Harbor
+@testable import HarborCore
 @testable import HarborWebSocket
 
 /// A configurable WebSocket request.

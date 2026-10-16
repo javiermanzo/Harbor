@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import HarborCore
 
 // MARK: - DELETE Request Protocol
 /// Protocol for DELETE requests that remove resources.

@@ -10,6 +10,7 @@
 import XCTest
 import LogBird
 @testable import Harbor
+@testable import HarborCore
 
 /// POST request with debug logging and arbitrary body parameters.
 private struct DebugPostRequest: HPostRequestProtocol, HDebugRequestProtocol, @unchecked Sendable {

@@ -59,7 +59,7 @@ extension HRequestManager {
             guard deltaSeconds >= 0 else { return nil }
             return TimeInterval(deltaSeconds)
         }
-        if let date = HCache.Manager.parseHTTPDate(value) {
+        if let date = HHTTPDate.parse(value) {
             return max(0, date.timeIntervalSince(now))
         }
         return nil

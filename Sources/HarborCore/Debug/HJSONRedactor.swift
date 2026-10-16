@@ -11,7 +11,7 @@ import Foundation
 /// logger (request body parameters, cURL bodies, response bodies) and by
 /// `HRequestError.api` descriptions, so error output follows the same redaction policy as
 /// debug logs.
-enum HJSONRedactor {
+package enum HJSONRedactor {
     /// Returns `body` with the values of sensitive keys replaced by `<redacted>` at any
     /// nesting depth when it parses as JSON; otherwise returns `body` unchanged.
     /// - Parameters:
@@ -95,7 +95,7 @@ enum HJSONRedactor {
     ///   - key: The JSON field key name.
     ///   - needles: Set of sensitive key needles.
     /// - Returns: `true` if key contains any sensitive needle, `false` otherwise.
-    static func isSensitiveKey(_ key: String, needles: Set<String>) -> Bool {
+    package static func isSensitiveKey(_ key: String, needles: Set<String>) -> Bool {
         let normalized = normalize(key)
         return needles.contains { !$0.isEmpty && normalized.contains($0) }
     }

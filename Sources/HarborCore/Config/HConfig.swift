@@ -12,7 +12,7 @@ import Foundation
 /// This struct holds all the global configuration options used by the library.
 /// Access is serialized via `@HRequestManagerActor` to ensure thread safety.
 @HRequestManagerActor
-package struct HConfig {
+package struct HConfig: Sendable {
     /// Shared singleton instance of the configuration.
     package static var shared = HConfig()
 
@@ -49,7 +49,7 @@ package struct HConfig {
     /// Custom URLSession provided by the user to use for all requests. Used as-is when set:
     /// Harbor's SSL pinning, mTLS and redirect policies only apply when its delegate is
     /// `HURLSessionDelegate` (see `Harbor.makeURLSessionDelegate()`) or forwards to one.
-    var customURLSession: URLSession?
+    package var customURLSession: URLSession?
     /// Whether debug logging is enabled. Default is true in DEBUG builds, false in RELEASE builds.
     var isLoggingEnabled: Bool = HBuild.isDebug
     /// Whether sensitive values (headers, query values, body fields, error bodies) are printed

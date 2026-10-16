@@ -6,7 +6,7 @@
 //
 
 import Foundation
-import Harbor
+import HarborCore
 
 /// Entry point of the HarborWebSocket module: global WebSocket configuration.
 ///

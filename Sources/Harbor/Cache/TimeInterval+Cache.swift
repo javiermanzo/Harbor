@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import HarborCore
 
 /// Named durations for `HCache.Configuration.expirationTime`, e.g. `.oneHour`.
 public extension TimeInterval {

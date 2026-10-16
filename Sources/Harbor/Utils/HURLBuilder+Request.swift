@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import HarborCore
 
 // MARK: - Request Building
 
@@ -92,9 +93,9 @@ extension HURLBuilder {
 
         urlRequest.httpMethod = request.httpMethod.rawValue
         // Set per request so it holds for custom sessions and alternating timeouts never require a new session.
-        let defaultTimeoutInterval = await HConfig.shared.timeoutInterval
+        let defaultTimeoutInterval = await HRequestManagerActor.run { HConfig.shared.timeoutInterval }
         urlRequest.timeoutInterval = request.timeoutInterval ?? defaultTimeoutInterval
-        urlRequest.httpShouldHandleCookies = await HConfig.shared.httpShouldHandleCookies
+        urlRequest.httpShouldHandleCookies = await HRequestManagerActor.run { HConfig.shared.httpShouldHandleCookies }
 
         if let request = request as? HRequestWithBodyProtocol {
             if let rawBody = request.rawBody {
@@ -117,7 +118,7 @@ extension HURLBuilder {
 
         // `setValue` matches header names case-insensitively, so a `content-type` header
         // replaces the `Content-Type` set above instead of being sent alongside it.
-        for (key, value) in await HConfig.shared.defaultHeaderParameters ?? [:] {
+        for (key, value) in await HRequestManagerActor.run({ HConfig.shared.defaultHeaderParameters }) ?? [:] {
             urlRequest.setValue(value, forHTTPHeaderField: key)
         }
 

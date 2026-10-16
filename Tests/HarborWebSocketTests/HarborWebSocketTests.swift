@@ -8,7 +8,7 @@
 
 import XCTest
 import Network
-@testable import Harbor
+@testable import HarborCore
 @testable import HarborWebSocket
 
 @HRequestManagerActor

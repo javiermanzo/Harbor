@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import HarborCore
 
 // MARK: - Request with Result Protocol
 /// A request whose response body is decoded into `Model`.

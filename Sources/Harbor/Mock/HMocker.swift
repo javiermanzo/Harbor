@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import HarborCore
 
 /// In-memory registry of mocks. All access is serialized through `@HRequestManagerActor`.
 /// Mocks are keyed by request metatype identity (via `ObjectIdentifier`), so identically

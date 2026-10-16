@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import HarborCore
 
 // MARK: - POST Request Protocol
 /// Protocol for POST requests that create new resources.

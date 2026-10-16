@@ -113,7 +113,7 @@ extension HRetryPolicy {
 
     /// Whether the given method may be retried after the request possibly reached the server.
     /// - Parameter method: The HTTP method of the request.
-    func allowsRetry(for method: HHttpMethod) -> Bool {
+    package func allowsRetry(for method: HHttpMethod) -> Bool {
         method.isIdempotent || retryNonIdempotentRequests
     }
 
@@ -146,7 +146,7 @@ extension HRetryPolicy {
     /// - Parameters:
     ///   - mockedError: The error configured on the mock.
     ///   - method: The HTTP method of the request.
-    func shouldRetry(mockedError: HRequestError, method: HHttpMethod) -> Bool {
+    package func shouldRetry(mockedError: HRequestError, method: HHttpMethod) -> Bool {
         switch mockedError {
         case .api(let statusCode, _):
             return shouldRetry(statusCode: statusCode, method: method)

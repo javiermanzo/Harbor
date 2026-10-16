@@ -6,7 +6,7 @@
 //
 
 import Foundation
-import Harbor
+import HarborCore
 
 /// The reason a WebSocket operation failed. Thrown by `connect()`, `send`, `ping()` and
 /// `HWebSocketMessage.decode(_:)`, and by the `messages` stream when the connection is lost

@@ -6,7 +6,7 @@
 //
 
 import Foundation
-import Harbor
+import HarborCore
 
 /// An open WebSocket connection, returned by `HWebSocketRequestProtocol.connect()`.
 ///

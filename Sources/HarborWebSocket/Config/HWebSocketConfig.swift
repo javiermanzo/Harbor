@@ -6,7 +6,7 @@
 //
 
 import Foundation
-import Harbor
+import HarborCore
 
 /// Global configuration of the HarborWebSocket module, set through `HarborWebSocket`.
 /// Access is serialized via `@HRequestManagerActor`, like Harbor's own configuration.

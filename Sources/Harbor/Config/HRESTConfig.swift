@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import HarborCore
 
 /// Configuration that only the REST pipeline uses (cache, mocks, response decoding). The state
 /// shared by every product (auth, headers, timeouts, security, logging) is `HConfig`.

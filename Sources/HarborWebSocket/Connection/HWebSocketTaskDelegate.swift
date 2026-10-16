@@ -6,7 +6,7 @@
 //
 
 import Foundation
-import Harbor
+import HarborCore
 
 /// Per-task delegate of every WebSocket task Harbor starts. It is installed as the
 /// task-specific delegate (`URLSessionTask.delegate`), so the session's own

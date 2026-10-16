@@ -6,7 +6,7 @@
 //
 
 import Foundation
-import Harbor
+import HarborCore
 
 /// Runs the WebSocket handshake pipeline: URL building, connectivity pre-check, authentication
 /// (with the `401` refresh flow), retries and session leasing. Isolated to Harbor's global

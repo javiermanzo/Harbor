@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import HarborCore
 
 public extension HCache {
     /// The cache a GET request uses. Set the default with `Harbor.setDefaultCacheType(_:)` and

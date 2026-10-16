@@ -6,7 +6,7 @@
 //
 
 import Foundation
-import Harbor
+import HarborCore
 import LogBird
 
 /// Debug logging for one connection, created only for requests that opt in by conforming to

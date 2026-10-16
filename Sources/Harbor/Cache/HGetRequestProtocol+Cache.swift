@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import HarborCore
 
 // MARK: - Public Cache API
 
@@ -285,7 +286,7 @@ private extension HGetRequestProtocol {
         let resolvedAuthHeader = await resolveAuthHeader(authHeader, enabled: resolvingAuthHeader)
         if needsAuth, resolvedAuthHeader == nil { return nil }
 
-        let defaultHeaders = await HConfig.shared.defaultHeaderParameters ?? [:]
+        let defaultHeaders = await HRequestManagerActor.run { HConfig.shared.defaultHeaderParameters } ?? [:]
         var headers = defaultHeaders
         if let own = headerParameters {
             headers.merge(own) { _, new in new }
@@ -313,7 +314,7 @@ private extension HGetRequestProtocol {
     func resolveAuthHeader(_ authHeader: HAuthorizationHeader?, enabled: Bool = true) async -> HAuthorizationHeader? {
         if let authHeader { return authHeader }
         guard enabled, needsAuth else { return nil }
-        return await HConfig.shared.authProvider?.getAuthorizationHeader()
+        return await HRequestManagerActor.run { HConfig.shared.authProvider }?.getAuthorizationHeader()
     }
 
     /// The complete request URL (path and query parameters applied), the base of the cache key.

@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import HarborCore
 
 // MARK: - Origin Type
 /// Where an element yielded by `requestStream(source:)` came from.

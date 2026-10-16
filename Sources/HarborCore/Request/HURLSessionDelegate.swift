@@ -357,21 +357,21 @@ extension HURLSessionDelegate {
 /// changes how a session's own delegate handles the task; `HURLSessionDelegate` reads it
 /// through `URLSessionTask.delegate` to learn the auth header key to strip on cross-origin
 /// redirects and to report a rejected TLS handshake back to the request.
-final class HTaskContext: NSObject, Sendable {
+package final class HTaskContext: NSObject, Sendable {
     /// The header key the auth provider set on the request, if any.
-    let authHeaderKey: String?
+    package let authHeaderKey: String?
 
     /// Backing storage for `trustEvaluationFailed`; challenge answers arrive on arbitrary queues.
     private let didFailTrustEvaluation = HLockedState(false)
 
     /// Creates the context for one task.
     /// - Parameter authHeaderKey: The header key the auth provider set on the request, if any.
-    init(authHeaderKey: String?) {
+    package init(authHeaderKey: String?) {
         self.authHeaderKey = authHeaderKey
     }
 
     /// Whether Harbor's delegate rejected a server-trust or client-certificate challenge for the task.
-    var trustEvaluationFailed: Bool {
+    package var trustEvaluationFailed: Bool {
         didFailTrustEvaluation.withLock { $0 }
     }
 }
@@ -380,7 +380,7 @@ final class HTaskContext: NSObject, Sendable {
 
 extension HTaskContext: HTaskDelegateContext {
     /// Records that a TLS challenge for the task was rejected.
-    func recordTrustFailure() {
+    package func recordTrustFailure() {
         didFailTrustEvaluation.withLock { $0 = true }
     }
 }

@@ -1,52 +1,13 @@
 //
-//  HDebugRequestProtocol.swift
+//  HDebugRequestProtocol+Request.swift
 //  Harbor
 //
 //  Created by Javier Manzo on 16/02/2023.
 //
 
 import Foundation
+import HarborCore
 import LogBird
-
-// MARK: - Debug Protocol
-
-/// Protocol for adding debug capabilities to network requests.
-/// Implement this protocol to enable detailed logging of requests and responses.
-///
-/// Example usage:
-/// ```swift
-/// struct MyRequest: HGetRequestProtocol, HDebugRequestProtocol {
-///     var debugType: HDebugRequestType = .requestAndResponse
-///     // ... other properties
-/// }
-/// ```
-public protocol HDebugRequestProtocol: Sendable {
-    /// The type of debug information to log.
-    var debugType: HDebugRequestType { get }
-}
-
-// MARK: - Default Implementation
-
-/// Default implementation providing `.requestAndResponse` as the default debug type.
-/// This ensures comprehensive logging by default while allowing customization.
-public extension HDebugRequestProtocol {
-    /// Default: `.requestAndResponse`.
-    var debugType: HDebugRequestType { .requestAndResponse }
-}
-
-// MARK: - Debug Type
-
-/// Specifies the type of debug information to log for network requests.
-public enum HDebugRequestType: Sendable {
-    /// No debug information is logged.
-    case none
-    /// Only request information is logged.
-    case request
-    /// Only response information is logged.
-    case response
-    /// Both request and response information is logged.
-    case requestAndResponse
-}
 
 // MARK: - Logging Helpers
 
@@ -220,12 +181,13 @@ extension HDebugRequestProtocol {
         // never from URLSession.shared: a custom session contributes its own configuration;
         // Harbor's own sessions only send cookies from HTTPCookieStorage.shared when cookie
         // handling is enabled (see Harbor.setHTTPShouldHandleCookies(_:)) and add no headers.
-        let customConfiguration = await HConfig.shared.customURLSession?.configuration
+        let customConfiguration = await HRequestManagerActor.run { HConfig.shared.customURLSession?.configuration }
         let cookieStorage: HTTPCookieStorage?
         if let customConfiguration {
             cookieStorage = customConfiguration.httpShouldSetCookies ? customConfiguration.httpCookieStorage : nil
         } else {
-            cookieStorage = await HConfig.shared.httpShouldHandleCookies ? HTTPCookieStorage.shared : nil
+            let handlesCookies = await HRequestManagerActor.run { HConfig.shared.httpShouldHandleCookies }
+            cookieStorage = handlesCookies ? HTTPCookieStorage.shared : nil
         }
         let policy = HRedactionPolicy.current
 

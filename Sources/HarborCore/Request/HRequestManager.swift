@@ -14,6 +14,19 @@ import Foundation
     public static let shared = HRequestManagerActor()
 }
 
+// MARK: - Isolated Reads
+
+extension HRequestManagerActor {
+    /// Runs `body` on `HRequestManagerActor` and returns its result, the equivalent of
+    /// `MainActor.run`. Code outside the actor (e.g. another module's non-isolated helpers) uses
+    /// it to read Harbor's configuration, whose types are isolated to the actor.
+    /// - Parameter body: The closure to run on the actor.
+    /// - Returns: The closure's result.
+    package static func run<Result: Sendable>(_ body: @HRequestManagerActor @Sendable () -> Result) async -> Result {
+        await body()
+    }
+}
+
 /// Runs Harbor's REST request pipeline: mocks, connectivity pre-check, authentication,
 /// retries, caching, decoding and logging. Also owns the internally built `URLSession`s.
 @HRequestManagerActor

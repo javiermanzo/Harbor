@@ -36,7 +36,7 @@ extension HMTLSError: Error {}
 /// passing this wrapper across concurrency domains never shares mutable state. The
 /// `@preconcurrency import Security` above accounts for the Security framework not
 /// yet annotating these types as `Sendable`.
-struct HMTLSIdentity: Sendable {
+package struct HMTLSIdentity: Sendable {
     /// The core client identity.
     let identity: SecIdentity
     /// Certificate chain extracted from the P12 file (including intermediates), sent alongside the identity.
@@ -106,7 +106,7 @@ public struct HMTLS: Sendable {
     ///   when the password provider throws, `.invalidPassword` when the password is rejected,
     ///   `.invalidP12Format` when the import fails for any other reason, or `.noIdentity`
     ///   when the file holds no identity.
-    func extractIdentity() async throws(HMTLSError) -> HMTLSIdentity {
+    package func extractIdentity() async throws(HMTLSError) -> HMTLSIdentity {
         guard let p12Data = try? Data(contentsOf: p12FileUrl) else {
             throw HMTLSError.fileNotFound
         }

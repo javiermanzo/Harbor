@@ -30,7 +30,7 @@ package struct HRedactionPolicy: Sendable {
     /// Built-in sensitive key needles, matched as normalized substrings. They are a floor:
     /// `Harbor.updateLogSensitiveKeys(.set/.clear)` only changes the configurable keys on top of
     /// them; use `Harbor.setLogSensitiveValues(true)` to show every value.
-    static let defaultSensitiveKeys: Set<String> = Set([
+    package static let defaultSensitiveKeys: Set<String> = Set([
         "authorization", "proxy-authorization", "cookie", "set-cookie",
         "x-api-key", "api_key", "apikey",
         "password", "passwd", "secret", "client_secret",
@@ -39,7 +39,7 @@ package struct HRedactionPolicy: Sendable {
     ].map(HJSONRedactor.normalize))
 
     /// Whether values are redacted. `false` when sensitive logging is opted in.
-    let isEnabled: Bool
+    package let isEnabled: Bool
     /// Normalized sensitive key needles.
     let needles: Set<String>
 
@@ -121,7 +121,7 @@ package struct HRedactionPolicy: Sendable {
     /// - Parameters:
     ///   - name: The header name.
     ///   - value: The header value.
-    func redactedHeaderValue(name: String, value: String) -> String {
+    package func redactedHeaderValue(name: String, value: String) -> String {
         isSensitive(name) ? Self.placeholder : value
     }
 
@@ -139,7 +139,7 @@ package struct HRedactionPolicy: Sendable {
     /// Returns a copy of `parameters` with the values of sensitive keys redacted at any
     /// nesting depth.
     /// - Parameter parameters: Path, query or body parameters.
-    func redactedParameters(_ parameters: [String: Any]?) -> [String: Any]? {
+    package func redactedParameters(_ parameters: [String: Any]?) -> [String: Any]? {
         guard let parameters, isEnabled else { return parameters }
         return HJSONRedactor.redactJSONValue(parameters, needles: needles) as? [String: Any]
     }

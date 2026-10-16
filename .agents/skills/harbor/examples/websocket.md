@@ -142,6 +142,8 @@ struct ResilientSocket: HWebSocketRequestProtocol {
 
 ## Reconnecting
 
+The example uses SwiftUI (`import SwiftUI`).
+
 An `HWebSocket` is one connection and is never reconnected automatically: after a disconnect the app decides whether to resume, and from where. A loop with `HRetryPolicy.delay(forRetry:)` for the backoff:
 
 ```swift

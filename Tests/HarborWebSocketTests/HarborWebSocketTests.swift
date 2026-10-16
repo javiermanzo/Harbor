@@ -321,6 +321,31 @@ final class HarborWebSocketTests: XCTestCase {
         XCTAssertEqual(frames.last, .close(code: .protocolCode(.goingAway)))
     }
 
+    func testLeavingTheLoopWithBreakDoesNotCloseTheConnection() async throws {
+        // Given a server that sends two messages
+        let server = try await startServer { connection in
+            connection.send(text: "one")
+            connection.send(text: "two")
+        }
+        let socket = try await TestSocket(url: server.url()).connect()
+
+        // When the app stops iterating after the first message
+        for try await message in socket.messages {
+            XCTAssertEqual(message, .text("one"))
+            break
+        }
+        try await Task.sleep(nanoseconds: 300_000_000)
+
+        // Then the connection is still open and the next iteration continues with the buffered message
+        let state = await socket.state
+        XCTAssertEqual(state, .open)
+        for try await message in socket.messages {
+            XCTAssertEqual(message, .text("two"))
+            break
+        }
+        await socket.close()
+    }
+
     func testMessageLargerThanMaximumSizeFailsTheConnection() async throws {
         // Given
         let server = try await startServer { connection in

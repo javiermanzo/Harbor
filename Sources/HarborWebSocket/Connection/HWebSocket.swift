@@ -16,7 +16,7 @@ import Harbor
 ///
 /// ```swift
 /// let socket = try await ChatSocket().connect()
-/// try await socket.send(json: JoinRoom(name: "swift"))
+/// try await socket.send(json: ["room": "swift"])
 ///
 /// do {
 ///     for try await message in socket.messages {

@@ -8,7 +8,7 @@
 [![Platforms](https://img.shields.io/badge/Platforms-macOS_iOS-yellowgreen?style=flat-square)](https://img.shields.io/badge/Platforms-macOS_iOS-yellowgreen?style=flat-square) 
 [![Swift Package Manager](https://img.shields.io/badge/Swift_Package_Manager-compatible-orange?style=flat-square)](https://swiftpackageindex.com/javiermanzo/Harbor)
 
-Harbor is a protocol-oriented networking library for Swift, built for Swift 6 strict concurrency. It provides a multi-layer cache, authentication with token refresh, retry policies, mTLS, SSL pinning, log redaction, mocking and JSON-RPC 2.0 out of the box.
+Harbor is a protocol-oriented networking library for Swift, built for Swift 6 strict concurrency. It provides a multi-layer cache, authentication with token refresh, retry policies, mTLS, SSL pinning, log redaction, mocking, JSON-RPC 2.0 and WebSocket connections out of the box.
 
 ## Table of Contents
 - [Requirements](#requirements)
@@ -29,6 +29,7 @@ Harbor is a protocol-oriented networking library for Swift, built for Swift 6 st
   - [Multipart Requests](#multipart-requests)
   - [Streaming Requests](#streaming-requests)
   - [JSON-RPC](#json-rpc)
+  - [WebSocket](#websocket)
   - [Debugging & Logging](#debugging--logging)
   - [Mocking](#mocking)
 - [AI Assistant Skills](#ai-assistant-skills)
@@ -59,7 +60,8 @@ Then add the products you need to your target:
     name: "MyApp",
     dependencies: [
         .product(name: "Harbor", package: "Harbor"),
-        .product(name: "HarborJRPC", package: "Harbor") // Only if you need JSON-RPC support
+        .product(name: "HarborJRPC", package: "Harbor"),      // Only if you need JSON-RPC support
+        .product(name: "HarborWebSocket", package: "Harbor") // Only if you need WebSocket support
     ]
 )
 ```
@@ -518,6 +520,55 @@ Other details:
 - Notifications set `isNotification = true` and are sent with `notify()`.
 - Integers beyond `Int` decode as `HJSONValue.decimal`. Their digits are exact on iOS 18 / macOS 15 and later (swift-foundation `JSONDecoder`); on earlier OS versions they may be rounded through `Double`. The same applies to big integers passed in `HJRPCParams`.
 
+### WebSocket
+
+The `HarborWebSocket` product opens WebSocket connections (RFC 6455) on `URLSessionWebSocketTask`. The handshake goes through Harbor's pipeline (auth provider with the `401` refresh flow, default headers, retry policy, mTLS, pinning, custom session, logging); the open connection is an actor that streams messages and sends yours.
+
+```swift
+import HarborWebSocket
+
+struct ChatSocket: HWebSocketRequestProtocol {
+    let url = "wss://chat.example.com/rooms/{room}"
+    let pathParameters: [String: String]?
+    let needsAuth = true
+    let subprotocols = ["chat.v2"]            // Sec-WebSocket-Protocol
+    let pingInterval: TimeInterval? = 30      // keep-alive; a missing pong closes the connection
+
+    init(room: String) {
+        pathParameters = ["room": room]
+    }
+}
+
+struct ChatEvent: Codable, Sendable {
+    let user: String
+    let text: String
+}
+
+func chat() async throws {
+    // connect() throws an HWebSocketError when the handshake fails.
+    let socket = try await ChatSocket(room: "swift").connect()
+
+    try await socket.send("hello")                                  // text
+    try await socket.send(Data([0x01]))                             // binary
+    try await socket.send(json: ["room": "swift"])                  // JSON as text
+
+    // Ends when the connection closes: normally after a close frame (see `state`),
+    // throwing when the connection is lost without one.
+    for try await message in socket.messages {
+        let event = try message.decode(ChatEvent.self)
+        print(event.user, event.text)
+    }
+
+    await socket.close(code: .normalClosure, reason: nil)
+}
+```
+
+Other details:
+- Every requirement except `url` has a default: `pathParameters`, `queryParameters`, `headerParameters`, `subprotocols`, `needsAuth`, `retryPolicy` (handshake only; connections are never reconnected automatically), `timeoutInterval` (handshake), `pingInterval` (or `HarborWebSocket.setDefaultPingInterval(_:)`) and `maximumMessageSize`.
+- `state` is `.open` or `.closed(code:reason:)`. Messages are read continuously and buffered until iterated; iterate `messages` from one place. Cancelling the iterating task closes the connection with `.goingAway`. Call `close()` when done: a connection stays open until either side closes it.
+- `HWebSocketError` mirrors `HRequestError`'s transport cases and adds `.handshakeFailed(statusCode:)`, `.notConnected`, `.pingTimeout`, `.messageTooBig` and `.invalidURL(reason:)`. `send`, `ping()` and `decode(_:)` use typed throws.
+- `HMock` does not apply to WebSocket connections; test against a loopback server (see `.agents/skills/harbor/examples/websocket.md`).
+
 ### Debugging & Logging
 
 Harbor logs through [LogBird](https://github.com/javiermanzo/LogBird). Logging is enabled by default in DEBUG builds and disabled in release; `setLoggingEnabled(true)` turns it on in release builds too. Security warnings (such as a custom session bypassing SSL pinning) are always logged.
@@ -588,7 +639,7 @@ func registerMocks() async {
 If you use an AI coding assistant, Harbor ships documentation written for it:
 
 - [**AGENTS.md**](AGENTS.md): instructions for working on this repository (design rules, code organization, testing, CI).
-- [**.agents/skills/harbor/SKILL.md**](.agents/skills/harbor/SKILL.md): the skill for writing code with Harbor, with deep dives on request protocols, caching, security, architecture and testing, and copy-ready examples.
+- [**.agents/skills/harbor/SKILL.md**](.agents/skills/harbor/SKILL.md): the skill for writing code with Harbor, with deep dives on request protocols, caching, security, architecture and testing, and copy-ready examples (REST, JSON-RPC, WebSocket).
 - [**.agents/skills/harbor-migration-v3-to-v4/SKILL.md**](.agents/skills/harbor-migration-v3-to-v4/SKILL.md): the v3 → v4 migration guide, listing every breaking change and how to refactor it.
 
 ---

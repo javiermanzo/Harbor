@@ -8,8 +8,9 @@ How a request moves through Harbor, and where each concern lives in `Sources/`.
 |---|---|---|
 | `Harbor` | REST requests, cache, auth, retry, security, mocks, logging | `Harbor.swift`, `Request/`, `Cache/`, `Config/`, `Debug/`, `Mock/`, `Auth/`, `Utils/` |
 | `HarborJRPC` | JSON-RPC 2.0 on top of Harbor | `HarborJRPC.swift`, `Request/`, `Config/` |
+| `HarborWebSocket` | WebSocket connections on top of Harbor | `HarborWebSocket.swift`, `Request/`, `Connection/`, `Config/`, `Debug/` |
 
-Harbor depends on [LogBird](https://github.com/javiermanzo/LogBird) (`from: "2.1.0"`) for logging, behind the internal `HLogger` facade.
+Harbor depends on [LogBird](https://github.com/javiermanzo/LogBird) (`from: "2.1.0"`) for logging, behind the `HLogger` facade. `HarborJRPC` and `HarborWebSocket` reach Harbor's internals (`HConfig`, `HLogger`, `HRedactionPolicy`, the session pool, the auth refresh and the error mapping of `HRequestManager`, `HURLBuilder`) through Swift's `package` access level, so nothing internal becomes public and no separate core module is needed.
 
 ## Protocol hierarchy
 
@@ -28,6 +29,7 @@ HRequestBaseRequestProtocol            url, httpMethod, needsAuth, retryPolicy,
 HDebugRequestProtocol                  debugType (opt-in logging, combine with any request)
 HAuthProviderProtocol                  getAuthorizationHeader(), authFailed()
 HJRPCRequestProtocol (HarborJRPC)      method, parameters, request() async throws -> Model
+HWebSocketRequestProtocol (HarborWebSocket)  url, subprotocols, pingInterval, connect() async throws(HWebSocketError) -> HWebSocket
 ```
 
 `HModel` is `Codable & Sendable`. All requirements are get-only, and protocol extensions supply the defaults (see `protocols.md`).
@@ -35,7 +37,8 @@ HJRPCRequestProtocol (HarborJRPC)      method, parameters, request() async throw
 ## Concurrency model
 
 - `@globalActor public actor HRequestManagerActor` serializes all of Harbor's mutable state.
-- `public enum Harbor` (the configuration API) and the internal `HRequestManager`, `HConfig` (`HConfig.shared`), `HMocker` and `HarborJRPC` are isolated to that actor. That's why every `Harbor.setX(...)` call needs `await` from outside the actor.
+- `public enum Harbor` (the configuration API) and the internal `HRequestManager`, `HConfig` (`HConfig.shared`), `HMocker`, `HarborJRPC` and `HarborWebSocket` (with its `HWebSocketManager`) are isolated to that actor. That's why every `Harbor.setX(...)` call needs `await` from outside the actor.
+- Each open WebSocket connection is its own actor (`HWebSocket`): its send/receive state is independent of the global actor, which only runs the handshake.
 - Response decoding (`parseData(data:model:)`) runs off the actor, in a `nonisolated` function, so concurrent requests don't serialize their decoding.
 - The cache manager (`HCache.Manager.shared`) keeps memory and index state on the actor and does disk I/O on a concurrent queue (writes and deletes under a barrier).
 - Requests, models, policies and errors are `Sendable`. A request can be a struct with computed `bodyParameters`, so no `@unchecked Sendable` is needed.
@@ -84,10 +87,32 @@ Notes:
 - Otherwise Harbor builds sessions with `HURLSessionDelegate` and caches up to **4** of them, keyed by cache configuration and cookie handling. When the limit is reached, only the least recently used session is dropped; it is invalidated once no in-flight attempt holds it, and rebuilt on demand. Changing timeouts, mTLS, pins or cookie handling retires all of them the same way.
 - The per-request timeout (`timeoutInterval` or the default) is set on each `URLRequest`, so it also applies to custom sessions. `setDefaultResourceTimeoutInterval(_:)` applies only to Harbor-built sessions.
 - Requests with a `.custom` or `.disabled` cache type use sessions isolated from `URLCache.shared`.
+- WebSocket connections lease the cache-less session (the one non-GET requests use) for as long as they are open, so a configuration change meanwhile retires the session without invalidating it under the task.
 
 ## JSON-RPC adapter
 
 `HJRPCRequestProtocol` requests are wrapped in an internal `HPostRequestProtocol & HRequestWithResultProtocol` struct whose `rawBody` is the encoded JSON-RPC envelope (`jsonrpc`, `method`, `id`, `params`). They go through the same pipeline: auth, retry, logging (when the JSON-RPC request conforms to `HDebugRequestProtocol`) and transport security. Batches use another internal wrapper. See `examples/jrpc.md`.
+
+## WebSocket connections
+
+```text
+connect()
+ ├─ HURLBuilder.compositeURL (ws/wss/http/https; http(s) rewritten to ws(s))
+ ├─ offline (path .unsatisfied)? → .noConnection
+ ├─ needsAuth → provider header (no provider → .authProviderNeeded)
+ └─ handshake attempt loop (retryPolicy; treated as idempotent)
+      ├─ URLRequest: timeout, cookies flag, default headers → request headers →
+      │  Sec-WebSocket-Protocol → auth header
+      ├─ leased session + URLSessionWebSocketTask with a per-task HWebSocketTaskDelegate
+      │  (records didOpen / didClose / didComplete and TLS rejections; HURLSessionDelegate
+      │  keeps handling challenges through the package HTaskDelegateContext protocol)
+      ├─ open  → HWebSocket actor (receive loop + optional ping loop) → return
+      ├─ 401   → HRequestManager.refreshAuthorization (same rules as REST), re-send once
+      ├─ other non-101 status → retry per policy / Retry-After, else .handshakeFailed
+      └─ URLError → mapTransportError (.certificate never retried), retry if transient
+```
+
+`HWebSocket` reads messages continuously into an unbounded `AsyncThrowingStream`. When `receive()` fails it waits (bounded) for the task completion, then ends the stream normally if a close frame was recorded (`task.closeCode` or the delegate's `didCloseWith`), or throws the mapped error otherwise. `close(code:reason:)` cancels the task with the close code, finishes the stream and releases the session lease. Keep-alive pings race `sendPing` against a timer; a missing pong closes the connection with `.pingTimeout`. See `examples/websocket.md`.
 
 ## Related files
 
@@ -98,3 +123,4 @@ Notes:
 - `Sources/Harbor/Request/HURLSessionDelegate.swift`: pinning, mTLS, redirects.
 - `Sources/Harbor/Config/HConfig.swift`: global state.
 - `Sources/HarborJRPC/Request/HJRPCRequestManager.swift`: JSON-RPC execution and batches.
+- `Sources/HarborWebSocket/Request/HWebSocketManager.swift`: handshake pipeline; `Sources/HarborWebSocket/Connection/HWebSocket.swift`: the connection actor; `HWebSocketTaskDelegate.swift`: task delegate.

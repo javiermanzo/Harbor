@@ -11,6 +11,7 @@ Consequences:
 - A mock's `error` ends the attempt with that error, after `delay`, and goes through the retry policy like the real failure it stands for: `.timeout` is retried for idempotent requests, `.noConnection` / `.cannotFindHost` / `.cannotConnectToHost` for any method, `.api(statusCode:)` per `retryableStatusCodes`. Other errors are not retried.
 - Mocks are keyed by request type identity: one mock (or sequence) per type.
 - `HJRPCRequestProtocol` requests can't be mocked with `HMock`, because they are sent through internal wrapper types. Use a `URLProtocol` stub on a custom session instead (see below).
+- WebSocket connections can't be mocked with `HMock` or a `URLProtocol` stub (`URLSession` does not route WebSocket tasks through `URLProtocol`). Test them against a loopback server; Harbor's suite ships one on `NWProtocolWebSocket` plus a raw HTTP responder for rejected handshakes (`Tests/HarborWebSocketTests/Helpers`), see `examples/websocket.md`.
 
 Mocks are on by default in DEBUG builds and off in release builds. `Harbor.setMocksEnabled(true/false)` turns them on or off (`setMocksEnabled(true)` also enables them in release, e.g. for a UI-test or demo configuration); read the current value with `Harbor.mocksEnabled`.
 

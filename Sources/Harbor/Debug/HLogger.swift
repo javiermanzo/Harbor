@@ -19,12 +19,12 @@ import LogBird
 /// entry point, which takes an `HLoggingSensitiveKeyAction` (`.set`, `.add`,
 /// `.reset`, `.clear`).
 @HRequestManagerActor
-enum HLogger {
+package enum HLogger {
 
     // MARK: - Logger
 
     /// Whether debug logging is currently enabled in Harbor's configuration.
-    static var isLoggingEnabled: Bool {
+    package static var isLoggingEnabled: Bool {
         HConfig.shared.isLoggingEnabled
     }
 
@@ -91,7 +91,7 @@ enum HLogger {
     ///   - file: The calling file, filled in by the compiler.
     ///   - function: The calling function, filled in by the compiler.
     ///   - line: The calling line, filled in by the compiler.
-    static func log(
+    package static func log(
         _ message: String? = nil,
         extraMessages: [LBExtraMessage]? = nil,
         additionalInfo: [String: LBValue]? = nil,

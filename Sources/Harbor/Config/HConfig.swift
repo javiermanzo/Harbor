@@ -12,14 +12,14 @@ import Foundation
 /// This struct holds all the global configuration options used by the library.
 /// Access is serialized via `@HRequestManagerActor` to ensure thread safety.
 @HRequestManagerActor
-struct HConfig {
+package struct HConfig {
     /// Shared singleton instance of the configuration.
-    static var shared = HConfig()
+    package static var shared = HConfig()
 
     /// Authentication provider for adding credentials to requests.
-    var authProvider: HAuthProviderProtocol?
+    package var authProvider: HAuthProviderProtocol?
     /// Default headers applied to all requests.
-    var defaultHeaderParameters: [String: String]?
+    package var defaultHeaderParameters: [String: String]?
     /// mTLS identity for client certificate authentication.
     var mTLSIdentity: HMTLSIdentity?
     /// SSL pinning public key hashes for certificate validation.
@@ -71,7 +71,7 @@ struct HConfig {
     /// Default timeout interval for requests. Default is 15 seconds. Applied to every
     /// `URLRequest` (`timeoutInterval`) unless the request overrides it, so it also holds
     /// for custom sessions. It bounds the idle time between packets, not the whole transfer.
-    var timeoutInterval: TimeInterval = 15
+    package var timeoutInterval: TimeInterval = 15
     /// Maximum time a whole transfer may take (`URLSessionConfiguration.timeoutIntervalForResource`)
     /// in sessions Harbor builds. `nil` (default) keeps the system default of 7 days.
     var resourceTimeoutInterval: TimeInterval?
@@ -79,7 +79,7 @@ struct HConfig {
     /// connectivity monitor. Default is true; set to false to exercise `.noConnection` flows in debug.
     var assumeNetworkAvailableInDebug: Bool = true
     /// Whether URLRequests handle cookies through the shared cookie storage. Default is false.
-    var httpShouldHandleCookies: Bool = false
+    package var httpShouldHandleCookies: Bool = false
     /// URLProtocol classes injected into internally built sessions, allowing networking
     /// to be stubbed per session instead of registering protocols globally.
     var protocolClasses: [AnyClass]?

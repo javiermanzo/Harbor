@@ -22,10 +22,10 @@ import LogBird
 ///
 /// The policy is a value snapshot. ``current`` reads the latest configuration under a lock, so
 /// it can be used from nonisolated, synchronous contexts such as `HRequestError.errorDescription`.
-struct HRedactionPolicy: Sendable {
+package struct HRedactionPolicy: Sendable {
 
     /// The string that replaces a redacted value.
-    static let placeholder = "<redacted>"
+    package static let placeholder = "<redacted>"
 
     /// Built-in sensitive key needles, matched as normalized substrings. They are a floor:
     /// `Harbor.updateLogSensitiveKeys(.set/.clear)` only changes the configurable keys on top of
@@ -57,7 +57,7 @@ struct HRedactionPolicy: Sendable {
     // MARK: - Current Configuration
 
     /// The policy for the current configuration.
-    static var current: HRedactionPolicy {
+    package static var current: HRedactionPolicy {
         storage.withLock { state in
             HRedactionPolicy(isEnabled: !state.logsSensitiveValues,
                              configuredKeys: state.configuredKeys.union(state.authHeaderKeys))
@@ -79,7 +79,7 @@ struct HRedactionPolicy: Sendable {
     /// Records a header key the auth provider's credential was sent under, so it is redacted
     /// even when it is not a well-known name (e.g. `X-Session-Id`).
     /// - Parameter key: The authorization header key.
-    static func registerAuthHeaderKey(_ key: String) {
+    package static func registerAuthHeaderKey(_ key: String) {
         let normalized = HJSONRedactor.normalize(key)
         guard !normalized.isEmpty else { return }
         storage.withLock { state in
@@ -127,7 +127,7 @@ struct HRedactionPolicy: Sendable {
 
     /// Returns a copy of `headers` with the values of sensitive headers redacted.
     /// - Parameter headers: The request or response headers to redact, or `nil` for none.
-    func redactedHeaders(_ headers: [String: String]?) -> [String: String]? {
+    package func redactedHeaders(_ headers: [String: String]?) -> [String: String]? {
         guard let headers else { return nil }
         return headers.reduce(into: [String: String]()) { result, header in
             result[header.key] = redactedHeaderValue(name: header.key, value: header.value)
@@ -150,7 +150,7 @@ struct HRedactionPolicy: Sendable {
     /// - Parameter body: The body text.
     /// - Returns: The redacted body, or `nil` when it looks like JSON but cannot be parsed
     ///   (it may hold a sensitive value that cannot be located, so it must not be shown).
-    func redactedBody(_ body: String) -> String? {
+    package func redactedBody(_ body: String) -> String? {
         guard isEnabled else { return body }
         if HJSONRedactor.looksLikeJSON(body) {
             return HJSONRedactor.redactedJSON(body, needles: needles)
@@ -181,7 +181,7 @@ struct HRedactionPolicy: Sendable {
 
     /// Returns the URL string with the values of sensitive query items redacted.
     /// - Parameter url: The URL whose query string is inspected.
-    func redactedURLString(_ url: URL) -> String {
+    package func redactedURLString(_ url: URL) -> String {
         guard isEnabled,
               var components = URLComponents(url: url, resolvingAgainstBaseURL: false),
               let query = components.percentEncodedQuery,

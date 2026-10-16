@@ -15,7 +15,7 @@ import Network
 /// of failing requests spuriously. In DEBUG/simulator builds requests are always allowed
 /// unless `HConfig.assumeNetworkAvailableInDebug` is disabled.
 @HRequestManagerActor
-protocol HRequestManagerMonitorProtocol: Sendable {
+package protocol HRequestManagerMonitorProtocol: Sendable {
     /// Starts the network monitor if it is not already running.
     func start()
 

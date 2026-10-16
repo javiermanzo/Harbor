@@ -148,7 +148,9 @@ extension HDebugRequestProtocol {
         guard await HLogger.isLoggingEnabled else { return }
         var extraMessages: [LBExtraMessage] = []
 
-        extraMessages.append(LBExtraMessage(key: "Error Type", value: "\(error)"))
+        // The description, not the raw value: a wrapped URLError's userInfo carries the full
+        // URL, whose query string may hold credentials.
+        extraMessages.append(LBExtraMessage(key: "Error Type", value: error.errorDescription ?? String(describing: type(of: error))))
 
         var additionalInfo: [String: LBValue] = [:]
         additionalInfo["request"] = .string(String(describing: type(of: self)))

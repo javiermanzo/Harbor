@@ -121,7 +121,7 @@ extension HRetryPolicy {
     /// - Parameters:
     ///   - statusCode: The HTTP status code of the response.
     ///   - method: The HTTP method of the request.
-    func shouldRetry(statusCode: Int, method: HHttpMethod) -> Bool {
+    package func shouldRetry(statusCode: Int, method: HHttpMethod) -> Bool {
         retryableStatusCodes.contains(statusCode) && allowsRetry(for: method)
     }
 
@@ -130,7 +130,7 @@ extension HRetryPolicy {
     /// - Parameters:
     ///   - urlError: The network error.
     ///   - method: The HTTP method of the request.
-    func shouldRetry(urlError: URLError, method: HHttpMethod) -> Bool {
+    package func shouldRetry(urlError: URLError, method: HHttpMethod) -> Bool {
         if Self.preConnectionErrorCodes.contains(urlError.code) {
             return true
         }

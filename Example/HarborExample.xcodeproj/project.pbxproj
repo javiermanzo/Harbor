@@ -11,8 +11,10 @@
 		3B339D8429A587AB00ACD0E3 /* HarborExampleUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B339D8329A587AB00ACD0E3 /* HarborExampleUITests.swift */; };
 		3B339DA129A58CA400ACD0E3 /* Harbor in Frameworks */ = {isa = PBXBuildFile; productRef = 3B339DA029A58CA400ACD0E3 /* Harbor */; };
 		3B7B82652C59A08C0029C7A7 /* HarborJRPC in Frameworks */ = {isa = PBXBuildFile; productRef = 3B7B82642C59A08C0029C7A7 /* HarborJRPC */; };
+		3B7B82672C59A08C0029C7A7 /* HarborWebSocket in Frameworks */ = {isa = PBXBuildFile; productRef = 3B7B82662C59A08C0029C7A7 /* HarborWebSocket */; };
 		8D9D58622EF05B7100F148DB /* Harbor in Frameworks */ = {isa = PBXBuildFile; productRef = 8D9D58612EF05B7100F148DB /* Harbor */; };
 		8D9D58642EF05B7100F148DB /* HarborJRPC in Frameworks */ = {isa = PBXBuildFile; productRef = 8D9D58632EF05B7100F148DB /* HarborJRPC */; };
+		8D9D58662EF05B7100F148DB /* HarborWebSocket in Frameworks */ = {isa = PBXBuildFile; productRef = 8D9D58652EF05B7100F148DB /* HarborWebSocket */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -65,6 +67,8 @@
 				3B339DA129A58CA400ACD0E3 /* Harbor in Frameworks */,
 				3B7B82652C59A08C0029C7A7 /* HarborJRPC in Frameworks */,
 				8D9D58642EF05B7100F148DB /* HarborJRPC in Frameworks */,
+				3B7B82672C59A08C0029C7A7 /* HarborWebSocket in Frameworks */,
+				8D9D58662EF05B7100F148DB /* HarborWebSocket in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -163,6 +167,8 @@
 				3B7B82642C59A08C0029C7A7 /* HarborJRPC */,
 				8D9D58612EF05B7100F148DB /* Harbor */,
 				8D9D58632EF05B7100F148DB /* HarborJRPC */,
+				3B7B82662C59A08C0029C7A7 /* HarborWebSocket */,
+				8D9D58652EF05B7100F148DB /* HarborWebSocket */,
 			);
 			productName = HarborExample;
 			productReference = 3B339D5F29A587A900ACD0E3 /* HarborExample.app */;
@@ -620,6 +626,14 @@
 		8D9D58632EF05B7100F148DB /* HarborJRPC */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = HarborJRPC;
+		};
+		3B7B82662C59A08C0029C7A7 /* HarborWebSocket */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = HarborWebSocket;
+		};
+		8D9D58652EF05B7100F148DB /* HarborWebSocket */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = HarborWebSocket;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

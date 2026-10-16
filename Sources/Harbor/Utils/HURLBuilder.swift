@@ -8,7 +8,7 @@
 import Foundation
 
 /// Utility namespace for building composite URLs with path and query parameters.
-enum HURLBuilder {
+package enum HURLBuilder {
     /// A request ready to be sent.
     ///
     /// When `bodyFileURL` is set, the multipart body was streamed to that temporary file
@@ -351,11 +351,12 @@ enum HURLBuilder {
     ///   - url: The base URL string.
     ///   - pathParameters: Path parameters to substitute in the URL (e.g., {userId} -> 123).
     ///   - queryParameters: Query parameters to append to the URL.
+    ///   - allowedSchemes: The lowercased schemes accepted. Default: `http` and `https`.
     /// - Returns: The composite URL.
     /// - Throws: `HRequestError.malformedRequest` when a path parameter contains a `..`
-    ///   path segment, the resulting URL is invalid, or its scheme is not `http` or `https`
-    ///   (compared case-insensitively; a URL without scheme is rejected too).
-    static func compositeURL(url: String, pathParameters: [String: String]? = nil, queryParameters: [String: String]? = nil) throws -> URL {
+    ///   path segment, the resulting URL is invalid, or its scheme is not one of
+    ///   `allowedSchemes` (compared case-insensitively; a URL without scheme is rejected too).
+    package static func compositeURL(url: String, pathParameters: [String: String]? = nil, queryParameters: [String: String]? = nil, allowedSchemes: Set<String> = ["http", "https"]) throws -> URL {
         var compositeUrl = url
 
         if let pathParameters {
@@ -395,13 +396,17 @@ enum HURLBuilder {
             throw HRequestError.malformedRequest(reason: "Invalid URL \"\(compositeUrl)\"")
         }
 
-        // Only HTTP(S) is sent: `URLSession` would also load `file://` and other schemes. The
-        // reason names the scheme only, never the URL, which may carry credentials.
+        // Only the allowed schemes are sent: `URLSession` would also load `file://` and other
+        // schemes. The reason names the scheme only, never the URL, which may carry credentials.
+        let sortedSchemes = allowedSchemes.sorted()
+        let supported = sortedSchemes.count > 1
+            ? sortedSchemes.dropLast().joined(separator: ", ") + " and " + sortedSchemes[sortedSchemes.count - 1]
+            : sortedSchemes.joined()
         guard let scheme = url.scheme?.lowercased() else {
-            throw HRequestError.malformedRequest(reason: "URL has no scheme; only http and https are supported")
+            throw HRequestError.malformedRequest(reason: "URL has no scheme; only \(supported) are supported")
         }
-        guard scheme == "http" || scheme == "https" else {
-            throw HRequestError.malformedRequest(reason: "Unsupported URL scheme \"\(scheme)\"; only http and https are supported")
+        guard allowedSchemes.contains(scheme) else {
+            throw HRequestError.malformedRequest(reason: "Unsupported URL scheme \"\(scheme)\"; only \(supported) are supported")
         }
         return url
     }

@@ -43,6 +43,12 @@ Upgrading from 3.0.0: items tagged **[Breaking]** need code changes. See the [mi
 - `HJRPCRequestError` conforms to `LocalizedError` and has new cases `certificate`, `networkFailure`, `invalidResponse` and `idMismatch`.
 - Notifications are strict: a non-empty 2xx body that is not a JSON-RPC response throws `.codable`, and an error object throws `.jrpcError`.
 
+**WebSocket**
+- New `HarborWebSocket` product: `HWebSocketRequestProtocol` (`url`, `pathParameters`, `queryParameters`, `headerParameters`, `subprotocols`, `needsAuth`, `retryPolicy` for the handshake, `timeoutInterval`, `pingInterval`, `maximumMessageSize`) and `connect()`, which runs the handshake through Harbor's pipeline (connectivity check, auth provider with the `401` refresh flow, default headers, retry policy, SSL pinning, mTLS, custom session, opt-in logging with redaction) and returns an `HWebSocket` actor.
+- `HWebSocket`: `messages` (`AsyncThrowingStream<HWebSocketMessage, Error>`, finishes on a close frame and throws when the connection is lost), `send(_:)` for text and binary, `send(json:encoder:)`, `ping()`, `close(code:reason:)`, `state` (`HWebSocketState`: `.open` / `.closed(code:reason:)`) and `negotiatedSubprotocol`. Cancelling the task iterating `messages` closes the connection.
+- `HWebSocketMessage` (`.text`, `.data`, `decode(_:decoder:)`), `HWebSocketError` (transport cases mirroring `HRequestError` plus `.handshakeFailed(statusCode:)`, `.notConnected`, `.pingTimeout`, `.messageTooBig`, `.invalidURL(reason:)`) and `HarborWebSocket.setDefaultPingInterval(_:)` for keep-alive pings with a pong timeout.
+- The Example app gains a WebSocket section against a public echo server, and the `harbor` skill a `examples/websocket.md` deep dive.
+
 **Mocking**
 - `HMock.headers`, `HMockSequence` with `Harbor.register(mockSequence:)` to script one response per attempt, `Harbor.mockCallCount(for:)` (every mocked attempt, retries included), `Harbor.isMockRegistered(for:)`, `Harbor.removeMock(for:)`, `Harbor.setMocksEnabled(_:)` and `Harbor.mocksEnabled`.
 

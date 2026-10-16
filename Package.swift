@@ -14,6 +14,9 @@ let package = Package(
         .library(
             name: "HarborJRPC",
             targets: ["HarborJRPC"]),
+        .library(
+            name: "HarborWebSocket",
+            targets: ["HarborWebSocket"]),
     ],
 
     dependencies: [
@@ -38,6 +41,16 @@ let package = Package(
         .testTarget(
             name: "HarborJRPCTests",
             dependencies: ["HarborJRPC"]),
+
+        .target(
+            name: "HarborWebSocket",
+            dependencies: [
+                "Harbor",
+                .product(name: "LogBird", package: "LogBird"),
+            ]),
+        .testTarget(
+            name: "HarborWebSocketTests",
+            dependencies: ["HarborWebSocket"]),
     ],
     swiftLanguageModes: [.v6]
 )

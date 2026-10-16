@@ -17,10 +17,10 @@ import Foundation
 /// Runs Harbor's REST request pipeline: mocks, connectivity pre-check, authentication,
 /// retries, caching, decoding and logging. Also owns the internally built `URLSession`s.
 @HRequestManagerActor
-enum HRequestManager {
+package enum HRequestManager {
     /// Connectivity monitor used as a pre-check before executing requests.
     /// Owned here (typed as the protocol) so tests can substitute a fake.
-    static var connectivityMonitor: any HRequestManagerMonitorProtocol = HRequestManagerMonitor()
+    package static var connectivityMonitor: any HRequestManagerMonitorProtocol = HRequestManagerMonitor()
 
     /// Maximum number of times a request is re-issued with a refreshed authorization header
     /// after a 401. These attempts are ADDITIONAL to the retry policy's `maxRetries` — they
@@ -56,7 +56,7 @@ enum HRequestManager {
 /// loop should exit; otherwise signals a retry, a 401 that may be retried with refreshed
 /// credentials, or (inside the attempt only) a `304` without a cached body that is
 /// re-fetched unconditionally (`.refetchUnconditionally`).
-enum HAttemptOutcome<Response: Sendable> {
+package enum HAttemptOutcome<Response: Sendable> {
     /// The request is done; return the response to the caller.
     case finish(Response)
     /// The attempt failed in a retryable way; the loop runs another attempt after the given
@@ -72,7 +72,7 @@ enum HAttemptOutcome<Response: Sendable> {
 /// Outcome of evaluating a 401 response against the auth provider. The retry case carries
 /// the refreshed authorization header, which the loop applies to the next attempt's
 /// `URLRequest` without touching the request object.
-enum HAuthRefresh {
+package enum HAuthRefresh {
     /// The provider issued a different authorization header; retry with it applied.
     /// `notifiedProvider` tells whether `authFailed()` was called to obtain it.
     case retry(HAuthorizationHeader, notifiedProvider: Bool)

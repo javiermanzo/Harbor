@@ -16,7 +16,16 @@ extension HRequestManager {
     /// - Parameter request: The target request.
     /// - Returns: `Result` containing optional header or error.
     static func authorizationHeaderIfNeeded<P: HRequestBaseRequestProtocol>(for request: P) async -> Result<HAuthorizationHeader?, HRequestError> {
-        guard request.needsAuth else { return .success(nil) }
+        await authorizationHeader(needsAuth: request.needsAuth)
+    }
+
+    /// Fetches the provider's authorization header when `needsAuth` is set. Shared by the REST
+    /// pipeline and the other Harbor modules (e.g. the WebSocket handshake).
+    /// - Parameter needsAuth: Whether the operation needs auth.
+    /// - Returns: `.success(nil)` when no auth is needed or the provider has no credentials,
+    ///   `.failure(.authProviderNeeded)` when auth is needed but no provider is configured.
+    package static func authorizationHeader(needsAuth: Bool) async -> Result<HAuthorizationHeader?, HRequestError> {
+        guard needsAuth else { return .success(nil) }
 
         guard let authProvider = HConfig.shared.authProvider else {
             return .failure(.authProviderNeeded)
@@ -88,7 +97,7 @@ extension HRequestManager {
     ///   - providerNotified: Whether `authFailed()` was already called for this request.
     /// - Returns: `.retry` with the header for the next attempt (and whether the provider was
     ///   notified while resolving it), or `.giveUp(.authNeeded)`.
-    static func refreshAuthorization(
+    package static func refreshAuthorization(
         needsAuth: Bool,
         usedHeader: HAuthorizationHeader?,
         authRetriesRemaining: Int,

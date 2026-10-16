@@ -64,12 +64,19 @@ extension HRequestManager {
     /// so the session cannot be invalidated while they hold it.
     /// - Parameter request: The request whose cache type and configuration select the session.
     static func getURLSession(for request: any HRequestBaseRequestProtocol) -> URLSession {
+        getURLSession(cacheType: cacheType(for: request))
+    }
+
+    /// The session for the given cache configuration (`nil` for operations without a cache,
+    /// such as non-GET requests and WebSocket handshakes). See `getURLSession(for:)`.
+    /// - Parameter cacheType: The cache type selecting the session's `URLCache`, if any.
+    private static func getURLSession(cacheType: HCache.CacheType?) -> URLSession {
         if let customURLSession = HConfig.shared.customURLSession {
             return customURLSession
         }
 
         sessionUseTick &+= 1
-        let signature = sessionSignature(for: request)
+        let signature = sessionSignature(cacheType: cacheType)
         if let cached = cachedSessions[signature] {
             cachedSessions[signature]?.lastUse = sessionUseTick
             return cached.session
@@ -80,7 +87,7 @@ extension HRequestManager {
             cachedSessions[leastRecentlyUsed.key] = nil
             retire(leastRecentlyUsed.value.session)
         }
-        let session = buildURLSession(for: request)
+        let session = buildURLSession(cacheType: cacheType)
         cachedSessions[signature] = CachedSession(session: session, lastUse: sessionUseTick)
         return session
     }
@@ -91,15 +98,30 @@ extension HRequestManager {
     /// - Parameter request: The request whose cache type and configuration select the session.
     /// - Returns: The session to create the attempt's tasks on.
     static func leaseURLSession(for request: any HRequestBaseRequestProtocol) -> URLSession {
-        let session = getURLSession(for: request)
+        lease(getURLSession(for: request))
+    }
+
+    /// Returns a session without cache configuration (the one non-GET requests use) and
+    /// records that the caller holds it, as `leaseURLSession(for:)` does. Used by the other
+    /// Harbor modules for tasks that are not REST requests (e.g. WebSocket connections, which
+    /// hold the lease for as long as the connection is open). Release it with `releaseURLSession(_:)`.
+    /// - Returns: The leased session.
+    package static func leaseURLSession() -> URLSession {
+        lease(getURLSession(cacheType: nil))
+    }
+
+    /// Records a lease on the session.
+    /// - Parameter session: The session handed out.
+    /// - Returns: The same session.
+    private static func lease(_ session: URLSession) -> URLSession {
         sessionLeases[ObjectIdentifier(session), default: 0] += 1
         return session
     }
 
-    /// Releases a session obtained with `leaseURLSession(for:)`. A retired session is
-    /// invalidated once its last lease is released.
+    /// Releases a session obtained with `leaseURLSession(for:)` or `leaseURLSession()`. A
+    /// retired session is invalidated once its last lease is released.
     /// - Parameter session: The leased session.
-    static func releaseURLSession(_ session: URLSession) {
+    package static func releaseURLSession(_ session: URLSession) {
         let id = ObjectIdentifier(session)
         guard let leases = sessionLeases[id] else { return }
         guard leases <= 1 else {
@@ -138,32 +160,42 @@ extension HRequestManager {
         }
     }
 
-    /// Computes the signature that uniquely identifies the required session configuration for the given request.
-    /// - Parameter request: The request whose cache type selects the cache configuration.
+    /// The cache configuration a request's session is built for: the GET request's cache type
+    /// (or the default), `nil` for other requests, which keep the configuration defaults.
+    /// - Parameter request: The request.
+    private static func cacheType(for request: any HRequestBaseRequestProtocol) -> HCache.CacheType? {
+        guard let getRequest = request as? any HGetRequestProtocol else { return nil }
+        return getRequest.cacheType ?? HConfig.shared.cacheType
+    }
+
+    /// Computes the signature that uniquely identifies the required session configuration.
+    /// - Parameter cacheType: The cache type selecting the cache configuration, or `nil` for
+    ///   the configuration defaults.
     /// - Returns: The signature under which the session is cached.
-    private static func sessionSignature(for request: any HRequestBaseRequestProtocol) -> SessionSignature {
-        // Non-GET requests keep the configuration defaults (URLCache.shared with
+    private static func sessionSignature(cacheType: HCache.CacheType?) -> SessionSignature {
+        // Without a cache type the configuration defaults apply (URLCache.shared with
         // .useProtocolCachePolicy). The signature must mirror what buildURLSession
         // installs so functionally identical configurations share one cached session.
         var cache: SessionSignature.CacheSignature = .urlCache(ObjectIdentifier(URLCache.shared), .useProtocolCachePolicy)
-        if let getRequest = request as? any HGetRequestProtocol {
-            switch getRequest.cacheType ?? HConfig.shared.cacheType {
-            case .urlCache(let urlCache, let requestPolicy):
-                cache = .urlCache(ObjectIdentifier(urlCache), requestPolicy)
-            case .custom, .disabled:
-                cache = .isolated
-            }
+        switch cacheType {
+        case .urlCache(let urlCache, let requestPolicy):
+            cache = .urlCache(ObjectIdentifier(urlCache), requestPolicy)
+        case .custom, .disabled:
+            cache = .isolated
+        case nil:
+            break
         }
 
         return SessionSignature(cache: cache, httpShouldHandleCookies: HConfig.shared.httpShouldHandleCookies)
     }
 
-    /// Builds a new URLSession tailored to the request's configuration. The session always
+    /// Builds a new URLSession tailored to the configuration. The session always
     /// gets an `HURLSessionDelegate`: besides SSL pinning and mTLS it strips credentials
     /// from cross-origin redirects.
-    /// - Parameter request: The request whose cache type selects the session's `URLCache`.
+    /// - Parameter cacheType: The cache type selecting the session's `URLCache`, or `nil` for
+    ///   the configuration defaults.
     /// - Returns: A new session built from the current configuration.
-    private static func buildURLSession(for request: any HRequestBaseRequestProtocol) -> URLSession {
+    private static func buildURLSession(cacheType: HCache.CacheType?) -> URLSession {
         let configuration = URLSessionConfiguration.default
         // Each URLRequest carries its own timeout (see HURLBuilder); this is the fallback.
         configuration.timeoutIntervalForRequest = HConfig.shared.timeoutInterval
@@ -183,16 +215,14 @@ extension HRequestManager {
         // Only HGetRequestProtocol has cache. For cache types other than .urlCache, install an
         // isolated zero-capacity URLCache so responses are never served from — nor stored
         // into — URLCache.shared.
-        if let getRequest = request as? any HGetRequestProtocol {
-            let cacheType: HCache.CacheType = getRequest.cacheType ?? HConfig.shared.cacheType
-
-            switch cacheType {
-            case .urlCache(let cache, let requestPolicy):
-                configuration.urlCache = cache
-                configuration.requestCachePolicy = requestPolicy
-            case .custom, .disabled:
-                configuration.urlCache = URLCache(memoryCapacity: 0, diskCapacity: 0, diskPath: nil)
-            }
+        switch cacheType {
+        case .urlCache(let cache, let requestPolicy):
+            configuration.urlCache = cache
+            configuration.requestCachePolicy = requestPolicy
+        case .custom, .disabled:
+            configuration.urlCache = URLCache(memoryCapacity: 0, diskCapacity: 0, diskPath: nil)
+        case nil:
+            break
         }
 
         let sessionDelegate = HURLSessionDelegate(mTLSIdentity: HConfig.shared.mTLSIdentity,

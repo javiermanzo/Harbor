@@ -18,7 +18,7 @@ extension HRequestManager {
     ///   - error: The thrown error.
     ///   - trustEvaluationFailed: Whether Harbor's delegate rejected a TLS challenge for the task.
     /// - Returns: The mapped `HRequestError`.
-    static func mapTransportError(_ error: URLError, trustEvaluationFailed: Bool) -> HRequestError {
+    nonisolated package static func mapTransportError(_ error: URLError, trustEvaluationFailed: Bool) -> HRequestError {
         if trustEvaluationFailed {
             return .certificate
         }
@@ -33,7 +33,7 @@ extension HRequestManager {
     /// cancelled.
     /// - Parameter error: The thrown error.
     /// - Returns: The mapped `HRequestError`.
-    static func mapNonURLError(_ error: Error) -> HRequestError {
+    nonisolated package static func mapNonURLError(_ error: Error) -> HRequestError {
         if error is CancellationError || Task.isCancelled {
             return .cancelled
         }
@@ -73,7 +73,7 @@ extension HRequestManager {
     ///   - statusCode: The HTTP status code of the response.
     ///   - httpResponse: The response carrying the header.
     ///   - now: The reference date for HTTP-date values.
-    static func statusRetry(statusCode: Int, httpResponse: HTTPURLResponse?, now: Date = Date()) -> HStatusRetry {
+    package static func statusRetry(statusCode: Int, httpResponse: HTTPURLResponse?, now: Date = Date()) -> HStatusRetry {
         let retryAfter = retryAfterDelay(statusCode: statusCode, httpResponse: httpResponse, now: now)
         if let retryAfter, retryAfter > HRetryPolicy.maxDelay {
             return .giveUp
@@ -86,7 +86,7 @@ extension HRequestManager {
     /// - Parameter seconds: The duration to sleep, in seconds.
     /// - Returns: `false` when the task was cancelled before or during the sleep.
     @discardableResult
-    static func sleep(seconds: TimeInterval) async -> Bool {
+    package static func sleep(seconds: TimeInterval) async -> Bool {
         let clampedSeconds = min(max(seconds, 0), HRetryPolicy.maxDelay)
         guard clampedSeconds > 0 else { return !Task.isCancelled }
         do {
@@ -103,7 +103,7 @@ extension HRequestManager {
 }
 
 /// Whether a retryable status code may be retried once its `Retry-After` header is considered.
-enum HStatusRetry {
+package enum HStatusRetry {
     /// Retry after the server-provided delay, or after the policy's backoff when `nil`.
     case retry(after: TimeInterval?)
     /// The server asked to wait longer than `HRetryPolicy.maxDelay`; the response is returned as-is.

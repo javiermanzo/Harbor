@@ -30,6 +30,13 @@
         "identifier" : "HarborTests",
         "name" : "HarborTests"
       }
+    },
+    {
+      "target" : {
+        "containerPath" : "container:",
+        "identifier" : "HarborWebSocketTests",
+        "name" : "HarborWebSocketTests"
+      }
     }
   ],
   "version" : 1

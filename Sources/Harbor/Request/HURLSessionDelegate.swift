@@ -89,7 +89,7 @@ extension HURLSessionDelegate: URLSessionTaskDelegate {
     ///   - completionHandler: Completion closure called with the request to follow.
     public func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse, newRequest request: URLRequest, completionHandler: @escaping @Sendable (URLRequest?) -> Void) {
         let originURL = task.originalRequest?.url ?? response.url
-        let authHeaderKey = (task.delegate as? HTaskContext)?.authHeaderKey
+        let authHeaderKey = (task.delegate as? any HTaskDelegateContext)?.authHeaderKey
         completionHandler(Self.redirectRequest(request, originURL: originURL, authHeaderKey: authHeaderKey))
     }
 }
@@ -113,7 +113,7 @@ extension HURLSessionDelegate {
     ///     the Harbor request that started it so it fails with `HRequestError.certificate`.
     ///   - completionHandler: Completion closure called with disposition and credential.
     public func handleChallenge(_ challenge: URLAuthenticationChallenge, task: URLSessionTask?, completionHandler: @escaping @Sendable (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
-        let taskContext = task?.delegate as? HTaskContext
+        let taskContext = task?.delegate as? any HTaskDelegateContext
         let completion: @Sendable (URLSession.AuthChallengeDisposition, URLCredential?) -> Void = { disposition, credential in
             if disposition == .cancelAuthenticationChallenge {
                 taskContext?.recordTrustFailure()
@@ -350,6 +350,20 @@ extension HURLSessionDelegate {
     }
 }
 
+// MARK: - Task Delegate Context
+
+/// What `HURLSessionDelegate` needs from the task-specific delegate of a task Harbor started:
+/// the auth header key to strip on cross-origin redirects, and a way to report a rejected TLS
+/// handshake back to the operation that owns the task. Adopted by `HTaskContext` (REST) and
+/// by the WebSocket task delegate.
+package protocol HTaskDelegateContext: AnyObject, Sendable {
+    /// The header key the auth provider set on the request, if any.
+    var authHeaderKey: String? { get }
+
+    /// Records that a TLS challenge for the task was rejected.
+    func recordTrustFailure()
+}
+
 // MARK: - Task Context
 
 /// Per-task state Harbor attaches to every task it starts, as the task-specific delegate
@@ -374,7 +388,11 @@ final class HTaskContext: NSObject, Sendable {
     var trustEvaluationFailed: Bool {
         didFailTrustEvaluation.withLock { $0 }
     }
+}
 
+// MARK: - HTaskDelegateContext
+
+extension HTaskContext: HTaskDelegateContext {
     /// Records that a TLS challenge for the task was rejected.
     func recordTrustFailure() {
         didFailTrustEvaluation.withLock { $0 = true }

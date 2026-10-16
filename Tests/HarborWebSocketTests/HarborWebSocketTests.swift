@@ -420,6 +420,31 @@ final class HarborWebSocketTests: XCTestCase {
         XCTAssertEqual(state, .closed(code: .abnormalClosure, reason: nil))
     }
 
+    func testCancellingAPingDoesNotCloseTheConnection() async throws {
+        // Given a server that never answers pings
+        let server = try await startServer(autoReplyPing: false)
+        let socket = try await TestSocket(url: server.url(), pingInterval: 5).connect()
+
+        // When the caller of ping() is cancelled while waiting for the pong
+        let pinging = Task { () -> HWebSocketError? in
+            do throws(HWebSocketError) {
+                try await socket.ping()
+                return nil
+            } catch {
+                return error
+            }
+        }
+        try await Task.sleep(nanoseconds: 200_000_000)
+        pinging.cancel()
+        let error = await pinging.value
+
+        // Then the call reports the cancellation and the healthy connection stays open
+        XCTAssertEqual(error, HWebSocketError.cancelled)
+        let state = await socket.state
+        XCTAssertEqual(state, .open)
+        await socket.close()
+    }
+
     func testServerCloseWhileAPingIsInFlightReportsTheCloseCode() async throws {
         // Given a server that never answers pings and closes while a keep-alive ping is pending
         let server = try await startServer(autoReplyPing: false) { connection in

@@ -142,10 +142,15 @@ public extension HWebSocket {
     /// not arrive in time means the connection is dead: it is closed, `messages` throws
     /// `.pingTimeout` and so does this call.
     /// - Throws: `.notConnected` when the connection is closed, `.pingTimeout` when the pong
-    ///   did not arrive in time, or the transport error.
+    ///   did not arrive in time, `.cancelled` when the calling task was cancelled (the
+    ///   connection stays open), or the transport error.
     func ping() async throws(HWebSocketError) {
         guard case .open = state else { throw .notConnected }
-        switch await Self.ping(task, timeout: pingInterval ?? Self.defaultPingTimeout) {
+        let outcome = await Self.ping(task, timeout: pingInterval ?? Self.defaultPingTimeout)
+        // A caller that was cancelled while waiting did not observe a dead link: cancelling it
+        // must neither close a healthy connection nor report a timeout.
+        guard !Task.isCancelled else { throw .cancelled }
+        switch outcome {
         case .pong:
             return
         case .failed(let error):

@@ -398,7 +398,10 @@ package enum HURLBuilder {
 
         // Only the allowed schemes are sent: `URLSession` would also load `file://` and other
         // schemes. The reason names the scheme only, never the URL, which may carry credentials.
-        let supported = allowedSchemes.sorted().joined(separator: ", ")
+        let sortedSchemes = allowedSchemes.sorted()
+        let supported = sortedSchemes.count > 1
+            ? sortedSchemes.dropLast().joined(separator: ", ") + " and " + sortedSchemes[sortedSchemes.count - 1]
+            : sortedSchemes.joined()
         guard let scheme = url.scheme?.lowercased() else {
             throw HRequestError.malformedRequest(reason: "URL has no scheme; only \(supported) are supported")
         }

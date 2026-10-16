@@ -138,7 +138,7 @@ public extension HWebSocket {
     }
 
     /// Sends a ping frame and waits for the server's pong, for at most the request's
-    /// `pingInterval` (or `HWebSocket.defaultPingTimeout` when none is set). A pong that does
+    /// `pingInterval` (10 seconds when none is set). A pong that does
     /// not arrive in time means the connection is dead: it is closed, `messages` throws
     /// `.pingTimeout` and so does this call.
     /// - Throws: `.notConnected` when the connection is closed, `.pingTimeout` when the pong
@@ -172,8 +172,6 @@ public extension HWebSocket {
         await finish(code: code, reason: reason, error: nil, initiatedLocally: true)
     }
 
-    /// How long `ping()` waits for the pong when the request sets no `pingInterval`: 10 seconds.
-    static let defaultPingTimeout: TimeInterval = 10
 }
 
 // MARK: - Lifecycle
@@ -314,6 +312,9 @@ extension HWebSocket {
         /// Neither a pong nor an error arrived within the timeout.
         case timedOut
     }
+
+    /// How long `ping()` waits for the pong when the request sets no `pingInterval`.
+    static let defaultPingTimeout: TimeInterval = 10
 
     /// How long a failed `receive()` waits for the task completion before treating the
     /// connection as lost.

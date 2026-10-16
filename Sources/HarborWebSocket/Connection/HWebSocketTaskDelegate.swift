@@ -30,18 +30,27 @@ final class HWebSocketTaskDelegate: NSObject, Sendable {
 
     /// Outcome of the handshake.
     private enum Handshake {
+        /// The handshake has not finished.
         case pending
+        /// The server accepted the upgrade, selecting the given subprotocol, if any.
         case opened(subprotocol: String?)
+        /// The task ended before opening, with the given error.
         case failed(Error)
     }
 
     /// Mutable state; delegate callbacks arrive on the session's delegate queue, waiters on any executor.
     private struct State {
+        /// The handshake outcome.
         var handshake: Handshake = .pending
+        /// The task waiting in `waitForOpen()`, if any.
         var openContinuation: CheckedContinuation<String?, Error>?
+        /// The close frame received from the server, if any.
         var closeFrame: CloseFrame?
+        /// Whether a TLS challenge for the task was rejected.
         var trustEvaluationFailed = false
+        /// Whether the task completed (`didCompleteWithError`).
         var isCompleted = false
+        /// The tasks waiting in `waitForCompletion()`, keyed so cancellation can remove them.
         var completionWaiters: [UUID: CheckedContinuation<Void, Never>] = [:]
     }
 

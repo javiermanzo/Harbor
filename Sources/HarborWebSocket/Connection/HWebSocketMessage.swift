@@ -38,7 +38,11 @@ public extension HWebSocketMessage {
             throw .codable(modelName: "\(type)", error: error)
         }
     }
+}
 
+// MARK: - URLSessionWebSocketTask.Message Bridging
+
+extension HWebSocketMessage {
     /// The raw payload bytes: the UTF-8 bytes of a text message or the data of a binary message.
     var payload: Data {
         switch self {
@@ -48,11 +52,7 @@ public extension HWebSocketMessage {
             return data
         }
     }
-}
 
-// MARK: - URLSessionWebSocketTask.Message Bridging
-
-extension HWebSocketMessage {
     /// Wraps a message received from `URLSessionWebSocketTask`.
     /// - Parameter message: The received message.
     init(_ message: URLSessionWebSocketTask.Message) {

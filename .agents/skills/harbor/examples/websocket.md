@@ -116,7 +116,7 @@ func manualPing(_ socket: HWebSocket) async throws {
 }
 ```
 
-A ping is sent every `pingInterval` seconds, regardless of traffic; when the pong does not arrive within the same interval the connection is closed and `messages` throws `.pingTimeout`. `ping()` applies the same timeout (`HWebSocket.defaultPingTimeout`, 10 seconds, when the request has no `pingInterval`) and throws `.pingTimeout` after closing the connection, so it can be used to probe a half-open link.
+A ping is sent every `pingInterval` seconds, regardless of traffic; when the pong does not arrive within the same interval the connection is closed and `messages` throws `.pingTimeout`. `ping()` applies the same timeout (10 seconds when the request has no `pingInterval`) and throws `.pingTimeout` after closing the connection, so it can be used to probe a half-open link.
 
 ## Authentication
 

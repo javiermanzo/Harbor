@@ -385,7 +385,7 @@ extension HWebSocket {
                 await operation()
             }
             group.addTask {
-                await sleep(seconds: timeout)
+                _ = await sleep(seconds: timeout)
                 return nil
             }
             let first = await group.next() ?? nil

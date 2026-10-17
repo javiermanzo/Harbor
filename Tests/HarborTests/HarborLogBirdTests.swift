@@ -7,6 +7,7 @@ import XCTest
 import Combine
 import LogBird
 @testable import Harbor
+@testable import HarborCore
 
 final class HarborLogBirdTests: XCTestCase {
 

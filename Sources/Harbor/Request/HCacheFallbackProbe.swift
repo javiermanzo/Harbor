@@ -4,6 +4,7 @@
 //
 
 import Foundation
+import HarborCore
 
 /// Records that a request was answered from a cached copy as a fallback (offline, or a failing server with
 /// `stale-if-error`) instead of by the network. `requestStream(source:)` reads it to tag such an answer

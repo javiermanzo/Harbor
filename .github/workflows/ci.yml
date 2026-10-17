@@ -41,6 +41,7 @@ jobs:
         fi
         echo "No compiler warnings in Sources/"
     - name: Test
+      timeout-minutes: 15
       run: swift test --enable-code-coverage
     - name: Setup llvm-cov
       run: sudo ln -s $(xcrun --find llvm-cov) /usr/local/bin/llvm-cov

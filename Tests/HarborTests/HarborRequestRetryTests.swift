@@ -7,6 +7,7 @@
 
 import XCTest
 @testable import Harbor
+@testable import HarborCore
 
 /// URLProtocol stub injected through `HConfig.protocolClasses`, so networking is
 /// intercepted per session without registering the protocol globally.

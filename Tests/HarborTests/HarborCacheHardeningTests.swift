@@ -8,6 +8,7 @@
 
 import XCTest
 @testable import Harbor
+@testable import HarborCore
 
 /// URLProtocol stub injected through `HConfig.protocolClasses`. Each request is answered by
 /// the scripted handler, and every request is recorded.

@@ -14,6 +14,9 @@ let package = Package(
         .library(
             name: "HarborJRPC",
             targets: ["HarborJRPC"]),
+        .library(
+            name: "HarborWebSocket",
+            targets: ["HarborWebSocket"]),
     ],
 
     dependencies: [
@@ -22,14 +25,23 @@ let package = Package(
     targets: [
         // Targets are the basic building blocks of a package. A target can define a module or a test suite.
         // Targets can depend on other targets in this package, and on products in packages this package depends on.
+        // Shared infrastructure (auth, security, logging, session pool, retry loop). Not a product:
+        // its internals are `package`, and what was already public is re-exported by
+        // `Harbor` and `HarborWebSocket`.
+        .target(
+            name: "HarborCore",
+            dependencies: [
+                .product(name: "LogBird", package: "LogBird"),
+            ]),
         .target(
             name: "Harbor",
             dependencies: [
+                "HarborCore",
                 .product(name: "LogBird", package: "LogBird"),
             ]),
         .testTarget(
             name: "HarborTests",
-            dependencies: ["Harbor"],
+            dependencies: ["Harbor", "HarborCore"],
             exclude: ["certificate.p12", "certificate-ec256.der", "certificate-rsa4096.der"]),
 
         .target(
@@ -38,6 +50,16 @@ let package = Package(
         .testTarget(
             name: "HarborJRPCTests",
             dependencies: ["HarborJRPC"]),
+
+        .target(
+            name: "HarborWebSocket",
+            dependencies: [
+                "HarborCore",
+                .product(name: "LogBird", package: "LogBird"),
+            ]),
+        .testTarget(
+            name: "HarborWebSocketTests",
+            dependencies: ["HarborWebSocket", "HarborCore"]),
     ],
     swiftLanguageModes: [.v6]
 )

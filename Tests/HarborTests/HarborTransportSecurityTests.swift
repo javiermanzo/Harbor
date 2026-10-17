@@ -10,6 +10,7 @@
 import XCTest
 import Security
 @testable import Harbor
+@testable import HarborCore
 
 private struct LoopbackModel: HModel {
     let ok: Bool

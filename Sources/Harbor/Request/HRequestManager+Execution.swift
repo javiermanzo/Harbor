@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import HarborCore
 
 // MARK: - Request With Result
 extension HRequestManager {
@@ -17,7 +18,7 @@ extension HRequestManager {
     static func request<Model: HModel, Request: HRequestWithResultProtocol>(model: Model.Type, request: Request) async -> HResponseWithResult<Model> {
         let retryPolicy = request.retryPolicy
 
-        if HConfig.shared.mocksEnabled, HMocker.isRegistered(type(of: request)) {
+        if HRESTConfig.shared.mocksEnabled, HMocker.isRegistered(type(of: request)) {
             return await runAttempts(
                 request: request,
                 retryPolicy: retryPolicy,
@@ -313,7 +314,7 @@ extension HRequestManager {
     static func request<Request: HRequestWithEmptyResponseProtocol>(request: Request) async -> HResponse {
         let retryPolicy = request.retryPolicy
 
-        if HConfig.shared.mocksEnabled, HMocker.isRegistered(type(of: request)) {
+        if HRESTConfig.shared.mocksEnabled, HMocker.isRegistered(type(of: request)) {
             return await runAttempts(
                 request: request,
                 retryPolicy: retryPolicy,
@@ -481,49 +482,14 @@ extension HRequestManager {
         errorResponse: @escaping (HRequestError) -> Response,
         executeAttempt: @escaping (TypedRequest, HAuthorizationHeader?, Bool) async -> HAttemptOutcome<Response>
     ) async -> Response {
-        var currentAuthHeader = authHeader
-        var retriesPerformed = 0
-        var authRetriesRemaining = maxAuthRetries
-        var providerNotified = false
-        var pendingDelay: TimeInterval?
-        let maxRetries = retryPolicy?.maxRetries ?? 0
-
-        while true {
-            if let delay = pendingDelay {
-                pendingDelay = nil
-                _ = await sleep(seconds: delay)
-            }
-
-            guard !Task.isCancelled else {
-                let hError: HRequestError = .cancelled
-                await logError(hError, request: request)
-                return errorResponse(hError)
-            }
-
-            let canRetry = retriesPerformed < maxRetries
-
-            switch await executeAttempt(request, currentAuthHeader, canRetry) {
-            case .finish(let response):
-                return response
-            case .retry(let retryAfter):
-                retriesPerformed += 1
-                pendingDelay = retryAfter ?? retryPolicy?.delay(forRetry: retriesPerformed) ?? 0
-            case .unauthorized:
-                switch await refreshAuthorization(needsAuth: request.needsAuth, usedHeader: currentAuthHeader, authRetriesRemaining: authRetriesRemaining, providerNotified: providerNotified) {
-                case .retry(let freshHeader, let notified):
-                    currentAuthHeader = freshHeader
-                    authRetriesRemaining -= 1
-                    providerNotified = providerNotified || notified
-                case .giveUp(let hError):
-                    await logError(hError, request: request)
-                    return errorResponse(hError)
-                }
-            case .refetchUnconditionally:
-                // Handled inside the attempt itself; never surfaces to the loop.
-                let hError: HRequestError = .api(statusCode: 304, data: Data())
-                await logError(hError, request: request)
-                return errorResponse(hError)
-            }
+        await runAttemptLoop(needsAuth: request.needsAuth,
+                             retryPolicy: retryPolicy,
+                             authHeader: authHeader,
+                             failWith: { hError in
+                                 await logError(hError, request: request)
+                                 return errorResponse(hError)
+                             }) { currentAuthHeader, canRetry in
+            await executeAttempt(request, currentAuthHeader, canRetry)
         }
     }
 

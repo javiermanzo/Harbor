@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import HarborCore
 
 // MARK: - HModel
 /// Type alias for models used in network requests. Must be `Codable & Sendable`.

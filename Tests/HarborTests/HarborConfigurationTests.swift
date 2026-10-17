@@ -7,6 +7,7 @@
 
 import XCTest
 @testable import Harbor
+@testable import HarborCore
 
 final class HarborConfigurationTests: XCTestCase {
 
@@ -335,7 +336,7 @@ private func clearCustomURLSession() {
 
 @HRequestManagerActor
 private func mocksEnabledValue() -> Bool {
-    HConfig.shared.mocksEnabled
+    HRESTConfig.shared.mocksEnabled
 }
 
 // MARK: - Test Models

@@ -8,6 +8,7 @@
 import XCTest
 import Network
 @testable import Harbor
+@testable import HarborCore
 
 @HRequestManagerActor
 final class HarborConnectivityTests: XCTestCase {

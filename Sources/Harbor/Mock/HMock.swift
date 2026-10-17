@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import HarborCore
 
 /// A canned response for every request of a given type, used to develop and test without a server.
 ///

@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import HarborCore
 
 public extension HCache {
     /// Configuration for custom cache behavior.

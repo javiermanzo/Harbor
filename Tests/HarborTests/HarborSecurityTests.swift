@@ -8,6 +8,7 @@
 import XCTest
 import Security
 @testable import Harbor
+@testable import HarborCore
 
 @HRequestManagerActor
 final class HarborSecurityTests: XCTestCase {

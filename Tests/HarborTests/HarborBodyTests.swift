@@ -7,6 +7,7 @@
 
 import XCTest
 @testable import Harbor
+@testable import HarborCore
 
 @HRequestManagerActor
 final class HarborBodyTests: XCTestCase {

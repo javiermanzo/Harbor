@@ -4,6 +4,7 @@
 //
 
 import Foundation
+import HarborCore
 
 /// A scripted sequence of mock responses for a request type, played back in order.
 ///

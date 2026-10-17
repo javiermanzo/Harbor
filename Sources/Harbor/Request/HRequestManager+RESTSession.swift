@@ -9,6 +9,7 @@ import Foundation
 import HarborCore
 
 // MARK: - REST Sessions
+
 extension HRequestManager {
     /// The session profile of a request: a GET request's cache type (or the default) selects
     /// the `URLCache`; other requests keep the configuration defaults.

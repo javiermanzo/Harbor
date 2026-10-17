@@ -93,9 +93,13 @@ extension HURLBuilder {
 
         urlRequest.httpMethod = request.httpMethod.rawValue
         // Set per request so it holds for custom sessions and alternating timeouts never require a new session.
-        let defaultTimeoutInterval = await HRequestManagerActor.run { HConfig.shared.timeoutInterval }
-        urlRequest.timeoutInterval = request.timeoutInterval ?? defaultTimeoutInterval
-        urlRequest.httpShouldHandleCookies = await HRequestManagerActor.run { HConfig.shared.httpShouldHandleCookies }
+        let config = await HRequestManagerActor.run {
+            (timeoutInterval: HConfig.shared.timeoutInterval,
+             httpShouldHandleCookies: HConfig.shared.httpShouldHandleCookies,
+             defaultHeaders: HConfig.shared.defaultHeaderParameters)
+        }
+        urlRequest.timeoutInterval = request.timeoutInterval ?? config.timeoutInterval
+        urlRequest.httpShouldHandleCookies = config.httpShouldHandleCookies
 
         if let request = request as? HRequestWithBodyProtocol {
             if let rawBody = request.rawBody {
@@ -118,8 +122,7 @@ extension HURLBuilder {
 
         // `setValue` matches header names case-insensitively, so a `content-type` header
         // replaces the `Content-Type` set above instead of being sent alongside it.
-        let defaultHeaders = await HRequestManagerActor.run { HConfig.shared.defaultHeaderParameters }
-        for (key, value) in defaultHeaders ?? [:] {
+        for (key, value) in config.defaultHeaders ?? [:] {
             urlRequest.setValue(value, forHTTPHeaderField: key)
         }
 

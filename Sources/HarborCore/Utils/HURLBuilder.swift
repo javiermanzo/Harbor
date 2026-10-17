@@ -42,7 +42,7 @@ package enum HURLBuilder {
         }
 
         guard var urlComponents = URLComponents(string: compositeUrl) else {
-            throw HRequestError.malformedRequest(reason: "Invalid URL \"\(compositeUrl)\"")
+            throw HRequestError.malformedRequest(reason: "Invalid URL")
         }
 
         if let queryParameters, !queryParameters.isEmpty {
@@ -62,7 +62,7 @@ package enum HURLBuilder {
         }
 
         guard let url = urlComponents.url else {
-            throw HRequestError.malformedRequest(reason: "Invalid URL \"\(compositeUrl)\"")
+            throw HRequestError.malformedRequest(reason: "Invalid URL")
         }
 
         // Only the allowed schemes are sent: `URLSession` would also load `file://` and other

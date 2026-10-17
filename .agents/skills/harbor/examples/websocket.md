@@ -157,22 +157,25 @@ final class LiveFeed: ObservableObject {
         while !Task.isCancelled {
             do {
                 let socket = try await ChatSocket(room: "swift").connect()
-                failures = 0
                 do {
                     for try await message in socket.messages {
+                        failures = 0   // the connection proved healthy: restart the backoff
                         events.append(try message.decode(ChatEvent.self))
                     }
                 } catch {
                     await socket.close()   // a failed decode leaves the loop with the socket open
                     throw error
                 }
-                // Server closed the connection with a close frame: reconnect unless told not to.
+                // Server closed the connection with a close frame: stop if told not to reconnect.
                 if case .closed(let code, _) = await socket.state, code == .policyViolation { return }
             } catch {
-                failures += 1
-                guard failures <= policy.maxRetries else { return }
-                try? await Task.sleep(nanoseconds: UInt64(policy.delay(forRetry: failures) * 1_000_000_000))
+                // Falls through to the backoff below.
             }
+            // Back off after every end of a connection, clean close included, so a server that
+            // accepts the handshake and closes at once is not hammered in a tight loop.
+            failures += 1
+            guard failures <= policy.maxRetries else { return }
+            try? await Task.sleep(nanoseconds: UInt64(policy.delay(forRetry: failures) * 1_000_000_000))
         }
     }
 }

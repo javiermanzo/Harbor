@@ -8,6 +8,7 @@
 import Foundation
 
 // MARK: - Attempt Loop
+
 extension HRequestManager {
     /// The attempt loop shared by the REST pipeline and the other Harbor products (e.g. the
     /// WebSocket handshake): retries with `Retry-After` or backoff delays, the 401 refresh

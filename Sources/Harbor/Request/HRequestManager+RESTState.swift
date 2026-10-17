@@ -9,6 +9,7 @@ import Foundation
 import HarborCore
 
 // MARK: - REST Cache State
+
 extension HRequestManager {
     /// The authorization header each authenticated GET request last succeeded with, keyed by
     /// its plain cache key (the composite URL). Offline lookups use it to find the
@@ -54,6 +55,7 @@ extension HRequestManager {
 }
 
 // MARK: - REST Authorization
+
 extension HRequestManager {
     /// Fetches the provider's authorization header for requests that need auth.
     /// Fails with `.authProviderNeeded` when the request needs auth but no provider is

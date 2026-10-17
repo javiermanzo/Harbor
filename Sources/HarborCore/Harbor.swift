@@ -31,6 +31,7 @@ public extension Harbor {
     static func setAuthProvider(_ authProvider: HAuthProviderProtocol?) {
         HConfig.shared.authProvider = authProvider
         HRequestManager.authGeneration &+= 1
+        HRequestManager.authProviderDidChange?()
     }
 
     /// Sets default headers applied to all requests.

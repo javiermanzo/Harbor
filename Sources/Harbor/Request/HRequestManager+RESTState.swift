@@ -15,7 +15,7 @@ extension HRequestManager {
     /// its plain cache key (the composite URL). Offline lookups use it to find the
     /// credential-namespaced cache entry without consulting the auth provider, whose header
     /// resolution may refresh a token over the network. Cleared by `forgetRememberedAuthHeaders()`
-    /// (`Harbor.clearAllCache()`) and, lazily, when `Harbor.setAuthProvider(_:)` is called.
+    /// (`Harbor.clearAllCache()`) and when `Harbor.setAuthProvider(_:)` is called.
     static var rememberedAuthHeaders: [String: HAuthorizationHeader] = [:]
 
     /// Bound of `rememberedAuthHeaders`; past it the map is reset before recording a new entry.
@@ -43,6 +43,13 @@ extension HRequestManager {
     static func forgetRememberedAuthHeaders() {
         rememberedAuthHeaders.removeAll()
         clearedCacheGeneration &+= 1
+    }
+
+    /// Makes `Harbor.setAuthProvider(_:)` drop the remembered credentials at once. Installed
+    /// when the first credential is recorded: until then there is nothing to forget.
+    private static func installAuthProviderObserver() {
+        guard authProviderDidChange == nil else { return }
+        authProviderDidChange = { discardRememberedAuthHeadersIfProviderChanged() }
     }
 
     /// Drops the remembered credentials when the auth provider was replaced since they were
@@ -85,6 +92,7 @@ extension HRequestManager {
     static func rememberAuthHeader(_ authHeader: HAuthorizationHeader?, for request: any HGetRequestProtocol) {
         guard request.needsAuth, let authHeader, let key = request.cacheNamespaceKey() else { return }
         discardRememberedAuthHeadersIfProviderChanged()
+        installAuthProviderObserver()
         if rememberedAuthHeaders.count >= maxRememberedAuthHeaders, rememberedAuthHeaders[key] == nil {
             rememberedAuthHeaders.removeAll()
         }

@@ -668,6 +668,17 @@ final class HarborRequestManagerAuthTests: XCTestCase {
         XCTAssertEqual(provider.headerCallCount, 1)
     }
 
+    func testReplacingTheAuthProviderForgetsTheRememberedCredentialsAtOnce() async {
+        let request = MockGetRequest<MockModel>(needsAuth: true, url: "https://example.com/remembered")
+        HRequestManager.rememberAuthHeader(HAuthorizationHeader(key: "Authorization", value: "Bearer old"), for: request)
+        XCTAssertEqual(HRequestManager.rememberedAuthHeaders.count, 1)
+
+        Harbor.setAuthProvider(nil)
+
+        // Without any later request touching the map
+        XCTAssertTrue(HRequestManager.rememberedAuthHeaders.isEmpty)
+    }
+
     /// Stores a body as an immediately expired, stale servable cache entry for the given request.
     private func storeStaleEntry(_ data: Data, for request: ClassAuthGetRequest, headers: [String: String], authHeader: HAuthorizationHeader? = nil) async throws {
         let url = try XCTUnwrap(URL(string: request.url))

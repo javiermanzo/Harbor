@@ -188,7 +188,9 @@ extension HWebSocket {
         receiveTask = Task { [task, continuation] in
             while !Task.isCancelled {
                 do {
-                    let message = HWebSocketMessage(try await task.receive())
+                    guard let message = HWebSocketMessage(try await task.receive()) else {
+                        throw URLError(.cannotParseResponse)
+                    }
                     await self.logContext?.logReceived(message)
                     continuation.yield(message)
                 } catch {
@@ -394,20 +396,13 @@ extension HWebSocket {
         }
     }
 
-    /// Longest sleep accepted, so the conversion to nanoseconds never traps: one day.
+    /// Longest sleep accepted by the ping and timeout helpers: one day.
     private static let maxSleep: TimeInterval = 86_400
 
-    /// Sleeps for the given number of seconds (clamped to `maxSleep`).
+    /// Sleeps through the shared helper, capped at `maxSleep`.
     /// - Parameter seconds: The duration.
     /// - Returns: `false` when the task was cancelled before or during the sleep.
     private static func sleep(seconds: TimeInterval) async -> Bool {
-        let clamped = min(max(seconds.isFinite ? seconds : maxSleep, 0), maxSleep)
-        guard clamped > 0 else { return !Task.isCancelled }
-        do {
-            try await Task.sleep(nanoseconds: UInt64(clamped * 1_000_000_000))
-            return !Task.isCancelled
-        } catch {
-            return false
-        }
+        await HRequestManager.sleep(seconds: seconds, maximum: maxSleep)
     }
 }

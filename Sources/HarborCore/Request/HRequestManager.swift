@@ -50,6 +50,10 @@ package enum HRequestManager {
     /// remembered credentials and in-flight cache writes stop being valid (see
     /// `HRequestManager+RESTState.swift`), so shared code never has to know about them.
     package static var authGeneration = 0
+
+    /// Called by `Harbor.setAuthProvider(_:)` right after `authGeneration` changes. A product
+    /// that remembers credentials installs it so they are dropped at once, not when next read.
+    package static var authProviderDidChange: (@HRequestManagerActor () -> Void)?
 }
 
 // MARK: - Retry Loop Outcomes

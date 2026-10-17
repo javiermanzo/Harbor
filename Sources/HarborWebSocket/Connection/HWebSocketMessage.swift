@@ -54,15 +54,16 @@ extension HWebSocketMessage {
     }
 
     /// Wraps a message received from `URLSessionWebSocketTask`.
-    /// - Parameter message: The received message.
-    init(_ message: URLSessionWebSocketTask.Message) {
+    /// - Parameter message: The received message, or `nil` when it is of a kind this version does
+    ///   not know (a case added by a newer SDK), rather than delivering an empty frame.
+    init?(_ message: URLSessionWebSocketTask.Message) {
         switch message {
         case .string(let text):
             self = .text(text)
         case .data(let data):
             self = .data(data)
         @unknown default:
-            self = .data(Data())
+            return nil
         }
     }
 

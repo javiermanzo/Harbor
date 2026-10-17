@@ -81,13 +81,16 @@ extension HRequestManager {
         return .retry(after: retryAfter)
     }
 
-    /// Sleeps for the given number of seconds. Negative values are treated as zero and the
-    /// delay is clamped to `HRetryPolicy.maxDelay` before converting to nanoseconds.
-    /// - Parameter seconds: The duration to sleep, in seconds.
+    /// Sleeps for the given number of seconds. Negative values are treated as zero, and the
+    /// delay (a value that is not finite counts as the maximum) is clamped to `maximum` before
+    /// converting to nanoseconds.
+    /// - Parameters:
+    ///   - seconds: The duration to sleep, in seconds.
+    ///   - maximum: The longest sleep accepted. Default: `HRetryPolicy.maxDelay`.
     /// - Returns: `false` when the task was cancelled before or during the sleep.
     @discardableResult
-    package static func sleep(seconds: TimeInterval) async -> Bool {
-        let clampedSeconds = min(max(seconds, 0), HRetryPolicy.maxDelay)
+    package static func sleep(seconds: TimeInterval, maximum: TimeInterval = HRetryPolicy.maxDelay) async -> Bool {
+        let clampedSeconds = min(max(seconds.isFinite ? seconds : maximum, 0), maximum)
         guard clampedSeconds > 0 else { return !Task.isCancelled }
         do {
             if #available(macOS 13.0, iOS 16.0, watchOS 9.0, tvOS 16.0, *) {

@@ -8,7 +8,17 @@
 [![Platforms](https://img.shields.io/badge/Platforms-macOS_iOS-yellowgreen?style=flat-square)](https://img.shields.io/badge/Platforms-macOS_iOS-yellowgreen?style=flat-square) 
 [![Swift Package Manager](https://img.shields.io/badge/Swift_Package_Manager-compatible-orange?style=flat-square)](https://swiftpackageindex.com/javiermanzo/Harbor)
 
-Harbor is a protocol-oriented networking library for Swift, built for Swift 6 strict concurrency. It provides a multi-layer cache, authentication with token refresh, retry policies, mTLS, SSL pinning, log redaction, mocking, JSON-RPC 2.0 and WebSocket connections out of the box.
+Harbor is a protocol-oriented networking library for Swift, built for Swift 6 strict concurrency (`async/await` and a global actor, no callbacks). You declare each request as a `Sendable` struct and Harbor takes care of the rest.
+
+It ships as three products, so you only link what you use:
+
+| Product | What it gives you |
+| --- | --- |
+| `Harbor` | REST requests (GET, POST, PUT, PATCH, DELETE) with typed results that never throw, a multi-layer HTTP cache with ETags and offline fallback, multipart uploads, streaming, and mocks for tests |
+| `HarborJRPC` | JSON-RPC 2.0 calls, batches and notifications, built on top of `Harbor` |
+| `HarborWebSocket` | WebSocket connections (RFC 6455): an `AsyncSequence` of incoming messages, `send`, keep-alive pings and a handshake that goes through the same pipeline as REST. It does not depend on `Harbor` |
+
+All of them share the same infrastructure (`HarborCore`, re-exported by `Harbor` and `HarborWebSocket`): authentication with automatic token refresh, retry policies, mTLS, SSL pinning, a custom `URLSession`, and logging with sensitive-value redaction. Configure it once with `Harbor.setX(_:)` and every product follows it.
 
 ## Table of Contents
 - [Requirements](#requirements)

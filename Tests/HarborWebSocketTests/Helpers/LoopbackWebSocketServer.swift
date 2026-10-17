@@ -40,7 +40,6 @@ final class LoopbackWebSocketServer: @unchecked Sendable {
         fileprivate let connection: NWConnection
         private let lock = NSLock()
         private var _received: [LoopbackWebSocketFrame] = []
-        private var waiters: [(count: Int, continuation: CheckedContinuation<[LoopbackWebSocketFrame], Never>)] = []
 
         fileprivate init(connection: NWConnection) {
             self.connection = connection
@@ -53,29 +52,21 @@ final class LoopbackWebSocketServer: @unchecked Sendable {
             return _received
         }
 
-        /// Waits until at least `count` frames were received.
-        func waitForFrames(count: Int) async -> [LoopbackWebSocketFrame] {
-            await withCheckedContinuation { continuation in
-                lock.lock()
-                if _received.count >= count {
-                    let frames = _received
-                    lock.unlock()
-                    continuation.resume(returning: frames)
-                    return
-                }
-                waiters.append((count, continuation))
-                lock.unlock()
+        /// Waits until at least `count` frames were received, or `timeout` seconds pass (the
+        /// frames received so far are returned either way, so a missing frame fails the
+        /// assertion instead of hanging the test run).
+        func waitForFrames(count: Int, timeout: TimeInterval = 5) async -> [LoopbackWebSocketFrame] {
+            let deadline = Date().addingTimeInterval(timeout)
+            while received.count < count, Date() < deadline {
+                try? await Task.sleep(nanoseconds: 20_000_000)
             }
+            return received
         }
 
         fileprivate func record(_ frame: LoopbackWebSocketFrame) {
             lock.lock()
             _received.append(frame)
-            let ready = waiters.filter { $0.count <= _received.count }
-            waiters.removeAll { $0.count <= _received.count }
-            let frames = _received
             lock.unlock()
-            ready.forEach { $0.continuation.resume(returning: frames) }
         }
 
         /// Sends a text message.

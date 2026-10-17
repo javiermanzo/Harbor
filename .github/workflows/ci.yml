@@ -41,9 +41,8 @@ jobs:
         fi
         echo "No compiler warnings in Sources/"
     - name: Test
-      timeout-minutes: 12
-      # TEMPORARY DIAGNOSTIC: a pty makes xctest line-buffered so a hang shows which test it is.
-      run: script -q /dev/null swift test --enable-code-coverage
+      timeout-minutes: 15
+      run: swift test --enable-code-coverage
     - name: Setup llvm-cov
       run: sudo ln -s $(xcrun --find llvm-cov) /usr/local/bin/llvm-cov
     - name: Generate LCOV

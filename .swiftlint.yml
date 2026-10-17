@@ -23,6 +23,5 @@ disabled_rules:
 
 excluded:
   - .build
-  - Fixtures
   - Example
   - Tests

@@ -9,9 +9,6 @@
 /* Begin PBXBuildFile section */
 		3B339D7A29A587AB00ACD0E3 /* HarborExampleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B339D7929A587AB00ACD0E3 /* HarborExampleTests.swift */; };
 		3B339D8429A587AB00ACD0E3 /* HarborExampleUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B339D8329A587AB00ACD0E3 /* HarborExampleUITests.swift */; };
-		3B339DA129A58CA400ACD0E3 /* Harbor in Frameworks */ = {isa = PBXBuildFile; productRef = 3B339DA029A58CA400ACD0E3 /* Harbor */; };
-		3B7B82652C59A08C0029C7A7 /* HarborJRPC in Frameworks */ = {isa = PBXBuildFile; productRef = 3B7B82642C59A08C0029C7A7 /* HarborJRPC */; };
-		3B7B82672C59A08C0029C7A7 /* HarborWebSocket in Frameworks */ = {isa = PBXBuildFile; productRef = 3B7B82662C59A08C0029C7A7 /* HarborWebSocket */; };
 		8D9D58622EF05B7100F148DB /* Harbor in Frameworks */ = {isa = PBXBuildFile; productRef = 8D9D58612EF05B7100F148DB /* Harbor */; };
 		8D9D58642EF05B7100F148DB /* HarborJRPC in Frameworks */ = {isa = PBXBuildFile; productRef = 8D9D58632EF05B7100F148DB /* HarborJRPC */; };
 		8D9D58662EF05B7100F148DB /* HarborWebSocket in Frameworks */ = {isa = PBXBuildFile; productRef = 8D9D58652EF05B7100F148DB /* HarborWebSocket */; };
@@ -41,7 +38,6 @@
 		3B339D7929A587AB00ACD0E3 /* HarborExampleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HarborExampleTests.swift; sourceTree = "<group>"; };
 		3B339D7F29A587AB00ACD0E3 /* HarborExampleUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = HarborExampleUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		3B339D8329A587AB00ACD0E3 /* HarborExampleUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HarborExampleUITests.swift; sourceTree = "<group>"; };
-		3B339D9E29A58C9200ACD0E3 /* Harbor */ = {isa = PBXFileReference; lastKnownFileType = wrapper; name = Harbor; path = ..; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -64,10 +60,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				8D9D58622EF05B7100F148DB /* Harbor in Frameworks */,
-				3B339DA129A58CA400ACD0E3 /* Harbor in Frameworks */,
-				3B7B82652C59A08C0029C7A7 /* HarborJRPC in Frameworks */,
 				8D9D58642EF05B7100F148DB /* HarborJRPC in Frameworks */,
-				3B7B82672C59A08C0029C7A7 /* HarborWebSocket in Frameworks */,
 				8D9D58662EF05B7100F148DB /* HarborWebSocket in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -93,7 +86,6 @@
 			isa = PBXGroup;
 			children = (
 				3B20D3A42EEB81CE003DC520 /* HarborTestPlan.xctestplan */,
-				3B339D9229A5884100ACD0E3 /* Packages */,
 				8D9D58852EF0646900F148DB /* HarborExample */,
 				3B339D7829A587AB00ACD0E3 /* HarborExampleTests */,
 				3B339D8229A587AB00ACD0E3 /* HarborExampleUITests */,
@@ -128,14 +120,6 @@
 			path = HarborExampleUITests;
 			sourceTree = "<group>";
 		};
-		3B339D9229A5884100ACD0E3 /* Packages */ = {
-			isa = PBXGroup;
-			children = (
-				3B339D9E29A58C9200ACD0E3 /* Harbor */,
-			);
-			name = Packages;
-			sourceTree = "<group>";
-		};
 		3B339D9F29A58CA000ACD0E3 /* Frameworks */ = {
 			isa = PBXGroup;
 			children = (
@@ -163,11 +147,8 @@
 			);
 			name = HarborExample;
 			packageProductDependencies = (
-				3B339DA029A58CA400ACD0E3 /* Harbor */,
-				3B7B82642C59A08C0029C7A7 /* HarborJRPC */,
 				8D9D58612EF05B7100F148DB /* Harbor */,
 				8D9D58632EF05B7100F148DB /* HarborJRPC */,
-				3B7B82662C59A08C0029C7A7 /* HarborWebSocket */,
 				8D9D58652EF05B7100F148DB /* HarborWebSocket */,
 			);
 			productName = HarborExample;
@@ -611,14 +592,6 @@
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
-		3B339DA029A58CA400ACD0E3 /* Harbor */ = {
-			isa = XCSwiftPackageProductDependency;
-			productName = Harbor;
-		};
-		3B7B82642C59A08C0029C7A7 /* HarborJRPC */ = {
-			isa = XCSwiftPackageProductDependency;
-			productName = HarborJRPC;
-		};
 		8D9D58612EF05B7100F148DB /* Harbor */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = Harbor;
@@ -626,10 +599,6 @@
 		8D9D58632EF05B7100F148DB /* HarborJRPC */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = HarborJRPC;
-		};
-		3B7B82662C59A08C0029C7A7 /* HarborWebSocket */ = {
-			isa = XCSwiftPackageProductDependency;
-			productName = HarborWebSocket;
 		};
 		8D9D58652EF05B7100F148DB /* HarborWebSocket */ = {
 			isa = XCSwiftPackageProductDependency;

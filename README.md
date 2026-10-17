@@ -18,8 +18,6 @@ It ships as three products, so you only link what you use:
 | `HarborJRPC` | JSON-RPC 2.0 calls, batches and notifications, built on top of `Harbor` |
 | `HarborWebSocket` | WebSocket connections (RFC 6455): an `AsyncSequence` of incoming messages, `send`, keep-alive pings and a handshake that goes through the same pipeline as REST. It does not depend on `Harbor` |
 
-All of them share the same infrastructure (`HarborCore`, re-exported by `Harbor` and `HarborWebSocket`): authentication with automatic token refresh, retry policies, mTLS, SSL pinning, a custom `URLSession`, and logging with sensitive-value redaction. Configure it once with `Harbor.setX(_:)` and every product follows it.
-
 ## Table of Contents
 - [Requirements](#requirements)
 - [Installation](#installation)
@@ -217,7 +215,7 @@ task.cancel()
 
 ### Configuration
 
-Global configuration lives in the `Harbor` enum, isolated to `@HRequestManagerActor`, so every setter is called with `await`.
+Global configuration lives in the `Harbor` enum, isolated to `@HRequestManagerActor`, so every setter is called with `await`. Authentication, retry, SSL pinning, mTLS, the custom `URLSession` and logging are shared: configure them once and `Harbor`, `HarborJRPC` and `HarborWebSocket` all follow them.
 
 ```swift
 // Headers sent with every request

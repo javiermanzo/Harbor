@@ -118,7 +118,8 @@ extension HURLBuilder {
 
         // `setValue` matches header names case-insensitively, so a `content-type` header
         // replaces the `Content-Type` set above instead of being sent alongside it.
-        for (key, value) in await HRequestManagerActor.run({ HConfig.shared.defaultHeaderParameters }) ?? [:] {
+        let defaultHeaders = await HRequestManagerActor.run { HConfig.shared.defaultHeaderParameters }
+        for (key, value) in defaultHeaders ?? [:] {
             urlRequest.setValue(value, forHTTPHeaderField: key)
         }
 

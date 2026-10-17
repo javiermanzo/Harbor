@@ -48,7 +48,11 @@ Upgrading from 3.0.0: items tagged **[Breaking]** need code changes. See the [mi
 - `HWebSocket`: `messages` (`AsyncThrowingStream<HWebSocketMessage, Error>`, finishes on a close frame and throws when the connection is lost), `send(_:)` for text and binary, `send(json:encoder:)`, `ping()`, `close(code:reason:)`, `state` (`HWebSocketState`: `.open` / `.closed(code:reason:)`) and `negotiatedSubprotocol`. Cancelling the task iterating `messages` closes the connection.
 - `HWebSocketMessage` (`.text`, `.data`, `decode(_:decoder:)`), `HWebSocketError` (transport cases mirroring `HRequestError` plus `.handshakeFailed(statusCode:)`, `.notConnected`, `.pingTimeout`, `.messageTooBig`, `.invalidURL(reason:)`) and `HarborWebSocket.setDefaultPingInterval(_:)` for keep-alive pings with a pong timeout.
 - The Example app gains a WebSocket section against a public echo server, and the `harbor` skill a `examples/websocket.md` deep dive.
-- `HarborWebSocket` depends only on the new `HarborCore` implementation module, so a WebSocket-only app links none of Harbor's cache, mocks, request protocols or multipart code and still configures auth, pinning, mTLS and logging through `Harbor.setX(_:)`. `HarborCore` is not a product: `Harbor` and `HarborWebSocket` re-export it, so `import Harbor` or `import HarborWebSocket` is enough. Fully qualified names such as `Harbor.HRetryPolicy` become `HarborCore.HRetryPolicy`; unqualified use is unchanged.
+
+**HarborCore**
+- The infrastructure shared by every product (authentication and token refresh, security, logging and redaction, the `URLSession` pool, retry policy and attempt loop, URL composition, the `Harbor.setX(_:)` configuration and shared errors) moves into a new `HarborCore` implementation module. It is not a product: `Harbor` and `HarborWebSocket` re-export it, so `import Harbor` or `import HarborWebSocket` is enough.
+- `HarborWebSocket` depends only on `HarborCore`, so a WebSocket-only app links none of Harbor's cache, mocks, request protocols or multipart code and still configures auth, pinning, mTLS and logging through `Harbor.setX(_:)`.
+- Fully qualified names such as `Harbor.HRetryPolicy` become `HarborCore.HRetryPolicy`; unqualified use is unchanged.
 
 **Mocking**
 - `HMock.headers`, `HMockSequence` with `Harbor.register(mockSequence:)` to script one response per attempt, `Harbor.mockCallCount(for:)` (every mocked attempt, retries included), `Harbor.isMockRegistered(for:)`, `Harbor.removeMock(for:)`, `Harbor.setMocksEnabled(_:)` and `Harbor.mocksEnabled`.

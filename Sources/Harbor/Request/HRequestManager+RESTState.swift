@@ -21,9 +21,6 @@ extension HRequestManager {
     /// Bound of `rememberedAuthHeaders`; past it the map is reset before recording a new entry.
     static let maxRememberedAuthHeaders = 512
 
-    /// The `authGeneration` the remembered credentials were recorded under.
-    private static var rememberedAuthGeneration = 0
-
     /// Incremented when the cache is cleared; part of `cacheGeneration`.
     private static var clearedCacheGeneration = 0
 
@@ -38,8 +35,8 @@ extension HRequestManager {
     /// Forgets the credentials remembered for offline lookups. Called when the cache is
     /// cleared, so a previous user's credential never keys a lookup for the next one. Also
     /// starts a new `cacheGeneration`, so responses of requests already in flight are not
-    /// written back to the cache. Replacing the auth provider has the same effect without a
-    /// call: it changes `authGeneration`, which `rememberedAuthHeaders` follows.
+    /// written back to the cache. Replacing the auth provider does the same through the observer
+    /// installed by `rememberAuthHeader`.
     static func forgetRememberedAuthHeaders() {
         rememberedAuthHeaders.removeAll()
         clearedCacheGeneration &+= 1
@@ -49,15 +46,7 @@ extension HRequestManager {
     /// when the first credential is recorded: until then there is nothing to forget.
     private static func installAuthProviderObserver() {
         guard authProviderDidChange == nil else { return }
-        authProviderDidChange = { discardRememberedAuthHeadersIfProviderChanged() }
-    }
-
-    /// Drops the remembered credentials when the auth provider was replaced since they were
-    /// recorded.
-    private static func discardRememberedAuthHeadersIfProviderChanged() {
-        guard rememberedAuthGeneration != authGeneration else { return }
-        rememberedAuthHeaders.removeAll()
-        rememberedAuthGeneration = authGeneration
+        authProviderDidChange = { rememberedAuthHeaders.removeAll() }
     }
 }
 
@@ -91,7 +80,6 @@ extension HRequestManager {
     ///   - request: The request that succeeded.
     static func rememberAuthHeader(_ authHeader: HAuthorizationHeader?, for request: any HGetRequestProtocol) {
         guard request.needsAuth, let authHeader, let key = request.cacheNamespaceKey() else { return }
-        discardRememberedAuthHeadersIfProviderChanged()
         installAuthProviderObserver()
         if rememberedAuthHeaders.count >= maxRememberedAuthHeaders, rememberedAuthHeaders[key] == nil {
             rememberedAuthHeaders.removeAll()
@@ -103,7 +91,6 @@ extension HRequestManager {
     /// - Parameter request: The request being looked up.
     static func rememberedAuthHeader(for request: any HGetRequestProtocol) -> HAuthorizationHeader? {
         guard request.needsAuth, let key = request.cacheNamespaceKey() else { return nil }
-        discardRememberedAuthHeadersIfProviderChanged()
         return rememberedAuthHeaders[key]
     }
 }

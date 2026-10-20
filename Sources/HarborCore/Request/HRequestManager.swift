@@ -27,8 +27,9 @@ extension HRequestManagerActor {
     }
 }
 
-/// Runs Harbor's REST request pipeline: mocks, connectivity pre-check, authentication,
-/// retries, caching, decoding and logging. Also owns the internally built `URLSession`s.
+/// The infrastructure shared by every product's request pipeline: connectivity pre-check,
+/// authentication with its `401` refresh flow, the retry loop, error mapping, and the pool
+/// of internally built `URLSession`s. REST-only parts (mocks, caching, decoding) extend it in `Harbor`.
 @HRequestManagerActor
 package enum HRequestManager {
     /// Connectivity monitor used as a pre-check before executing requests.
@@ -59,9 +60,8 @@ package enum HRequestManager {
 // MARK: - Retry Loop Outcomes
 
 /// Outcome of a single attempt in the retry loop. Carries the final response when the
-/// loop should exit; otherwise signals a retry, a 401 that may be retried with refreshed
-/// credentials, or (inside the attempt only) a `304` without a cached body that is
-/// re-fetched unconditionally (`.refetchUnconditionally`).
+/// loop should exit; otherwise signals a retry or a 401 that may be retried with refreshed
+/// credentials.
 package enum HAttemptOutcome<Response: Sendable> {
     /// The request is done; return the response to the caller.
     case finish(Response)
@@ -70,9 +70,6 @@ package enum HAttemptOutcome<Response: Sendable> {
     case retry(after: TimeInterval?)
     /// The server rejected the credentials; the loop decides whether a refreshed header allows another attempt.
     case unauthorized
-    /// A conditional request got `304` but no cached body exists; the attempt re-issues the
-    /// request without validators. Consumed inside the attempt, never by the retry loop.
-    case refetchUnconditionally
 }
 
 /// Outcome of evaluating a 401 response against the auth provider. The retry case carries
@@ -82,6 +79,6 @@ package enum HAuthRefresh {
     /// The provider issued a different authorization header; retry with it applied.
     /// `notifiedProvider` tells whether `authFailed()` was called to obtain it.
     case retry(HAuthorizationHeader, notifiedProvider: Bool)
-    /// No further attempt is possible; finish with the given error.
-    case giveUp(HRequestError)
+    /// No further attempt is possible; the request fails with `HRequestError.authNeeded`.
+    case giveUp
 }

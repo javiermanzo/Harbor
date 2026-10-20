@@ -6,7 +6,6 @@
 //
 
 import Foundation
-import Harbor
 import HarborWebSocket
 
 /// Connects to a public echo server: every message sent is echoed back. The connection goes

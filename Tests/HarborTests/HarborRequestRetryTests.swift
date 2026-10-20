@@ -326,13 +326,13 @@ final class HarborRequestRetryTests: XCTestCase {
         let optIn = HRetryPolicy(maxRetries: 1, retryNonIdempotentRequests: true)
 
         // A generic TLS failure is transient: retried for idempotent requests or by opt-in
-        XCTAssertTrue(policy.shouldRetry(urlError: URLError(.secureConnectionFailed), method: .get))
-        XCTAssertFalse(policy.shouldRetry(urlError: URLError(.secureConnectionFailed), method: .post))
-        XCTAssertTrue(optIn.shouldRetry(urlError: URLError(.secureConnectionFailed), method: .post))
+        XCTAssertTrue(policy.shouldRetry(urlError: URLError(.secureConnectionFailed), isIdempotent: true))
+        XCTAssertFalse(policy.shouldRetry(urlError: URLError(.secureConnectionFailed), isIdempotent: false))
+        XCTAssertTrue(optIn.shouldRetry(urlError: URLError(.secureConnectionFailed), isIdempotent: false))
 
         // Certificate errors are never retried
         for code in [URLError.Code.serverCertificateUntrusted, .serverCertificateHasBadDate, .clientCertificateRejected] {
-            XCTAssertFalse(optIn.shouldRetry(urlError: URLError(code), method: .get), "\(code) must not be retried")
+            XCTAssertFalse(optIn.shouldRetry(urlError: URLError(code), isIdempotent: true), "\(code) must not be retried")
         }
     }
 

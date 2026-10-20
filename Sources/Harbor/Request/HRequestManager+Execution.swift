@@ -93,13 +93,14 @@ extension HRequestManager {
         }
 
         let mockResponse = HTTPURLResponse(url: mockURL(for: request), statusCode: mock.statusCode, httpVersion: nil, headerFields: mock.headers)
+        // Mocks never ask for an unconditional re-fetch, so the response is always an outcome.
         return await processResponse(model: model,
                                      request: request,
                                      statusCode: mock.statusCode,
                                      data: mock.responseBody,
                                      httpResponse: mockResponse,
                                      canRetry: canRetry,
-                                     generation: generation)
+                                     generation: generation) ?? .finish(.error(.api(statusCode: mock.statusCode, data: mock.responseBody)))
     }
 
     /// Executes a single network attempt: builds the URLRequest, performs the call and
@@ -153,7 +154,7 @@ extension HRequestManager {
                 let duration = Date().timeIntervalSince(startTime) * 1000
 
                 guard let httpResponse = httpResponse as? HTTPURLResponse else {
-                    if canRetry, request.retryPolicy?.allowsRetry(for: request.httpMethod) == true {
+                    if canRetry, request.retryPolicy?.allowsRetry(isIdempotent: request.httpMethod.isIdempotent) == true {
                         return .retry(after: nil)
                     }
                     let hError: HRequestError = .invalidHttpResponse
@@ -174,7 +175,8 @@ extension HRequestManager {
                                                     authHeader: authHeader,
                                                     canRefetchUnconditionally: prepared.injectedConditionalValidators && hasConditionalValidators(urlRequest),
                                                     generation: generation)
-                if case .refetchUnconditionally = outcome {
+                guard let outcome else {
+                    // A `304` without a cached body to serve: ask again without validators.
                     removeConditionalValidators(from: &urlRequest)
                     continue
                 }
@@ -186,7 +188,7 @@ extension HRequestManager {
                     await logError(hError, request: request)
                     return .finish(.error(hError))
                 }
-                if canRetry, request.retryPolicy?.shouldRetry(urlError: error, method: request.httpMethod) == true {
+                if canRetry, request.retryPolicy?.shouldRetry(urlError: error, isIdempotent: request.httpMethod.isIdempotent) == true {
                     return .retry(after: nil)
                 }
                 // Cached content is only a fallback once retries are exhausted or the error is
@@ -231,8 +233,9 @@ extension HRequestManager {
     ///     re-issuing the request without conditional validators (only when Harbor injected them).
     ///   - generation: The `cacheGeneration` when the attempt started. The response is only
     ///     cached when it is still current.
-    /// - Returns: `HAttemptOutcome` carrying the response or next loop action.
-    private static func processResponse<Model: HModel, Request: HRequestWithResultProtocol>(model: Model.Type, request: Request, statusCode: Int, data: Data, httpResponse: HTTPURLResponse? = nil, canRetry: Bool = false, authHeader: HAuthorizationHeader? = nil, canRefetchUnconditionally: Bool = false, generation: Int) async -> HAttemptOutcome<HResponseWithResult<Model>> {
+    /// - Returns: `HAttemptOutcome` carrying the response or next loop action, or `nil` when the
+    ///   request must be re-issued without conditional validators (`canRefetchUnconditionally`).
+    private static func processResponse<Model: HModel, Request: HRequestWithResultProtocol>(model: Model.Type, request: Request, statusCode: Int, data: Data, httpResponse: HTTPURLResponse? = nil, canRetry: Bool = false, authHeader: HAuthorizationHeader? = nil, canRefetchUnconditionally: Bool = false, generation: Int) async -> HAttemptOutcome<HResponseWithResult<Model>>? {
         switch statusCode {
         case 200 ... 299:
             do {
@@ -267,7 +270,7 @@ extension HRequestManager {
             // The validators matched but the body is gone (evicted, or another vary variant):
             // ask the caller to fetch the full representation instead of failing.
             if canRefetchUnconditionally {
-                return .refetchUnconditionally
+                return nil
             }
             let hError: HRequestError = .api(statusCode: statusCode, data: data)
             await logError(hError, request: request)
@@ -276,7 +279,7 @@ extension HRequestManager {
             return .unauthorized
         default:
             // Retries take precedence; stale content is only a fallback once they are exhausted.
-            if canRetry, request.retryPolicy?.shouldRetry(statusCode: statusCode, method: request.httpMethod) == true,
+            if canRetry, request.retryPolicy?.shouldRetry(statusCode: statusCode, isIdempotent: request.httpMethod.isIdempotent) == true,
                case .retry(let retryAfter) = statusRetry(statusCode: statusCode, httpResponse: httpResponse) {
                 return .retry(after: retryAfter)
             }
@@ -404,7 +407,7 @@ extension HRequestManager {
             let duration = Date().timeIntervalSince(startTime) * 1000
 
             guard let httpResponse = httpResponse as? HTTPURLResponse else {
-                if canRetry, request.retryPolicy?.allowsRetry(for: request.httpMethod) == true {
+                if canRetry, request.retryPolicy?.allowsRetry(isIdempotent: request.httpMethod.isIdempotent) == true {
                     return .retry(after: nil)
                 }
                 let hError: HRequestError = .invalidHttpResponse
@@ -419,7 +422,7 @@ extension HRequestManager {
             return await processResponse(request: request, statusCode: httpResponse.statusCode, data: data, canRetry: canRetry, httpResponse: httpResponse)
         } catch let error as URLError {
             let hError = mapTransportError(error, trustEvaluationFailed: taskContext.trustEvaluationFailed)
-            if hError != .certificate, hError != .cancelled, canRetry, request.retryPolicy?.shouldRetry(urlError: error, method: request.httpMethod) == true {
+            if hError != .certificate, hError != .cancelled, canRetry, request.retryPolicy?.shouldRetry(urlError: error, isIdempotent: request.httpMethod.isIdempotent) == true {
                 return .retry(after: nil)
             }
             await logError(hError, request: request)
@@ -449,7 +452,7 @@ extension HRequestManager {
         case 401:
             return .unauthorized
         default:
-            if canRetry, request.retryPolicy?.shouldRetry(statusCode: statusCode, method: request.httpMethod) == true,
+            if canRetry, request.retryPolicy?.shouldRetry(statusCode: statusCode, isIdempotent: request.httpMethod.isIdempotent) == true,
                case .retry(let retryAfter) = statusRetry(statusCode: statusCode, httpResponse: httpResponse) {
                 return .retry(after: retryAfter)
             }

@@ -18,9 +18,6 @@ import LogBird
 /// `.response` the open event, received messages and the close; errors are logged for every
 /// type, as for REST requests.
 struct HWebSocketLogContext: Sendable {
-    /// Maximum number of characters of a logged payload kept before truncation.
-    private static let maxLoggedPayloadLength = 16 * 1024
-
     /// The request type name, printed with every entry.
     let requestName: String
     /// What the request asked to log.
@@ -124,8 +121,9 @@ extension HWebSocketLogContext {
             "closeCode": .int(code.rawValue),
             "initiatedBy": .string(initiatedLocally ? "client" : "server"),
         ]
-        if let reason, let text = String(data: reason, encoding: .utf8) {
-            additionalInfo["reason"] = .string(text)
+        if let reason, !reason.isEmpty {
+            // Chosen by the server: it may carry anything, so it goes through the policy.
+            additionalInfo["reason"] = .string(HRedactionPolicy.current.printableBody(reason))
         }
         await HLogger.log("WebSocket close \(requestName)", additionalInfo: additionalInfo, level: .debug)
     }
@@ -149,20 +147,7 @@ extension HWebSocketLogContext {
     /// are not UTF-8 are described by their size.
     /// - Parameter message: The message.
     private static func printable(_ message: HWebSocketMessage) -> String {
-        let policy = HRedactionPolicy.current
-        let text: String
-        switch message {
-        case .text(let value):
-            text = value
-        case .data(let data):
-            guard let decoded = String(data: data, encoding: .utf8) else {
-                return "<binary \(data.count) bytes>"
-            }
-            text = decoded
-        }
-        let redacted = policy.redactedBody(text) ?? "<\(text.utf8.count) bytes of unparseable JSON omitted>"
-        guard redacted.count > maxLoggedPayloadLength else { return redacted }
-        return String(redacted.prefix(maxLoggedPayloadLength)) + "… <truncated>"
+        HRedactionPolicy.current.printableBody(message.payload)
     }
 
     /// A deterministic JSON rendering of a string dictionary.

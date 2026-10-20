@@ -17,7 +17,6 @@ import LogBird
 extension HDebugRequestProtocol {
 
     /// Maximum number of characters of a logged body kept before truncation.
-    private static var maxLoggedBodyLength: Int { 16 * 1024 }
 
     /// Prints detailed request information to the console.
     ///
@@ -283,20 +282,7 @@ extension HDebugRequestProtocol {
     ///   - httpResponse: The response the body belongs to.
     /// - Returns: The printable, redacted body.
     internal func redactedResponseBody(data: Data, httpResponse: HTTPURLResponse) async -> String? {
-        guard let raw = String(data: data, encoding: .utf8) else {
-            return "<binary \(data.count) bytes>"
-        }
-
-        let policy = HRedactionPolicy.current
-        let body = policy.redactedBody(raw) ?? "<\(data.count) bytes of unparseable JSON omitted>"
-        return Self.truncatedBody(body)
-    }
-
-    /// Truncates `body` to the maximum logged length, appending a marker when cut.
-    /// - Parameter body: The already redacted body.
-    private static func truncatedBody(_ body: String) -> String {
-        guard body.count > maxLoggedBodyLength else { return body }
-        return String(body.prefix(maxLoggedBodyLength)) + "… <truncated>"
+        HRedactionPolicy.current.printableBody(data)
     }
 
     /// Escapes `value` for use inside a double-quoted shell argument.

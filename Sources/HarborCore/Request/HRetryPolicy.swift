@@ -111,72 +111,29 @@ extension HRetryPolicy {
         .secureConnectionFailed
     ]
 
-    /// Whether the given method may be retried after the request possibly reached the server.
-    /// - Parameter method: The HTTP method of the request.
-    package func allowsRetry(for method: HHttpMethod) -> Bool {
-        method.isIdempotent || retryNonIdempotentRequests
+    /// Whether an operation may be retried after it possibly reached the server.
+    /// - Parameter isIdempotent: Whether repeating the operation has the same effect as sending it once.
+    package func allowsRetry(isIdempotent: Bool) -> Bool {
+        isIdempotent || retryNonIdempotentRequests
     }
 
     /// Whether a response with the given status code should be retried.
     /// - Parameters:
     ///   - statusCode: The HTTP status code of the response.
-    ///   - method: The HTTP method of the request.
-    package func shouldRetry(statusCode: Int, method: HHttpMethod) -> Bool {
-        retryableStatusCodes.contains(statusCode) && allowsRetry(for: method)
+    ///   - isIdempotent: Whether repeating the operation has the same effect as sending it once.
+    package func shouldRetry(statusCode: Int, isIdempotent: Bool) -> Bool {
+        retryableStatusCodes.contains(statusCode) && allowsRetry(isIdempotent: isIdempotent)
     }
 
-    /// Whether a request that failed with the given network error should be retried.
+    /// Whether an operation that failed with the given network error should be retried.
     /// Cancellation, certificate and malformed-URL errors are never retried.
     /// - Parameters:
     ///   - urlError: The network error.
-    ///   - method: The HTTP method of the request.
-    package func shouldRetry(urlError: URLError, method: HHttpMethod) -> Bool {
+    ///   - isIdempotent: Whether repeating the operation has the same effect as sending it once.
+    package func shouldRetry(urlError: URLError, isIdempotent: Bool) -> Bool {
         if Self.preConnectionErrorCodes.contains(urlError.code) {
             return true
         }
-        return Self.inFlightErrorCodes.contains(urlError.code) && allowsRetry(for: method)
-    }
-
-    /// Whether a mocked attempt that failed with the given error should be retried. The error
-    /// is classified like the real failure it stands for: `.api` by its status code,
-    /// `.invalidHttpResponse` like a non-HTTP response, and the transport errors by their
-    /// network error (`.timeout` as `.timedOut`, `.noConnection` as `.notConnectedToInternet`,
-    /// `.cannotFindHost`, `.cannotConnectToHost` and the `URLError` wrapped by
-    /// `.networkFailure`). Any other error is never retried.
-    /// - Parameters:
-    ///   - mockedError: The error configured on the mock.
-    ///   - method: The HTTP method of the request.
-    package func shouldRetry(mockedError: HRequestError, method: HHttpMethod) -> Bool {
-        switch mockedError {
-        case .api(let statusCode, _):
-            return shouldRetry(statusCode: statusCode, method: method)
-        case .invalidHttpResponse:
-            return allowsRetry(for: method)
-        case .timeout:
-            return shouldRetry(urlError: URLError(.timedOut), method: method)
-        case .noConnection:
-            return shouldRetry(urlError: URLError(.notConnectedToInternet), method: method)
-        case .cannotFindHost:
-            return shouldRetry(urlError: URLError(.cannotFindHost), method: method)
-        case .cannotConnectToHost:
-            return shouldRetry(urlError: URLError(.cannotConnectToHost), method: method)
-        case .networkFailure(let urlError):
-            return shouldRetry(urlError: urlError, method: method)
-        default:
-            return false
-        }
-    }
-}
-
-// MARK: - Idempotency
-extension HHttpMethod {
-    /// Whether repeating the request has the same effect as sending it once (RFC 9110 §9.2.2).
-    var isIdempotent: Bool {
-        switch self {
-        case .get, .put, .delete:
-            return true
-        case .post, .patch:
-            return false
-        }
+        return Self.inFlightErrorCodes.contains(urlError.code) && allowsRetry(isIdempotent: isIdempotent)
     }
 }

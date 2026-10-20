@@ -136,6 +136,24 @@ package struct HRedactionPolicy: Sendable {
         }
     }
 
+    // MARK: - Printable Bodies
+
+    /// Longest body kept in a log entry, in characters.
+    private static let maxLoggedBodyLength = 16 * 1024
+
+    /// The form of a payload (response body, WebSocket message) that may be printed: redacted,
+    /// truncated to 16 K characters, and described by its size when it is not UTF-8 text or
+    /// is JSON-like text that cannot be parsed (so it cannot be redacted reliably).
+    /// - Parameter data: The raw payload.
+    package func printableBody(_ data: Data) -> String {
+        guard let raw = String(data: data, encoding: .utf8) else {
+            return "<binary \(data.count) bytes>"
+        }
+        let body = redactedBody(raw) ?? "<\(data.count) bytes of unparseable JSON omitted>"
+        guard body.count > Self.maxLoggedBodyLength else { return body }
+        return String(body.prefix(Self.maxLoggedBodyLength)) + "… <truncated>"
+    }
+
     // MARK: - Parameters and Bodies
 
     /// Returns a copy of `parameters` with the values of sensitive keys redacted at any

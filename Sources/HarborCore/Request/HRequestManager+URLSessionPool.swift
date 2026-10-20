@@ -18,8 +18,8 @@ package enum HSessionProfile {
     case urlCache(URLCache, URLRequest.CachePolicy)
     /// No `URLCache`: responses are never served from, nor stored into, `URLCache.shared`.
     case isolated
-    /// A WebSocket connection: no `URLCache` and no whole-transfer resource timeout, since a
-    /// connection may stay open longer than any transfer
+    /// A long-lived connection (a WebSocket): no `URLCache` and no whole-transfer resource
+    /// timeout, since it may stay open longer than any transfer
     /// (`Harbor.setDefaultResourceTimeoutInterval(_:)` does not apply to it).
     case webSocket
 }

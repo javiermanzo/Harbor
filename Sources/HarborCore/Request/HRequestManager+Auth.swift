@@ -47,7 +47,7 @@ extension HRequestManager {
     ///   - authRetriesRemaining: Auth retries still available for this request.
     ///   - providerNotified: Whether `authFailed()` was already called for this request.
     /// - Returns: `.retry` with the header for the next attempt (and whether the provider was
-    ///   notified while resolving it), or `.giveUp(.authNeeded)`.
+    ///   notified while resolving it), or `.giveUp`.
     package static func refreshAuthorization(
         needsAuth: Bool,
         usedHeader: HAuthorizationHeader?,
@@ -55,7 +55,7 @@ extension HRequestManager {
         providerNotified: Bool
     ) async -> HAuthRefresh {
         guard needsAuth, let authProvider = HConfig.shared.authProvider else {
-            return .giveUp(.authNeeded)
+            return .giveUp
         }
 
         // The retried attempt was rejected too: the request fails with .authNeeded. Make sure
@@ -64,7 +64,7 @@ extension HRequestManager {
             if !providerNotified {
                 await notifyAuthFailed(provider: authProvider, rejectedHeader: usedHeader)
             }
-            return .giveUp(.authNeeded)
+            return .giveUp
         }
 
         // A late 401 for a header the provider has already rotated: retry with the current
@@ -81,7 +81,7 @@ extension HRequestManager {
 
         guard let freshHeader = await authProvider.getAuthorizationHeader(),
               freshHeader != usedHeader else {
-            return .giveUp(.authNeeded)
+            return .giveUp
         }
 
         return .retry(freshHeader, notifiedProvider: true)

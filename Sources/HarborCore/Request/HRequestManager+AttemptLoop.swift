@@ -62,12 +62,9 @@ extension HRequestManager {
                     currentAuthHeader = freshHeader
                     authRetriesRemaining -= 1
                     providerNotified = providerNotified || notified
-                case .giveUp(let hError):
-                    return await failWith(hError)
+                case .giveUp:
+                    return await failWith(.authNeeded)
                 }
-            case .refetchUnconditionally:
-                // Handled inside the attempt itself; never surfaces to the loop.
-                return await failWith(.api(statusCode: 304, data: Data()))
             }
         }
     }

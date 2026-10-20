@@ -154,7 +154,7 @@ extension HWebSocketManager {
             if statusCode == 401 {
                 return .unauthorized
             }
-            if canRetry, request.retryPolicy?.shouldRetry(statusCode: statusCode, method: .get) == true,
+            if canRetry, request.retryPolicy?.shouldRetry(statusCode: statusCode, isIdempotent: true) == true,
                case .retry(let retryAfter) = HRequestManager.statusRetry(statusCode: statusCode, httpResponse: httpResponse) {
                 return .retry(after: retryAfter)
             }
@@ -164,7 +164,7 @@ extension HWebSocketManager {
         if let urlError = error as? URLError {
             let wsError = HWebSocketError(urlError: urlError, trustEvaluationFailed: delegate.trustEvaluationFailed)
             if wsError != .certificate, wsError != .cancelled, canRetry,
-               request.retryPolicy?.shouldRetry(urlError: urlError, method: .get) == true {
+               request.retryPolicy?.shouldRetry(urlError: urlError, isIdempotent: true) == true {
                 return .retry(after: nil)
             }
             return .finish(.failure(wsError))

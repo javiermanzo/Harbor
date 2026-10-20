@@ -89,6 +89,9 @@ extension HWebSocketError {
     init(otherError error: Error) {
         if let lost = Self.lostConnectionError(error), !Task.isCancelled {
             self = .connectionFailed(lost)
+        } else if (error as NSError).domain == NSPOSIXErrorDomain, (error as NSError).code == Int(ECANCELED) {
+            // `URLSessionWebSocketTask.cancel` fails the operations still in flight with `ECANCELED`.
+            self = .cancelled
         } else {
             self.init(pipelineError: HRequestManager.mapNonURLError(error))
         }

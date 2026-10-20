@@ -654,6 +654,8 @@ final class HarborWebSocketTests: XCTestCase {
             XCTAssertEqual(urlError.code, .networkConnectionLost)
             XCTAssertEqual((urlError.userInfo[NSUnderlyingErrorKey] as? NSError)?.code, Int(code))
         }
+        // A task cancelled under an operation in flight is a cancellation.
+        XCTAssertEqual(HWebSocketError(otherError: NSError(domain: NSPOSIXErrorDomain, code: Int(ECANCELED))), .cancelled)
         // Any other error is not guessed at.
         guard case .unknown = HWebSocketError(otherError: NSError(domain: NSPOSIXErrorDomain, code: Int(ENOENT))) else { return XCTFail("Expected .unknown") }
     }

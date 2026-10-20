@@ -76,47 +76,21 @@ extension HWebSocketError {
     ///   - urlError: The error.
     ///   - trustEvaluationFailed: Whether Harbor's delegate rejected a TLS challenge for the task.
     init(urlError: URLError, trustEvaluationFailed: Bool) {
-        if trustEvaluationFailed {
-            self = .certificate
-            return
-        }
-        if urlError.code == .cancelled || Task.isCancelled {
-            self = .cancelled
-            return
-        }
-        switch urlError.code {
-        case .badURL:
-            self = .invalidURL(reason: urlError.localizedDescription)
-        case .cannotFindHost, .dnsLookupFailed:
-            self = .cannotFindHost
-        case .cannotConnectToHost:
-            self = .cannotConnectToHost
-        case .serverCertificateHasBadDate,
-             .serverCertificateUntrusted,
-             .serverCertificateHasUnknownRoot,
-             .serverCertificateNotYetValid,
-             .clientCertificateRejected,
-             .clientCertificateRequired:
-            self = .certificate
-        case .timedOut:
-            self = .timeout
-        case .notConnectedToInternet, .dataNotAllowed, .internationalRoamingOff:
-            self = .noConnection
-        default:
-            // Includes `.networkConnectionLost`: on an open connection that is a lost connection, not an offline device.
+        // On an open connection a dropped socket is a lost connection, not an offline device.
+        if urlError.code == .networkConnectionLost, !trustEvaluationFailed, !Task.isCancelled {
             self = .connectionFailed(urlError)
+        } else {
+            self.init(pipelineError: HRequestManager.mapTransportError(urlError, trustEvaluationFailed: trustEvaluationFailed))
         }
     }
 
     /// Maps an error that is not a `URLError` thrown while using a WebSocket task.
     /// - Parameter error: The thrown error.
     init(otherError error: Error) {
-        if error is CancellationError || Task.isCancelled {
-            self = .cancelled
-        } else if let lost = Self.lostConnectionError(error) {
+        if let lost = Self.lostConnectionError(error), !Task.isCancelled {
             self = .connectionFailed(lost)
         } else {
-            self = .unknown(error)
+            self.init(pipelineError: HRequestManager.mapNonURLError(error))
         }
     }
 
@@ -241,23 +215,13 @@ extension HWebSocketError: Equatable {
             return lhsReason == rhsReason
         case let (.encodingFailed(lhsModel, lhsError), .encodingFailed(rhsModel, rhsError)),
              let (.decodingFailed(lhsModel, lhsError), .decodingFailed(rhsModel, rhsError)):
-            return lhsModel == rhsModel && isSameError(lhsError, rhsError)
+            return lhsModel == rhsModel && HRequestError.isSameError(lhsError, rhsError)
         case let (.connectionFailed(lhsError), .connectionFailed(rhsError)):
             return lhsError.code == rhsError.code
         case let (.unknown(lhsError), .unknown(rhsError)):
-            return isSameError(lhsError, rhsError)
+            return HRequestError.isSameError(lhsError, rhsError)
         default:
             return false
         }
-    }
-
-    /// Compares two arbitrary errors by dynamic type, bridged `NSError` domain and code, and description.
-    private static func isSameError(_ lhs: Error, _ rhs: Error) -> Bool {
-        let lhsNSError = lhs as NSError
-        let rhsNSError = rhs as NSError
-        return ObjectIdentifier(type(of: lhs)) == ObjectIdentifier(type(of: rhs))
-            && lhsNSError.domain == rhsNSError.domain
-            && lhsNSError.code == rhsNSError.code
-            && String(describing: lhs) == String(describing: rhs)
     }
 }

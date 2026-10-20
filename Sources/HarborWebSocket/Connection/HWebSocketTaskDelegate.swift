@@ -50,8 +50,8 @@ final class HWebSocketTaskDelegate: NSObject, Sendable {
         var trustEvaluationFailed = false
         /// Whether the task completed (`didCompleteWithError`).
         var isCompleted = false
-        /// The tasks waiting in `waitForCompletion()`, keyed so cancellation can remove them.
-        var completionWaiters: [UUID: CheckedContinuation<Void, Never>] = [:]
+        /// The task waiting in `waitForCompletion()`, if any.
+        var completionContinuation: CheckedContinuation<Void, Never>?
     }
 
     /// The header key the auth provider set on the handshake request, if any.
@@ -123,14 +123,14 @@ extension HWebSocketTaskDelegate {
     /// after a server close frame (`didCloseWith`). `receive()` can fail before the close
     /// frame is recorded, so `HWebSocket` waits for the completion before deciding whether
     /// the connection closed cleanly or was lost. Returns immediately once completed.
-    /// Cancelling the waiting task returns early.
+    /// Cancelling the waiting task returns early. There is a single waiter per task
+    /// (`HWebSocket` asks once, when its receive loop fails).
     func waitForCompletion() async {
-        let id = UUID()
         await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in
                 let resumeNow: Bool = state.withLock { state in
                     guard !state.isCompleted, !Task.isCancelled else { return true }
-                    state.completionWaiters[id] = continuation
+                    state.completionContinuation = continuation
                     return false
                 }
                 if resumeNow {
@@ -138,19 +138,20 @@ extension HWebSocketTaskDelegate {
                 }
             }
         } onCancel: {
-            let waiter = state.withLock { $0.completionWaiters.removeValue(forKey: id) }
-            waiter?.resume()
+            state.withLock { state in
+                defer { state.completionContinuation = nil }
+                return state.completionContinuation
+            }?.resume()
         }
     }
 
-    /// Records the task completion and resumes the waiters.
+    /// Records the task completion and resumes the waiter.
     private func markCompleted() {
-        let waiters: [CheckedContinuation<Void, Never>] = state.withLock { state in
+        state.withLock { state in
             state.isCompleted = true
-            defer { state.completionWaiters.removeAll() }
-            return Array(state.completionWaiters.values)
-        }
-        waiters.forEach { $0.resume() }
+            defer { state.completionContinuation = nil }
+            return state.completionContinuation
+        }?.resume()
     }
 
     /// Whether Harbor's delegate rejected a server-trust or client-certificate challenge for the task.

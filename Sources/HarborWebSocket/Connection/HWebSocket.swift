@@ -394,13 +394,9 @@ extension HWebSocket {
         }
     }
 
-    /// Longest sleep accepted by the ping and timeout helpers: one day.
-    private static let maxSleep: TimeInterval = 86_400
-
-    /// Sleeps through the shared helper, capped at `maxSleep`.
-    /// - Parameter seconds: The duration.
+    /// Sleeps through the shared helper, capped at one day.
     /// - Returns: `false` when the task was cancelled before or during the sleep.
     private static func sleep(seconds: TimeInterval) async -> Bool {
-        await HRequestManager.sleep(seconds: seconds, maximum: maxSleep)
+        await HRequestManager.sleep(seconds: seconds, maximum: 86_400)
     }
 }

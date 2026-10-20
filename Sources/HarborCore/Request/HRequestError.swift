@@ -168,7 +168,8 @@ extension HRequestError: Equatable {
     }
 
     /// Compares two arbitrary errors by dynamic type, bridged `NSError` domain and code, and description.
-    private static func isSameError(_ lhs: Error, _ rhs: Error) -> Bool {
+    /// Shared with `HWebSocketError`, which wraps arbitrary errors the same way.
+    package static func isSameError(_ lhs: Error, _ rhs: Error) -> Bool {
         let lhsNSError = lhs as NSError
         let rhsNSError = rhs as NSError
         return ObjectIdentifier(type(of: lhs)) == ObjectIdentifier(type(of: rhs))

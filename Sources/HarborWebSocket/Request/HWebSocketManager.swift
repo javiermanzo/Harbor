@@ -16,7 +16,7 @@ import HarborCore
 @HRequestManagerActor
 enum HWebSocketManager {
     /// Schemes accepted in a request URL. `http`/`https` are rewritten to `ws`/`wss`.
-    static let allowedSchemes: Set<String> = ["ws", "wss", "http", "https"]
+    private static let allowedSchemes: Set<String> = ["ws", "wss", "http", "https"]
 
     /// Outcome of the handshake loop: the open connection, or the error to throw.
     private typealias ConnectResult = Result<HWebSocket, HWebSocketError>
@@ -44,12 +44,17 @@ extension HWebSocketManager {
             throw .noConnection
         }
 
+        /// Maps and logs an error of the shared pipeline.
+        func fail(_ hError: HRequestError) async -> HWebSocketError {
+            let error = HWebSocketError(pipelineError: hError)
+            await logContext?.logError(error)
+            return error
+        }
+
         let authHeader: HAuthorizationHeader?
         switch await HRequestManager.authorizationHeader(needsAuth: request.needsAuth) {
         case .failure(let hError):
-            let error = HWebSocketError(pipelineError: hError)
-            await logContext?.logError(error)
-            throw error
+            throw await fail(hError)
         case .success(let header):
             authHeader = header
         }
@@ -58,11 +63,7 @@ extension HWebSocketManager {
             needsAuth: request.needsAuth,
             retryPolicy: request.retryPolicy,
             authHeader: authHeader,
-            failWith: { hError in
-                let error = HWebSocketError(pipelineError: hError)
-                await logContext?.logError(error)
-                return .failure(error)
-            }
+            failWith: { hError in .failure(await fail(hError)) }
         ) { currentAuthHeader, canRetry in
             await attempt(request: request, url: url, authHeader: currentAuthHeader, canRetry: canRetry, logContext: logContext)
         }

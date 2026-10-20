@@ -260,11 +260,11 @@ struct RequestsView: View {
     // MARK: - Helpers
 
     /// Runs an async operation toggling the loading overlay.
-    func performWithLoading(_ operation: @escaping @Sendable () async -> Void) {
+    func performWithLoading(_ operation: @escaping @MainActor () async -> Void) {
         isLoading = true
         Task {
             await operation()
-            await MainActor.run { isLoading = false }
+            isLoading = false
         }
     }
 

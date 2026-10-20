@@ -217,7 +217,7 @@ public extension Harbor {
     /// values, path/query/body parameters, cURL commands, response bodies and
     /// `HRequestError.api` descriptions. On top of them Harbor always redacts its built-in
     /// HTTP credential keys (`authorization`, `cookie`, `set-cookie`, `x-api-key`, `password`,
-    /// `token`, `secret`, `session_id`, …) and the header key the auth provider's credential
+    /// `token`, `secret`, `session_id`, `sec-websocket-protocol`, …) and the header key the auth provider's credential
     /// is sent under, even after `.set` or `.clear`; use `setLogSensitiveValues(true)` to
     /// print every value.
     ///

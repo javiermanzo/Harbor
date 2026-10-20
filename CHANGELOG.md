@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Fixed
+- `HarborWebSocket` debug logs no longer print the subprotocols (offered, selected, or in the `Sec-WebSocket-Protocol` header): clients often authenticate by offering a token as the subprotocol. `sec-websocket-protocol` is now one of the built-in sensitive keys, so it is printed as `<redacted>` unless `Harbor.setLogSensitiveValues(true)` is on.
+
 ## [4.0.0] - Unreleased
 
 Upgrading from 3.0.0: items tagged **[Breaking]** need code changes. See the [migration guide](.agents/skills/harbor-migration-v3-to-v4/SKILL.md).

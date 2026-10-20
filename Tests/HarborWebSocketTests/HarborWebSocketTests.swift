@@ -554,6 +554,28 @@ final class HarborWebSocketTests: XCTestCase {
         XCTAssertNil(result.error)
     }
 
+    func testLogsRedactTheSubprotocolsThatCarryATokenAndShowThemWhenSensitiveLoggingIsOn() async throws {
+        // Given a request that authenticates by offering a token as its subprotocol
+        let context = try XCTUnwrap(HWebSocketLogContext(request: DebugTestSocket(url: "ws://localhost/socket")))
+        let urlRequest = TestSocket(url: "ws://localhost/socket", subprotocols: ["tok-123"])
+        let url = try XCTUnwrap(URL(string: "ws://localhost/socket"))
+        let handshake = await HWebSocketManager.handshakeRequest(for: urlRequest, url: url, authHeader: nil)
+
+        // When logged with redaction on
+        let redacted = HRedactionPolicy(isEnabled: true)
+        let handshakeInfo = context.handshakeInfo(urlRequest: handshake, subprotocols: ["tok-123"], policy: redacted)
+        let openInfo = context.openInfo(subprotocol: "tok-123", duration: 1, policy: redacted)
+
+        // Then the token appears nowhere, neither as a header nor as the offered or selected subprotocol
+        XCTAssertFalse("\(handshakeInfo)".contains("tok-123"))
+        XCTAssertFalse("\(openInfo)".contains("tok-123"))
+
+        // And with sensitive logging on it is printed
+        let plain = HRedactionPolicy(isEnabled: false)
+        XCTAssertTrue("\(context.handshakeInfo(urlRequest: handshake, subprotocols: ["tok-123"], policy: plain))".contains("tok-123"))
+        XCTAssertTrue("\(context.openInfo(subprotocol: "tok-123", duration: 1, policy: plain))".contains("tok-123"))
+    }
+
     // MARK: - Session Pool
 
     func testResourceTimeoutDoesNotApplyToConnections() async throws {

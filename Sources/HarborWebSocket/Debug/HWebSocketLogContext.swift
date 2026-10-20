@@ -54,7 +54,13 @@ extension HWebSocketLogContext {
     ///   - subprotocols: The subprotocols offered.
     func logHandshake(urlRequest: URLRequest, subprotocols: [String]) async {
         guard logsRequest, await HLogger.isLoggingEnabled else { return }
-        let policy = HRedactionPolicy.current
+        let additionalInfo = handshakeInfo(urlRequest: urlRequest, subprotocols: subprotocols, policy: .current)
+        await HLogger.log("WebSocket handshake \(requestName)", additionalInfo: additionalInfo, level: .debug)
+    }
+
+    /// The fields logged for a handshake. Subprotocols go through the policy like the
+    /// `Sec-WebSocket-Protocol` header they travel in: they often carry a token.
+    func handshakeInfo(urlRequest: URLRequest, subprotocols: [String], policy: HRedactionPolicy) -> [String: LBValue] {
         var additionalInfo: [String: LBValue] = ["request": .string(requestName)]
         if let url = urlRequest.url {
             additionalInfo["url"] = .string(policy.redactedURLString(url))
@@ -63,9 +69,9 @@ extension HWebSocketLogContext {
             additionalInfo["headerParameters"] = .string(Self.jsonString(headers))
         }
         if !subprotocols.isEmpty {
-            additionalInfo["subprotocols"] = .string(subprotocols.joined(separator: ", "))
+            additionalInfo["subprotocols"] = .string(Self.redactedSubprotocol(subprotocols.joined(separator: ", "), policy: policy))
         }
-        await HLogger.log("WebSocket handshake \(requestName)", additionalInfo: additionalInfo, level: .debug)
+        return additionalInfo
     }
 
     /// Logs a successful handshake.
@@ -74,12 +80,22 @@ extension HWebSocketLogContext {
     ///   - duration: The handshake duration in milliseconds.
     func logOpen(subprotocol: String?, duration: Double) async {
         guard logsResponse, await HLogger.isLoggingEnabled else { return }
-        let additionalInfo: [String: LBValue] = [
+        let additionalInfo = openInfo(subprotocol: subprotocol, duration: duration, policy: .current)
+        await HLogger.log("WebSocket open \(requestName)", additionalInfo: additionalInfo, level: .debug)
+    }
+
+    /// The fields logged for an open connection; the selected subprotocol is redacted like the offered ones.
+    func openInfo(subprotocol: String?, duration: Double, policy: HRedactionPolicy) -> [String: LBValue] {
+        [
             "request": .string(requestName),
-            "subprotocol": .string(subprotocol ?? "none"),
+            "subprotocol": .string(subprotocol.map { Self.redactedSubprotocol($0, policy: policy) } ?? "none"),
             "duration": .string("\(String(format: "%.2f", duration))ms"),
         ]
-        await HLogger.log("WebSocket open \(requestName)", additionalInfo: additionalInfo, level: .debug)
+    }
+
+    /// A subprotocol value as it may be printed.
+    private static func redactedSubprotocol(_ value: String, policy: HRedactionPolicy) -> String {
+        policy.redactedHeaderValue(name: "Sec-WebSocket-Protocol", value: value)
     }
 
     /// Logs a message sent by the app.

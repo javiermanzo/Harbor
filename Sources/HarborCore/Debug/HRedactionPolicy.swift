@@ -35,7 +35,9 @@ package struct HRedactionPolicy: Sendable {
         "x-api-key", "api_key", "apikey",
         "password", "passwd", "secret", "client_secret",
         "token", "access_token", "refresh_token",
-        "session_id", "private_key", "credential", "signature"
+        "session_id", "private_key", "credential", "signature",
+        // WebSocket clients commonly authenticate by offering a token as the subprotocol.
+        "sec-websocket-protocol"
     ].map(HJSONRedactor.normalize))
 
     /// Whether values are redacted. `false` when sensitive logging is opted in.

@@ -603,7 +603,7 @@ func configureLogging() async {
 }
 ```
 
-Every logged value goes through one redaction policy: request and response headers, query values, path/query/body parameters, cURL commands, response bodies and `HRequestError.api` descriptions. Sensitive keys (`authorization`, `cookie`, `set-cookie`, `x-api-key`, `password`, `token`, `secret`, the auth provider's header, plus the keys configured with `updateLogSensitiveKeys(_:)`) are printed as `<redacted>`. Matching is case-insensitive and ignores separators. `await Harbor.setLogSensitiveValues(true)` disables redaction (for local debugging only).
+Every logged value goes through one redaction policy: request and response headers, query values, path/query/body parameters, cURL commands, response bodies and `HRequestError.api` descriptions. Sensitive keys (`authorization`, `cookie`, `set-cookie`, `x-api-key`, `password`, `token`, `secret`, `sec-websocket-protocol`, the auth provider's header, plus the keys configured with `updateLogSensitiveKeys(_:)`) are printed as `<redacted>`. Matching is case-insensitive and ignores separators. `await Harbor.setLogSensitiveValues(true)` disables redaction (for local debugging only).
 
 The cURL command only includes cookies (redacted by default) when the session sends them: with Harbor's own sessions that is when `Harbor.setHTTPShouldHandleCookies(true)` is on, reading `HTTPCookieStorage.shared`; with a custom session, according to its configuration.
 

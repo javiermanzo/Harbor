@@ -8,31 +8,26 @@
 import Foundation
 import HarborCore
 
-/// The reason a WebSocket operation failed. Thrown by `connect()`, `send`, `ping()` and
+/// The reason a WebSocket operation failed. Thrown by `connect()`, `send`, `ping()`,
 /// `HWebSocketMessage.decode(_:)`, and by the `messages` stream when the connection is lost
 /// without a close frame.
 ///
-/// Transport failures mirror `HRequestError`; `.handshakeFailed`, `.notConnected`,
-/// `.pingTimeout` and `.invalidURL` are specific to WebSocket connections.
+/// The cases follow the life of a connection rather than the HTTP request/response model:
+/// the first group can only happen while the connection is being opened, the second one
+/// once it is open (or when using a closed one).
 public enum HWebSocketError: Sendable {
-    /// The server answered the handshake with a status other than `101 Switching Protocols`
-    /// (and other than `401`, which goes through the auth provider and ends in `.authNeeded`).
-    case handshakeFailed(statusCode: Int)
-    /// `send` or `ping()` was called on a connection that is already closed.
-    case notConnected
-    /// No pong answered a keep-alive ping within the ping interval; the connection was closed.
-    case pingTimeout
-    /// The server sent a message larger than `maximumMessageSize`; the connection was closed.
-    case messageTooBig
+    // MARK: Opening the connection
+
     /// The URL could not be built, or its scheme is not `ws`, `wss`, `http` or `https`.
     case invalidURL(reason: String)
-    /// A payload could not be encoded (`send(json:)`) or decoded (`HWebSocketMessage.decode(_:)`).
-    case codable(modelName: String, error: Error)
     /// The request has `needsAuth` set but no provider was configured with `Harbor.setAuthProvider(_:)`.
     case authProviderNeeded
     /// The server rejected the credentials (`401`) and they could not be refreshed through
     /// `HAuthProviderProtocol.authFailed()`.
     case authNeeded
+    /// The server answered the handshake with a status other than `101 Switching Protocols`
+    /// (and other than `401`, which goes through the auth provider and ends in `.authNeeded`).
+    case handshakeFailed(statusCode: Int)
     /// The device is offline.
     case noConnection
     /// The handshake timed out.
@@ -41,56 +36,133 @@ public enum HWebSocketError: Sendable {
     case cannotFindHost
     /// The host was resolved but a connection to it could not be established.
     case cannotConnectToHost
+    /// The TLS handshake failed: SSL pinning rejected the server, its certificate chain is
+    /// invalid, or the client certificate was missing or rejected.
+    case certificate
+
+    // MARK: Open connection
+
+    /// `send` or `ping()` was called on a connection that is already closed.
+    case notConnected
+    /// No pong answered a keep-alive ping within the ping interval; the connection was closed.
+    case pingTimeout
+    /// The server sent a message larger than `maximumMessageSize`; the connection was closed.
+    case messageTooBig
+    /// The connection could not be opened or was lost without a close frame (for example the
+    /// server went away), for a reason that has no more specific case. Wraps the `URLError`;
+    /// when `URLSession` reported a POSIX error it is the `NSUnderlyingErrorKey` of a
+    /// `.networkConnectionLost`.
+    case connectionFailed(URLError)
+    /// A value could not be encoded as JSON by `send(json:)`.
+    case encodingFailed(modelName: String, error: Error)
+    /// A message payload could not be decoded by `HWebSocketMessage.decode(_:)`.
+    case decodingFailed(modelName: String, error: Error)
+
+    // MARK: Any time
+
     /// The `Task` calling `connect()`, `send`, or `ping()` was cancelled. (Cancelling the task
     /// that iterates `messages` closes the connection instead: the stream finishes and `state`
     /// is `.closed(code: .goingAway, reason: nil)`.)
     case cancelled
-    /// The TLS handshake failed: SSL pinning rejected the server, its certificate chain is
-    /// invalid, or the client certificate was missing or rejected.
-    case certificate
-    /// A network error that does not map to a more specific case. Wraps the original `URLError`.
-    case networkFailure(URLError)
-    /// An unexpected error that is not a `URLError`, such as the POSIX error reported when a
-    /// connection is dropped without a close frame. Wraps the original error.
+    /// An unexpected error that is not a `URLError` nor a lost connection. Wraps the original error.
     case unknown(Error)
 }
 
-// MARK: - HRequestError Mapping
+// MARK: - Mapping
 
 extension HWebSocketError {
-    /// Maps a transport error reported by Harbor's pipeline to a WebSocket error.
-    /// - Parameter hRequestError: The error reported by Harbor.
-    init(hRequestError: HRequestError) {
-        switch hRequestError {
-        case .api(let statusCode, _):
-            self = .handshakeFailed(statusCode: statusCode)
+    /// Maps an error thrown by `URLSession` for a WebSocket task.
+    /// - Parameters:
+    ///   - urlError: The error.
+    ///   - trustEvaluationFailed: Whether Harbor's delegate rejected a TLS challenge for the task.
+    init(urlError: URLError, trustEvaluationFailed: Bool) {
+        if trustEvaluationFailed {
+            self = .certificate
+            return
+        }
+        if urlError.code == .cancelled || Task.isCancelled {
+            self = .cancelled
+            return
+        }
+        switch urlError.code {
+        case .badURL:
+            self = .invalidURL(reason: urlError.localizedDescription)
+        case .cannotFindHost, .dnsLookupFailed:
+            self = .cannotFindHost
+        case .cannotConnectToHost:
+            self = .cannotConnectToHost
+        case .serverCertificateHasBadDate,
+             .serverCertificateUntrusted,
+             .serverCertificateHasUnknownRoot,
+             .serverCertificateNotYetValid,
+             .clientCertificateRejected,
+             .clientCertificateRequired:
+            self = .certificate
+        case .timedOut:
+            self = .timeout
+        case .notConnectedToInternet, .dataNotAllowed, .internationalRoamingOff:
+            self = .noConnection
+        default:
+            // Includes `.networkConnectionLost`: on an open connection that is a lost connection, not an offline device.
+            self = .connectionFailed(urlError)
+        }
+    }
+
+    /// Maps an error that is not a `URLError` thrown while using a WebSocket task.
+    /// - Parameter error: The thrown error.
+    init(otherError error: Error) {
+        if error is CancellationError || Task.isCancelled {
+            self = .cancelled
+        } else if let lost = Self.lostConnectionError(error) {
+            self = .connectionFailed(lost)
+        } else {
+            self = .unknown(error)
+        }
+    }
+
+    /// `URLSession` reports a connection that dies under an open WebSocket as a POSIX error
+    /// (`ENOTCONN`, `ECONNRESET`, `EPIPE`...) instead of a `URLError`. It is a lost connection,
+    /// so it is reported as `networkConnectionLost` with the original error underneath.
+    private static func lostConnectionError(_ error: Error) -> URLError? {
+        let nsError = error as NSError
+        guard nsError.domain == NSPOSIXErrorDomain else { return nil }
+        let lost: Set<Int32> = [ENOTCONN, ECONNRESET, ECONNABORTED, EPIPE, ETIMEDOUT, ENETDOWN, ENETRESET, ENETUNREACH]
+        guard lost.contains(Int32(truncatingIfNeeded: nsError.code)) else { return nil }
+        return URLError(.networkConnectionLost, userInfo: [NSUnderlyingErrorKey: error])
+    }
+
+    /// Maps an error reported by Harbor's shared pipeline (authentication, URL building and
+    /// the attempt loop) while opening a connection.
+    /// - Parameter pipelineError: The error reported by `HarborCore`.
+    init(pipelineError: HRequestError) {
+        switch pipelineError {
         case .authProviderNeeded:
             self = .authProviderNeeded
         case .authNeeded:
             self = .authNeeded
-        case .codable(let modelName, let error):
-            self = .codable(modelName: modelName, error: error)
-        case .noConnection:
-            self = .noConnection
+        case .cancelled:
+            self = .cancelled
         case .malformedRequest(let reason):
             self = .invalidURL(reason: reason ?? "Malformed request")
+        case .api(let statusCode, _):
+            self = .handshakeFailed(statusCode: statusCode)
+        case .noConnection:
+            self = .noConnection
         case .timeout:
             self = .timeout
         case .cannotFindHost:
             self = .cannotFindHost
         case .cannotConnectToHost:
             self = .cannotConnectToHost
-        case .cancelled:
-            self = .cancelled
         case .certificate:
             self = .certificate
-        case .networkFailure(let error):
-            self = .networkFailure(error)
+        case .networkFailure(let urlError):
+            self = .connectionFailed(urlError)
         case .unknown(let error):
             self = .unknown(error)
-        case .invalidHttpResponse, .noCachedDataFound:
-            // Produced by REST responses and cache reads only, never by a WebSocket handshake.
-            self = .unknown(hRequestError)
+        case .invalidHttpResponse, .codable, .noCachedDataFound:
+            // Produced by REST responses and cache reads only, never while opening a connection.
+            self = .unknown(pipelineError)
         }
     }
 }
@@ -115,8 +187,10 @@ extension HWebSocketError: LocalizedError {
             return "The server sent a message larger than the maximum message size."
         case .invalidURL(let reason):
             return "Invalid WebSocket URL: \(reason)"
-        case .codable(let modelName, let error):
-            return "Failed to encode or decode \(modelName): \(String(describing: error))"
+        case .encodingFailed(let modelName, let error):
+            return "Failed to encode \(modelName): \(String(describing: error))"
+        case .decodingFailed(let modelName, let error):
+            return "Failed to decode \(modelName): \(String(describing: error))"
         case .authProviderNeeded:
             return "An authentication provider is required but not set."
         case .authNeeded:
@@ -133,8 +207,8 @@ extension HWebSocketError: LocalizedError {
             return "The WebSocket operation was cancelled."
         case .certificate:
             return "The SSL/TLS certificate validation failed."
-        case .networkFailure(let error):
-            return "Network request failed (\(error.code.rawValue)): \(error.localizedDescription)"
+        case .connectionFailed(let error):
+            return "The WebSocket connection failed (\(error.code.rawValue)): \(error.localizedDescription)"
         case .unknown(let error):
             return "Unexpected error: \(String(describing: error))"
         }
@@ -145,8 +219,8 @@ extension HWebSocketError: LocalizedError {
 
 extension HWebSocketError: Equatable {
     /// Two errors are equal when they are the same case with equal payloads. Wrapped errors
-    /// that are not `Equatable` (`codable`, `unknown`) are compared by their type, bridged
-    /// domain and code, and description; `networkFailure` compares the `URLError` codes.
+    /// that are not `Equatable` (`encodingFailed`, `decodingFailed`, `unknown`) are compared by their type,
+    /// bridged domain and code, and description; `connectionFailed` compares the `URLError` codes.
     public static func == (lhs: HWebSocketError, rhs: HWebSocketError) -> Bool {
         switch (lhs, rhs) {
         case let (.handshakeFailed(lhsStatus), .handshakeFailed(rhsStatus)):
@@ -165,9 +239,10 @@ extension HWebSocketError: Equatable {
             return true
         case let (.invalidURL(lhsReason), .invalidURL(rhsReason)):
             return lhsReason == rhsReason
-        case let (.codable(lhsModel, lhsError), .codable(rhsModel, rhsError)):
+        case let (.encodingFailed(lhsModel, lhsError), .encodingFailed(rhsModel, rhsError)),
+             let (.decodingFailed(lhsModel, lhsError), .decodingFailed(rhsModel, rhsError)):
             return lhsModel == rhsModel && isSameError(lhsError, rhsError)
-        case let (.networkFailure(lhsError), .networkFailure(rhsError)):
+        case let (.connectionFailed(lhsError), .connectionFailed(rhsError)):
             return lhsError.code == rhsError.code
         case let (.unknown(lhsError), .unknown(rhsError)):
             return isSameError(lhsError, rhsError)

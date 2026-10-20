@@ -47,7 +47,7 @@ extension HWebSocketManager {
         let authHeader: HAuthorizationHeader?
         switch await HRequestManager.authorizationHeader(needsAuth: request.needsAuth) {
         case .failure(let hError):
-            let error = HWebSocketError(hRequestError: hError)
+            let error = HWebSocketError(pipelineError: hError)
             await logContext?.logError(error)
             throw error
         case .success(let header):
@@ -59,7 +59,7 @@ extension HWebSocketManager {
             retryPolicy: request.retryPolicy,
             authHeader: authHeader,
             failWith: { hError in
-                let error = HWebSocketError(hRequestError: hError)
+                let error = HWebSocketError(pipelineError: hError)
                 await logContext?.logError(error)
                 return .failure(error)
             }
@@ -161,15 +161,15 @@ extension HWebSocketManager {
         }
 
         if let urlError = error as? URLError {
-            let hError = HRequestManager.mapTransportError(urlError, trustEvaluationFailed: delegate.trustEvaluationFailed)
-            if hError != .certificate, hError != .cancelled, canRetry,
+            let wsError = HWebSocketError(urlError: urlError, trustEvaluationFailed: delegate.trustEvaluationFailed)
+            if wsError != .certificate, wsError != .cancelled, canRetry,
                request.retryPolicy?.shouldRetry(urlError: urlError, method: .get) == true {
                 return .retry(after: nil)
             }
-            return .finish(.failure(HWebSocketError(hRequestError: hError)))
+            return .finish(.failure(wsError))
         }
 
-        return .finish(.failure(HWebSocketError(hRequestError: HRequestManager.mapNonURLError(error))))
+        return .finish(.failure(HWebSocketError(otherError: error)))
     }
 }
 
@@ -188,7 +188,7 @@ extension HWebSocketManager {
                                                queryParameters: request.queryParameters,
                                                allowedSchemes: allowedSchemes)
         } catch let hError as HRequestError {
-            throw HWebSocketError(hRequestError: hError)
+            throw HWebSocketError(pipelineError: hError)
         } catch {
             throw .invalidURL(reason: String(describing: error))
         }

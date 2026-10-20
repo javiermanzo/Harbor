@@ -93,7 +93,7 @@ func leave(_ socket: HWebSocket) async {
 Lifecycle rules:
 
 - `messages` **finishes** when the connection closes through a close frame, sent by the server or by `close(code:reason:)`; `state` becomes `.closed(code:reason:)` with that code.
-- `messages` **throws** an `HWebSocketError` when the connection is lost without a close frame (`.networkFailure`, `.unknown` with the POSIX error, `.pingTimeout`, `.messageTooBig`); `state` is `.closed(code: .abnormalClosure, reason: nil)`.
+- `messages` **throws** an `HWebSocketError` when the connection is lost without a close frame (`.connectionFailed`, `.pingTimeout`, `.messageTooBig`); `state` is `.closed(code: .abnormalClosure, reason: nil)`.
 - Messages are read continuously and buffered until iterated, so close frames and pings are handled even while the app is not reading.
 - Cancelling the task that iterates `messages` closes the connection with `.goingAway`. Leaving the loop any other way (`break`, `return`, a `throw` of your own such as a failed `decode`) does **not** close it: call `close()`.
 - `send` and `ping()` on a closed connection throw `.notConnected`.
@@ -207,9 +207,9 @@ func handle(_ error: HWebSocketError) {
         print("A message exceeded maximumMessageSize")
     case .invalidURL(let reason):
         print(reason)
-    case .codable(let model, let underlying):
+    case .encodingFailed(let model, let underlying), .decodingFailed(let model, let underlying):
         print("Coding error in \(model): \(underlying)")
-    case .noConnection, .timeout, .cannotFindHost, .cannotConnectToHost, .networkFailure:
+    case .noConnection, .timeout, .cannotFindHost, .cannotConnectToHost, .connectionFailed:
         print("Network problem")
     case .certificate:
         print("TLS / pinning failure")

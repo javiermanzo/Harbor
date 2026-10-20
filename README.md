@@ -579,7 +579,7 @@ func chat() async throws {
 Other details:
 - Every requirement except `url` has a default: `pathParameters`, `queryParameters`, `headerParameters`, `subprotocols`, `needsAuth`, `retryPolicy` (handshake only; connections are never reconnected automatically), `timeoutInterval` (handshake), `pingInterval` (or `HarborWebSocket.setDefaultPingInterval(_:)`) and `maximumMessageSize`.
 - `state` is `.open` or `.closed(code:reason:)`. Messages are read continuously and buffered until iterated; iterate `messages` from one place. Cancelling the iterating task closes the connection with `.goingAway`; leaving the loop any other way does not. Call `close()` when done: a connection stays open until either side closes it.
-- `HWebSocketError` mirrors `HRequestError`'s transport cases and adds `.handshakeFailed(statusCode:)`, `.notConnected`, `.pingTimeout`, `.messageTooBig` and `.invalidURL(reason:)`. `send`, `ping()` and `decode(_:)` use typed throws.
+- `HWebSocketError` is the WebSocket's own error set, split by the life of a connection. Opening: `.invalidURL(reason:)`, `.authProviderNeeded`, `.authNeeded`, `.handshakeFailed(statusCode:)`, `.noConnection`, `.timeout`, `.cannotFindHost`, `.cannotConnectToHost`, `.certificate`. Open: `.notConnected`, `.pingTimeout`, `.messageTooBig`, `.connectionFailed(URLError)` (a connection lost without a close frame, including the POSIX errors `URLSession` reports for a dropped socket), `.encodingFailed` and `.decodingFailed`. Any time: `.cancelled`, `.unknown`. `send`, `ping()` and `decode(_:)` use typed throws.
 - `HMock` does not apply to WebSocket connections; test against a loopback server (see `.agents/skills/harbor/examples/websocket.md`).
 
 ### Debugging & Logging

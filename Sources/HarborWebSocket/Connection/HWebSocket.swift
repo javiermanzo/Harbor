@@ -121,7 +121,7 @@ public extension HWebSocket {
     /// - Parameters:
     ///   - value: The value to encode.
     ///   - encoder: The encoder to use. Default: a new `JSONEncoder`.
-    /// - Throws: `.codable` when the value cannot be encoded, `.notConnected` when the
+    /// - Throws: `.encodingFailed` when the value cannot be encoded, `.notConnected` when the
     ///   connection is closed, or the transport error.
     func send<T: Encodable & Sendable>(json value: T, encoder: JSONEncoder = JSONEncoder()) async throws(HWebSocketError) {
         let text: String
@@ -132,7 +132,7 @@ public extension HWebSocket {
             }
             text = encoded
         } catch {
-            throw .codable(modelName: "\(T.self)", error: error)
+            throw .encodingFailed(modelName: "\(T.self)", error: error)
         }
         try await send(message: .text(text))
     }
@@ -201,20 +201,12 @@ extension HWebSocket {
         }
 
         if let pingInterval {
-            pingTask = Task { [task] in
+            pingTask = Task {
+                // `ping()` closes the connection when a pong is missing; any other failure means the
+                // connection is closing or lost, and the receive loop reports the real reason.
                 while !Task.isCancelled {
                     guard await Self.sleep(seconds: pingInterval) else { return }
-                    switch await Self.ping(task, timeout: pingInterval) {
-                    case .pong:
-                        continue
-                    case .failed:
-                        // The connection is closing or lost: the receive loop classifies it
-                        // (close frame vs. transport failure) so the real reason is reported.
-                        return
-                    case .timedOut:
-                        await self.pingTimedOut()
-                        return
-                    }
+                    do { try await self.ping() } catch { return }
                 }
             }
         }
@@ -292,13 +284,13 @@ extension HWebSocket {
     /// - Parameter error: The thrown error.
     private func mapped(_ error: Error) -> HWebSocketError {
         if let urlError = error as? URLError {
-            return HWebSocketError(hRequestError: HRequestManager.mapTransportError(urlError, trustEvaluationFailed: delegate.trustEvaluationFailed))
+            return HWebSocketError(urlError: urlError, trustEvaluationFailed: delegate.trustEvaluationFailed)
         }
         let nsError = error as NSError
         if nsError.domain == NSPOSIXErrorDomain, nsError.code == Int(EMSGSIZE) {
             return .messageTooBig
         }
-        return HWebSocketError(hRequestError: HRequestManager.mapNonURLError(error))
+        return HWebSocketError(otherError: error)
     }
 }
 

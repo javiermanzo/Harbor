@@ -30,12 +30,12 @@ public extension HWebSocketMessage {
     ///   - type: The model type to decode.
     ///   - decoder: The decoder to use. Default: a new `JSONDecoder`.
     /// - Returns: The decoded model.
-    /// - Throws: `HWebSocketError.codable` when the payload cannot be decoded.
+    /// - Throws: `HWebSocketError.decodingFailed` when the payload cannot be decoded.
     func decode<T: Decodable>(_ type: T.Type, decoder: JSONDecoder = JSONDecoder()) throws(HWebSocketError) -> T {
         do {
             return try decoder.decode(type, from: payload)
         } catch {
-            throw .codable(modelName: "\(type)", error: error)
+            throw .decodingFailed(modelName: "\(type)", error: error)
         }
     }
 }

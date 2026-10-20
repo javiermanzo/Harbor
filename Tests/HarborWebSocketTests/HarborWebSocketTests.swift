@@ -182,12 +182,12 @@ final class HarborWebSocketTests: XCTestCase {
         XCTAssertEqual(try text.decode(ChatEvent.self), ChatEvent(type: "t", text: "x"))
         XCTAssertEqual(try data.decode(ChatEvent.self), ChatEvent(type: "t", text: "y"))
         XCTAssertThrowsError(try HWebSocketMessage.text("nope").decode(ChatEvent.self)) { error in
-            guard case HWebSocketError.codable(let model, _) = error else { return XCTFail("Expected .codable, got \(error)") }
+            guard case HWebSocketError.decodingFailed(let model, _) = error else { return XCTFail("Expected .decodingFailed, got \(error)") }
             XCTAssertEqual(model, "ChatEvent")
         }
     }
 
-    func testSendJSONEncodingFailureThrowsCodable() async throws {
+    func testSendJSONEncodingFailureThrowsEncodingFailed() async throws {
         // Given
         let server = try await startServer()
         let socket = try await TestSocket(url: server.url()).connect()
@@ -198,7 +198,7 @@ final class HarborWebSocketTests: XCTestCase {
             try await socket.send(json: [Double.nan])
             XCTFail("Expected send(json:) to throw")
         } catch {
-            guard case .codable = error else { return XCTFail("Expected .codable, got \(error)") }
+            guard case .encodingFailed = error else { return XCTFail("Expected .encodingFailed, got \(error)") }
         }
     }
 
@@ -288,13 +288,15 @@ final class HarborWebSocketTests: XCTestCase {
 
         // When
         let socket = try await TestSocket(url: server.url()).connect()
+        let start = Date()
         let result = await drain(socket)
 
-        // Then
+        // Then the loss is reported promptly, without waiting out the completion grace period
+        XCTAssertLessThan(Date().timeIntervalSince(start), 1.5)
         XCTAssertEqual(result.messages, [.text("before")])
         let error = try XCTUnwrap(result.error)
         switch error {
-        case .networkFailure, .unknown, .cannotConnectToHost:
+        case .connectionFailed, .cannotConnectToHost:
             break
         default:
             XCTFail("Expected a transport error, got \(error)")
@@ -574,6 +576,48 @@ final class HarborWebSocketTests: XCTestCase {
         let plain = HRedactionPolicy(isEnabled: false)
         XCTAssertTrue("\(context.handshakeInfo(urlRequest: handshake, subprotocols: ["tok-123"], policy: plain))".contains("tok-123"))
         XCTAssertTrue("\(context.openInfo(subprotocol: "tok-123", duration: 1, policy: plain))".contains("tok-123"))
+    }
+
+    // MARK: - Error Mapping
+
+    func testURLErrorsMapToWebSocketCases() async {
+        let cases: [(URLError.Code, HWebSocketError)] = [
+            (.cannotFindHost, .cannotFindHost),
+            (.dnsLookupFailed, .cannotFindHost),
+            (.cannotConnectToHost, .cannotConnectToHost),
+            (.timedOut, .timeout),
+            (.notConnectedToInternet, .noConnection),
+            (.serverCertificateUntrusted, .certificate),
+            (.clientCertificateRequired, .certificate),
+            (.cancelled, .cancelled),
+            // An open connection that drops is a lost connection, not an offline device.
+            (.networkConnectionLost, .connectionFailed(URLError(.networkConnectionLost))),
+            (.secureConnectionFailed, .connectionFailed(URLError(.secureConnectionFailed))),
+        ]
+        for (code, expected) in cases {
+            XCTAssertEqual(HWebSocketError(urlError: URLError(code), trustEvaluationFailed: false), expected, "\(code)")
+        }
+        XCTAssertEqual(HWebSocketError(urlError: URLError(.cancelled), trustEvaluationFailed: true), .certificate)
+    }
+
+    func testPOSIXConnectionErrorsAreLostConnections() async {
+        for code in [ENOTCONN, ECONNRESET, EPIPE] {
+            let posix = NSError(domain: NSPOSIXErrorDomain, code: Int(code))
+            guard case .connectionFailed(let urlError) = HWebSocketError(otherError: posix) else { return XCTFail("Expected .connectionFailed for \(code)") }
+            XCTAssertEqual(urlError.code, .networkConnectionLost)
+            XCTAssertEqual((urlError.userInfo[NSUnderlyingErrorKey] as? NSError)?.code, Int(code))
+        }
+        // Any other error is not guessed at.
+        guard case .unknown = HWebSocketError(otherError: NSError(domain: NSPOSIXErrorDomain, code: Int(ENOENT))) else { return XCTFail("Expected .unknown") }
+    }
+
+    func testPipelineErrorsMapToWebSocketCases() async {
+        XCTAssertEqual(HWebSocketError(pipelineError: .authNeeded), .authNeeded)
+        XCTAssertEqual(HWebSocketError(pipelineError: .authProviderNeeded), .authProviderNeeded)
+        XCTAssertEqual(HWebSocketError(pipelineError: .malformedRequest(reason: "bad")), .invalidURL(reason: "bad"))
+        XCTAssertEqual(HWebSocketError(pipelineError: .api(statusCode: 403, data: Data())), .handshakeFailed(statusCode: 403))
+        // REST-only errors never come out of opening a connection; they are kept as unknown rather than mislabelled.
+        guard case .unknown = HWebSocketError(pipelineError: .invalidHttpResponse) else { return XCTFail("Expected .unknown") }
     }
 
     // MARK: - Session Pool

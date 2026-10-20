@@ -7,7 +7,6 @@
 
 import Foundation
 import HarborCore
-import LogBird
 
 // MARK: - Logging Helpers
 
@@ -31,7 +30,7 @@ extension HDebugRequestProtocol {
         if let request = self as? HRequestBaseRequestProtocol,
            self.debugType == .request || self.debugType == .requestAndResponse {
             let policy = HRedactionPolicy.current
-            var additionalInfo: [String: LBValue] = [:]
+            var additionalInfo: [String: HLogValue] = [:]
             additionalInfo["request"] = .string(String(describing: type(of: self)))
             if let url = urlRequest.url {
                 additionalInfo["url"] = .string(policy.redactedURLString(url))
@@ -59,7 +58,7 @@ extension HDebugRequestProtocol {
             additionalInfo["needsAuth"] = .bool(request.needsAuth)
 
             let curl = await self.generateCurl(urlRequest: urlRequest)
-            let extraMessages: [LBExtraMessage] = [LBExtraMessage(key: "cURL", value: curl)]
+            let extraMessages: [HLogExtraMessage] = [HLogExtraMessage(key: "cURL", value: curl)]
 
             await HLogger.log("Request \(String(describing: type(of: request)))", extraMessages: extraMessages, additionalInfo: additionalInfo, level: .debug)
         }
@@ -77,16 +76,16 @@ extension HDebugRequestProtocol {
         guard await HLogger.isLoggingEnabled else { return }
         if self.debugType == .response || self.debugType == .requestAndResponse {
             let policy = HRedactionPolicy.current
-            var extraMessages: [LBExtraMessage] = []
+            var extraMessages: [HLogExtraMessage] = []
             if let value = await redactedResponseBody(data: data, httpResponse: httpResponse) {
-                extraMessages.append(LBExtraMessage(key: "Response Value", value: value))
+                extraMessages.append(HLogExtraMessage(key: "Response Value", value: value))
             }
 
             if let headers = await dictionaryToJSONString(redactedResponseHeaders(httpResponse, policy: policy)) {
-                extraMessages.append(LBExtraMessage(key: "Response Headers", value: headers))
+                extraMessages.append(HLogExtraMessage(key: "Response Headers", value: headers))
             }
 
-            var additionalInfo: [String: LBValue] = [:]
+            var additionalInfo: [String: HLogValue] = [:]
             additionalInfo["request"] = .string(String(describing: type(of: self)))
             additionalInfo["statusCode"] = .int(httpResponse.statusCode)
             if let url = httpResponse.url {
@@ -106,13 +105,13 @@ extension HDebugRequestProtocol {
     /// - Parameter error: The error that occurred during the request.
     func logErrorResponse(error: HRequestError) async {
         guard await HLogger.isLoggingEnabled else { return }
-        var extraMessages: [LBExtraMessage] = []
+        var extraMessages: [HLogExtraMessage] = []
 
         // The description, not the raw value: a wrapped URLError's userInfo carries the full
         // URL, whose query string may hold credentials.
-        extraMessages.append(LBExtraMessage(key: "Error Type", value: error.errorDescription ?? String(describing: type(of: error))))
+        extraMessages.append(HLogExtraMessage(key: "Error Type", value: error.errorDescription ?? String(describing: type(of: error))))
 
-        var additionalInfo: [String: LBValue] = [:]
+        var additionalInfo: [String: HLogValue] = [:]
         additionalInfo["request"] = .string(String(describing: type(of: self)))
 
         await HLogger.log("Response Error \(String(describing: type(of: self)))", extraMessages: extraMessages, additionalInfo: additionalInfo, level: .error)

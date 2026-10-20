@@ -8,7 +8,69 @@
 import Foundation
 import LogBird
 
-/// Harbor's logging facade over LogBird.
+/// Severity of a log entry.
+package enum HLogLevel: Sendable {
+    /// Verbose diagnostics (requests, responses, messages).
+    case debug
+    /// A noteworthy event.
+    case info
+    /// A recoverable problem.
+    case warning
+    /// A failure.
+    case error
+
+    /// The LogBird level this one maps to.
+    fileprivate var logBirdLevel: LBLogLevel {
+        switch self {
+        case .debug: return .debug
+        case .info: return .info
+        case .warning: return .warning
+        case .error: return .error
+        }
+    }
+}
+
+/// A structured metadata value of a log entry.
+package enum HLogValue: Sendable {
+    /// A string.
+    case string(String)
+    /// An integer.
+    case int(Int)
+    /// A floating-point number.
+    case double(Double)
+    /// A Boolean.
+    case bool(Bool)
+
+    /// The LogBird value this one maps to.
+    fileprivate var logBirdValue: LBValue {
+        switch self {
+        case .string(let value): return .string(value)
+        case .int(let value): return .int(value)
+        case .double(let value): return .double(value)
+        case .bool(let value): return .bool(value)
+        }
+    }
+}
+
+/// A titled block of text attached to a log entry (for example a cURL command).
+package struct HLogExtraMessage: Sendable {
+    /// The block title.
+    let key: String
+    /// The block contents.
+    let value: String
+
+    /// Creates a block.
+    /// - Parameters:
+    ///   - key: The block title.
+    ///   - value: The block contents.
+    package init(key: String, value: String) {
+        self.key = key
+        self.value = value
+    }
+}
+
+/// Harbor's logging facade over LogBird. It is the only place that speaks LogBird's types: callers
+/// use `HLogLevel`, `HLogValue` and `HLogExtraMessage`, so the products do not depend on LogBird.
 ///
 /// Centralizes the LogBird instances the framework logs through (debug, security, and the
 /// SSL/PKCS#12 diagnostics loggers it toggles) and the sensitive-key redaction policy, so
@@ -93,10 +155,10 @@ package enum HLogger {
     ///   - line: The calling line, filled in by the compiler.
     package static func log(
         _ message: String? = nil,
-        extraMessages: [LBExtraMessage]? = nil,
-        additionalInfo: [String: LBValue]? = nil,
+        extraMessages: [HLogExtraMessage]? = nil,
+        additionalInfo: [String: HLogValue]? = nil,
         error: Error? = nil,
-        level: LBLogLevel = .debug,
+        level: HLogLevel = .debug,
         file: String = #fileID,
         function: String = #function,
         line: Int = #line
@@ -105,10 +167,10 @@ package enum HLogger {
 
         logger.log(
             message,
-            extraMessages: extraMessages,
-            additionalInfo: additionalInfo,
+            extraMessages: extraMessages?.map { LBExtraMessage(key: $0.key, value: $0.value) },
+            additionalInfo: additionalInfo?.mapValues(\.logBirdValue),
             error: error,
-            level: level,
+            level: level.logBirdLevel,
             file: file,
             function: function,
             line: line

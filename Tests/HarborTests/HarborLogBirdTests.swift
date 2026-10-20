@@ -52,7 +52,7 @@ final class HarborLogBirdTests: XCTestCase {
         // Disabling redaction entirely so tokens are visible while debugging.
         await Harbor.updateLogSensitiveKeys(.clear)
 
-        let info: [String: LBValue] = [
+        let info: [String: HLogValue] = [
             "username": .string("johndoe"),
             "authToken": .string("secret_bearer_token_12345"),
             "password": .string("P@ssw0rd123!")
@@ -103,7 +103,7 @@ final class HarborLogBirdTests: XCTestCase {
         // LogBird 2.1's global defaults + separator-insensitive matching cover
         // these HTTP fields, and Harbor's logger inherits them — so they are
         // redacted on the same instance Harbor logs through.
-        let info: [String: LBValue] = [
+        let info: [String: HLogValue] = [
             "username": .string("johndoe"),
             "set-cookie": .string("session=abc; Path=/"),
             "x-api-key": .string("key_99887766"),
@@ -126,16 +126,16 @@ final class HarborLogBirdTests: XCTestCase {
         XCTAssertEqual(stored["refresh_token"]?.description, "<redacted>")
     }
 
-    // MARK: - Typed metadata (LBValue)
+    // MARK: - Typed metadata (HLogValue)
 
-    func testTypedLBValueMetadata() async {
-        let metadata: [String: LBValue] = [
+    func testTypedHLogValueMetadata() async {
+        let metadata: [String: HLogValue] = [
             "endpoint": .string("https://api.example.com/v1/data"),
             "statusCode": .int(200),
             "isSuccess": .bool(true),
             "latency": .double(45.2)
         ]
-        let extra = [LBExtraMessage(key: "Headers", value: "Content-Type: application/json")]
+        let extra = [HLogExtraMessage(key: "Headers", value: "Content-Type: application/json")]
 
         await HLogger.log("API Log", extraMessages: extra, additionalInfo: metadata, level: .info)
 

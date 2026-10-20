@@ -7,7 +7,6 @@
 
 import Foundation
 import HarborCore
-import LogBird
 
 /// Debug logging for one connection, created only for requests that opt in by conforming to
 /// `HDebugRequestProtocol` (so a connection that did not opt in costs nothing). Every printed
@@ -57,8 +56,8 @@ extension HWebSocketLogContext {
 
     /// The fields logged for a handshake. Subprotocols go through the policy like the
     /// `Sec-WebSocket-Protocol` header they travel in: they often carry a token.
-    func handshakeInfo(urlRequest: URLRequest, subprotocols: [String], policy: HRedactionPolicy) -> [String: LBValue] {
-        var additionalInfo: [String: LBValue] = ["request": .string(requestName)]
+    func handshakeInfo(urlRequest: URLRequest, subprotocols: [String], policy: HRedactionPolicy) -> [String: HLogValue] {
+        var additionalInfo: [String: HLogValue] = ["request": .string(requestName)]
         if let url = urlRequest.url {
             additionalInfo["url"] = .string(policy.redactedURLString(url))
         }
@@ -82,7 +81,7 @@ extension HWebSocketLogContext {
     }
 
     /// The fields logged for an open connection; the selected subprotocol is redacted like the offered ones.
-    func openInfo(subprotocol: String?, duration: Double, policy: HRedactionPolicy) -> [String: LBValue] {
+    func openInfo(subprotocol: String?, duration: Double, policy: HRedactionPolicy) -> [String: HLogValue] {
         [
             "request": .string(requestName),
             "subprotocol": .string(subprotocol.map { Self.redactedSubprotocol($0, policy: policy) } ?? "none"),
@@ -99,14 +98,14 @@ extension HWebSocketLogContext {
     /// - Parameter message: The sent message.
     func logSent(_ message: HWebSocketMessage) async {
         guard logsRequest, await HLogger.isLoggingEnabled else { return }
-        await HLogger.log("WebSocket send \(requestName)", extraMessages: [LBExtraMessage(key: "Message", value: Self.printable(message))], additionalInfo: ["request": .string(requestName)], level: .debug)
+        await HLogger.log("WebSocket send \(requestName)", extraMessages: [HLogExtraMessage(key: "Message", value: Self.printable(message))], additionalInfo: ["request": .string(requestName)], level: .debug)
     }
 
     /// Logs a message received from the server.
     /// - Parameter message: The received message.
     func logReceived(_ message: HWebSocketMessage) async {
         guard logsResponse, await HLogger.isLoggingEnabled else { return }
-        await HLogger.log("WebSocket receive \(requestName)", extraMessages: [LBExtraMessage(key: "Message", value: Self.printable(message))], additionalInfo: ["request": .string(requestName)], level: .debug)
+        await HLogger.log("WebSocket receive \(requestName)", extraMessages: [HLogExtraMessage(key: "Message", value: Self.printable(message))], additionalInfo: ["request": .string(requestName)], level: .debug)
     }
 
     /// Logs the close of the connection.
@@ -116,7 +115,7 @@ extension HWebSocketLogContext {
     ///   - initiatedLocally: Whether the app closed the connection.
     func logClose(code: URLSessionWebSocketTask.CloseCode, reason: Data?, initiatedLocally: Bool) async {
         guard logsResponse, await HLogger.isLoggingEnabled else { return }
-        var additionalInfo: [String: LBValue] = [
+        var additionalInfo: [String: HLogValue] = [
             "request": .string(requestName),
             "closeCode": .int(code.rawValue),
             "initiatedBy": .string(initiatedLocally ? "client" : "server"),
@@ -136,7 +135,7 @@ extension HWebSocketLogContext {
         // The description, not the raw value: a wrapped URLError's userInfo carries the full
         // URL, whose query string may hold a token.
         let description = error.errorDescription ?? String(describing: type(of: error))
-        await HLogger.log("WebSocket error \(requestName)", extraMessages: [LBExtraMessage(key: "Error Type", value: description)], additionalInfo: ["request": .string(requestName)], level: .error)
+        await HLogger.log("WebSocket error \(requestName)", extraMessages: [HLogExtraMessage(key: "Error Type", value: description)], additionalInfo: ["request": .string(requestName)], level: .error)
     }
 }
 

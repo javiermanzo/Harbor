@@ -35,10 +35,7 @@ let package = Package(
             ]),
         .target(
             name: "Harbor",
-            dependencies: [
-                "HarborCore",
-                .product(name: "LogBird", package: "LogBird"),
-            ]),
+            dependencies: ["HarborCore"]),
         .testTarget(
             name: "HarborTests",
             dependencies: ["Harbor", "HarborCore"],
@@ -53,10 +50,7 @@ let package = Package(
 
         .target(
             name: "HarborWebSocket",
-            dependencies: [
-                "HarborCore",
-                .product(name: "LogBird", package: "LogBird"),
-            ]),
+            dependencies: ["HarborCore"]),
         .testTarget(
             name: "HarborWebSocketTests",
             dependencies: ["HarborWebSocket", "HarborCore"]),

@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import HarborCore
 
 // MARK: - PUT Request Protocol
 /// Protocol for PUT requests that update existing resources.

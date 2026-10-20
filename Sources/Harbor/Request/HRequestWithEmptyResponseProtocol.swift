@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import HarborCore
 
 // MARK: - Request with Empty Result Protocol
 /// A request whose response body is not decoded: it reports success or an `HRequestError`.

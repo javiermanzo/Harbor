@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import HarborCore
 
 // MARK: - GET Request Protocol
 /// A GET request: decoded into `Model`, cacheable, and streamable from cache and network.

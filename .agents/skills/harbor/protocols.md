@@ -128,8 +128,12 @@ func handle(_ response: HResponse) {
 
 Requirements, defaults and methods (`request()`, `requestResult()`, `notify()`): `examples/jrpc.md`.
 
+## `HWebSocketRequestProtocol` (HarborWebSocket)
+
+Requirements, defaults, the `HWebSocket` actor (`messages`, `send`, `ping()`, `close(code:reason:)`, `state`), `HWebSocketMessage`, `HWebSocketState` and `HWebSocketError`: `examples/websocket.md`.
+
 ## Related files
 
 - `Sources/Harbor/Request/`: one file per protocol (`HRequestBaseRequestProtocol.swift`, `HRequestWithResultProtocol.swift`, `HRequestWithEmptyResponseProtocol.swift`, `HRequestWithBodyProtocol.swift`, `HGetRequestProtocol.swift`, `HPostRequestProtocol.swift`, ...), plus `HRetryPolicy.swift`, `HRequestError.swift`, `HResponse.swift` and `HFormValue.swift`.
 - `Sources/Harbor/Cache/HGetRequestProtocol+Cache.swift`: `cache()`, `cachedETag()`, `clearCache()`.
-- `Sources/Harbor/Debug/HDebugRequestProtocol.swift`.
+- `Sources/HarborCore/Debug/HDebugRequestProtocol.swift`.

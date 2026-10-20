@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import HarborCore
 
 /// The outcome of a request whose body is not decoded (POST, PUT, PATCH, DELETE).
 public enum HResponse: Sendable {

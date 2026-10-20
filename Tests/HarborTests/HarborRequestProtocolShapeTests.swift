@@ -8,6 +8,7 @@
 
 import XCTest
 @testable import Harbor
+@testable import HarborCore
 
 /// A plain `Sendable` struct (no `@unchecked`) with computed, get-only body and headers.
 /// Compiling this type is the regression test: with `{ get set }` requirements it did not conform.

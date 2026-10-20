@@ -1,0 +1,370 @@
+//
+//  HURLBuilder+Request.swift
+//  Harbor
+//
+//  Created by Javier Manzo on 08/07/2025.
+//
+
+import Foundation
+import HarborCore
+
+// MARK: - Request Building
+
+extension HURLBuilder {
+    /// A request ready to be sent.
+    ///
+    /// When `bodyFileURL` is set, the multipart body was streamed to that temporary file
+    /// instead of being held in memory: send it with `URLSession.upload(for:fromFile:)` and
+    /// call `removeBodyFile()` once the attempt is over (success, failure or cancellation).
+    struct HPreparedRequest: Sendable {
+        /// The request. Its `httpBody` is `nil` when `bodyFileURL` is set.
+        var urlRequest: URLRequest
+        /// Temporary file holding the request body, for multipart bodies with file parts.
+        let bodyFileURL: URL?
+        /// Whether Harbor injected `If-None-Match` / `If-Modified-Since` from its custom cache.
+        /// Only then may a `304` without a cached body be answered by refetching without them;
+        /// validators set by the caller belong to the caller.
+        var injectedConditionalValidators = false
+
+        /// Deletes the temporary body file, if any.
+        func removeBodyFile() {
+            guard let bodyFileURL else { return }
+            try? FileManager.default.removeItem(at: bodyFileURL)
+        }
+    }
+
+    /// Builds a complete URLRequest from a Harbor request protocol, with the whole body in
+    /// memory (`httpBody`), including multipart file parts.
+    ///
+    /// A `Content-Type` set in the default or request headers replaces the one Harbor sets for
+    /// `rawBody` and `bodyParameters`, but never the `multipart/form-data` one (it carries the
+    /// generated boundary).
+    ///
+    /// For GET requests using the custom cache, the stored validators are injected as
+    /// `If-None-Match` / `If-Modified-Since` so the server can answer `304 Not Modified`,
+    /// unless the request already carries either conditional header.
+    /// - Parameters:
+    ///   - request: The request conforming to HRequestBaseRequestProtocol.
+    ///   - authHeader: The authorization header fetched from the auth provider, applied on
+    ///     top of the request's own headers. Injecting it here keeps the caller's request
+    ///     object untouched, which matters when the conformer is a reference type.
+    /// - Returns: A configured URLRequest.
+    /// - Throws: `HRequestError.malformedRequest` when the URL (including a scheme other than
+    ///   `http`/`https`) or the body cannot be built.
+    static func buildUrlRequest<P: HRequestBaseRequestProtocol>(request: P, authHeader: HAuthorizationHeader? = nil) async throws -> URLRequest {
+        try await build(request: request, authHeader: authHeader, streamFileParts: false).urlRequest
+    }
+
+    /// Builds the request to send over the network. Identical to `buildUrlRequest` except that
+    /// a multipart body containing file parts is streamed to a temporary file (file contents
+    /// are copied in chunks, never loaded whole) and returned as `bodyFileURL`; text-only
+    /// bodies stay in memory.
+    /// - Parameters:
+    ///   - request: The request conforming to HRequestBaseRequestProtocol.
+    ///   - authHeader: The authorization header fetched from the auth provider.
+    /// - Returns: The prepared request.
+    /// - Throws: `HRequestError.malformedRequest` when the URL or the body cannot be built.
+    static func prepareRequest<P: HRequestBaseRequestProtocol>(request: P, authHeader: HAuthorizationHeader? = nil) async throws -> HPreparedRequest {
+        try await build(request: request, authHeader: authHeader, streamFileParts: true)
+    }
+
+    /// Shared implementation of `buildUrlRequest` and `prepareRequest`.
+    /// - Parameters:
+    ///   - request: The request conforming to HRequestBaseRequestProtocol.
+    ///   - authHeader: The authorization header fetched from the auth provider.
+    ///   - streamFileParts: Whether a multipart body with file parts is written to a temporary file.
+    private static func build<P: HRequestBaseRequestProtocol>(request: P, authHeader: HAuthorizationHeader?, streamFileParts: Bool) async throws -> HPreparedRequest {
+        let url: URL
+
+        switch request.httpMethod {
+        case .get:
+            guard let getRequest = request as? (any HGetRequestProtocol) else {
+                throw HRequestError.malformedRequest(reason: "GET request does not conform to HGetRequestProtocol")
+            }
+            url = try compositeURL(url: getRequest.url, pathParameters: getRequest.pathParameters, queryParameters: getRequest.queryParameters)
+        case .post, .put, .patch, .delete:
+            url = try compositeURL(url: request.url, pathParameters: request.pathParameters)
+        }
+
+        var urlRequest = URLRequest(url: url)
+        var bodyFileURL: URL?
+        var injectedConditionalValidators = false
+        var multipartContentType: String?
+
+        urlRequest.httpMethod = request.httpMethod.rawValue
+        // Set per request so it holds for custom sessions and alternating timeouts never require a new session.
+        let config = await HRequestManagerActor.run {
+            (timeoutInterval: HConfig.shared.timeoutInterval,
+             httpShouldHandleCookies: HConfig.shared.httpShouldHandleCookies,
+             defaultHeaders: HConfig.shared.defaultHeaderParameters)
+        }
+        urlRequest.timeoutInterval = request.timeoutInterval ?? config.timeoutInterval
+        urlRequest.httpShouldHandleCookies = config.httpShouldHandleCookies
+
+        if let request = request as? HRequestWithBodyProtocol {
+            if let rawBody = request.rawBody {
+                urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                urlRequest.httpBody = rawBody
+            } else if let multipartBody = request.multipartBody {
+                let boundary = "Boundary-\(UUID().uuidString)"
+                multipartContentType = "multipart/form-data; boundary=\(boundary)"
+                urlRequest.setValue(multipartContentType, forHTTPHeaderField: "Content-Type")
+                if streamFileParts, Self.hasFileParts(multipartBody) {
+                    bodyFileURL = try writeMultipartBody(fields: multipartBody, boundary: boundary)
+                } else {
+                    urlRequest.httpBody = try multipartDataBody(fields: multipartBody, boundary: boundary)
+                }
+            } else if let parameters = request.bodyParameters {
+                urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                urlRequest.httpBody = try jsonBody(params: parameters)
+            }
+        }
+
+        // `setValue` matches header names case-insensitively, so a `content-type` header
+        // replaces the `Content-Type` set above instead of being sent alongside it.
+        for (key, value) in config.defaultHeaders ?? [:] {
+            urlRequest.setValue(value, forHTTPHeaderField: key)
+        }
+
+        for (key, value) in request.headerParameters ?? [:] {
+            urlRequest.setValue(value, forHTTPHeaderField: key)
+        }
+
+        // A multipart body is only parseable with the boundary Harbor generated for it, so a
+        // `Content-Type` from the default or request headers (e.g. `application/json`) never wins.
+        if let multipartContentType {
+            urlRequest.setValue(multipartContentType, forHTTPHeaderField: "Content-Type")
+        }
+
+        if let authHeader {
+            urlRequest.setValue(authHeader.value, forHTTPHeaderField: authHeader.key)
+            // Redact the provider's header in debug output even under a non-standard name.
+            HRedactionPolicy.registerAuthHeaderKey(authHeader.key)
+        }
+
+        // Inject the stored validators as conditional headers for GET requests using the custom
+        // cache. A conditional header set by the caller is kept as-is: the caller owns the
+        // revalidation, so neither validator is injected.
+        let hasCallerValidators = urlRequest.value(forHTTPHeaderField: "If-None-Match") != nil
+            || urlRequest.value(forHTTPHeaderField: "If-Modified-Since") != nil
+        if request.httpMethod == .get, !hasCallerValidators, let getRequest = request as? any HGetRequestProtocol {
+            let cacheType: HCache.CacheType
+            if let requestCacheType = getRequest.cacheType {
+                cacheType = requestCacheType
+            } else {
+                cacheType = await HRESTConfig.shared.cacheType
+            }
+
+            if case .custom = cacheType {
+                // Same key as the cache reads and writes: namespaced by the credentials sent (the
+                // provider's header of a request that needs auth and any sensitive header).
+                let cacheKey = HCache.Manager.cacheKey(for: url, credentialHeaders: urlRequest.allHTTPHeaderFields, authHeader: request.needsAuth ? authHeader : nil)
+                let validators = await HCache.Manager.shared.getValidators(forKey: cacheKey, requestHeaders: urlRequest.allHTTPHeaderFields)
+                if let etag = validators.etag {
+                    urlRequest.setValue(etag, forHTTPHeaderField: "If-None-Match")
+                    injectedConditionalValidators = true
+                }
+                if let lastModified = validators.lastModified {
+                    urlRequest.setValue(lastModified, forHTTPHeaderField: "If-Modified-Since")
+                    injectedConditionalValidators = true
+                }
+            }
+        }
+
+        return HPreparedRequest(urlRequest: urlRequest, bodyFileURL: bodyFileURL, injectedConditionalValidators: injectedConditionalValidators)
+    }
+
+    /// Encodes body parameters as a JSON object.
+    /// - Parameter params: The body parameters.
+    /// - Returns: The encoded body data.
+    /// - Throws: `HRequestError.malformedRequest` when the parameters cannot be encoded as JSON.
+    static func jsonBody(params: [String: Any]) throws -> Data {
+        // `JSONSerialization` raises an uncatchable Objective-C exception for values JSON
+        // cannot represent (Date, Data, NaN/infinite numbers, custom types): validate first.
+        guard JSONSerialization.isValidJSONObject(params) else {
+            let invalidKeys = params.keys.filter { !JSONSerialization.isValidJSONObject(["value": params[$0]!]) }.sorted()
+            throw HRequestError.malformedRequest(reason: "Request body cannot be serialized as JSON: unsupported value for \(invalidKeys.map { "\"\($0)\"" }.joined(separator: ", "))")
+        }
+        do {
+            return try JSONSerialization.data(withJSONObject: params)
+        } catch {
+            throw HRequestError.malformedRequest(reason: "Request body cannot be serialized as JSON: \(error.localizedDescription)")
+        }
+    }
+
+    /// Size of the chunks file parts are copied in.
+    private static let fileChunkSize = 64 * 1024
+
+    /// Whether the multipart fields contain at least one file part.
+    static func hasFileParts(_ fields: [String: HFormValue]) -> Bool {
+        fields.values.contains {
+            if case .file = $0 { return true }
+            return false
+        }
+    }
+
+    /// Builds a multipart body from typed form values, in memory. Text fields are encoded as
+    /// regular parts; file fields carry the file contents with a `filename` in the
+    /// `Content-Disposition` and an optional `Content-Type`.
+    /// - Parameters:
+    ///   - fields: Dictionary of form fields.
+    ///   - boundary: The multipart boundary string.
+    /// - Returns: The encoded multipart body.
+    /// - Throws: `HRequestError.malformedRequest` when a field is invalid or a file cannot be read.
+    static func multipartDataBody(fields: [String: HFormValue], boundary: String) throws -> Data {
+        var body = Data()
+        try encodeMultipartBody(fields: fields, boundary: boundary) { body.append($0) }
+        return body
+    }
+
+    /// Streams a multipart body to a new temporary file. File parts are copied in chunks, so
+    /// memory use does not grow with the file sizes. The file is removed when encoding fails.
+    /// - Parameters:
+    ///   - fields: Dictionary of form fields.
+    ///   - boundary: The multipart boundary string.
+    /// - Returns: The URL of the temporary file; the caller owns it and must delete it.
+    /// - Throws: `HRequestError.malformedRequest` when a field is invalid, a file cannot be
+    ///   read, or the temporary file cannot be written.
+    static func writeMultipartBody(fields: [String: HFormValue], boundary: String) throws -> URL {
+        let fileURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("harbor-multipart-\(UUID().uuidString).tmp")
+        guard FileManager.default.createFile(atPath: fileURL.path, contents: nil) else {
+            throw HRequestError.malformedRequest(reason: "Multipart body file cannot be created")
+        }
+
+        do {
+            let handle = try FileHandle(forWritingTo: fileURL)
+            defer { try? handle.close() }
+            try encodeMultipartBody(fields: fields, boundary: boundary) { data in
+                do {
+                    try handle.write(contentsOf: data)
+                } catch {
+                    throw HRequestError.malformedRequest(reason: "Multipart body file cannot be written: \(error.localizedDescription)")
+                }
+            }
+            return fileURL
+        } catch {
+            try? FileManager.default.removeItem(at: fileURL)
+            if let hError = error as? HRequestError { throw hError }
+            throw HRequestError.malformedRequest(reason: "Multipart body file cannot be written: \(error.localizedDescription)")
+        }
+    }
+
+    /// Encodes a multipart body, handing it to `write` piece by piece. File parts are read
+    /// in chunks of `fileChunkSize` bytes.
+    /// - Parameters:
+    ///   - fields: Dictionary of form fields.
+    ///   - boundary: The multipart boundary string.
+    ///   - write: Receives each encoded piece in order.
+    /// - Throws: `HRequestError.malformedRequest` when a field is invalid or a file cannot be
+    ///   read, or the error thrown by `write`.
+    private static func encodeMultipartBody(fields: [String: HFormValue], boundary: String, write: (Data) throws -> Void) throws {
+        for (name, field) in fields.sorted(by: { $0.key < $1.key }) {
+            switch field {
+            case .text(let value):
+                try write(Data(try convertFormField(named: name, value: value, using: boundary).utf8))
+            case .file(let url, let mimeType, let fileName):
+                let resolvedFileName = fileName ?? url.lastPathComponent
+                try validateFormFieldName(name)
+                try validateFormFieldName(resolvedFileName)
+                if let mimeType {
+                    try validateHeaderComponent(mimeType, of: "mime type for field \"\(name)\"")
+                }
+
+                let fileHandle: FileHandle
+                do {
+                    fileHandle = try FileHandle(forReadingFrom: url)
+                } catch {
+                    throw HRequestError.malformedRequest(reason: "Multipart file for field \"\(name)\" cannot be read: \(error.localizedDescription)")
+                }
+                defer { try? fileHandle.close() }
+
+                var part = "--\(boundary)\r\n"
+                part += "Content-Disposition: form-data; name=\"\(name)\"; filename=\"\(resolvedFileName)\"\r\n"
+                if let mimeType {
+                    part += "Content-Type: \(mimeType)\r\n"
+                }
+                part += "\r\n"
+                try write(Data(part.utf8))
+                try copyFileContents(of: fileHandle, fieldName: name, boundary: boundary, write: write)
+                try write(Data("\r\n".utf8))
+            }
+        }
+
+        try write(Data("--\(boundary)--".utf8))
+    }
+
+    /// Copies a file part's contents in chunks, rejecting files that contain the boundary
+    /// delimiter (it would corrupt the multipart framing on the receiver). The UUID-based
+    /// boundary makes accidental collision essentially impossible; this is defense against a
+    /// malicious or unlucky payload. The search window overlaps consecutive chunks so a
+    /// delimiter split across chunks is still found.
+    /// - Parameters:
+    ///   - fileHandle: Handle reading the file.
+    ///   - fieldName: The form field name, for error messages.
+    ///   - boundary: The multipart boundary string.
+    ///   - write: Receives each chunk.
+    private static func copyFileContents(of fileHandle: FileHandle, fieldName: String, boundary: String, write: (Data) throws -> Void) throws {
+        let boundaryDelimiter = Data("--\(boundary)".utf8)
+        var carry = Data()
+        while true {
+            let chunk: Data
+            do {
+                guard let read = try fileHandle.read(upToCount: fileChunkSize), !read.isEmpty else { break }
+                chunk = read
+            } catch {
+                throw HRequestError.malformedRequest(reason: "Multipart file for field \"\(fieldName)\" cannot be read: \(error.localizedDescription)")
+            }
+
+            let window = carry + chunk
+            if window.range(of: boundaryDelimiter) != nil {
+                throw HRequestError.malformedRequest(reason: "Multipart file for field \"\(fieldName)\" contains the boundary string")
+            }
+            carry = Data(window.suffix(boundaryDelimiter.count - 1))
+            try write(chunk)
+        }
+    }
+
+    /// Converts a form field to its multipart representation.
+    /// - Parameters:
+    ///   - name: The field name.
+    ///   - value: The field value.
+    ///   - boundary: The multipart boundary string.
+    /// - Returns: The formatted field string.
+    /// - Throws: `HRequestError.malformedRequest` when the name or value contains characters
+    ///   that would break the multipart framing (CR/LF, a double quote in the name, or the
+    ///   boundary string itself in the value).
+    static func convertFormField(named name: String, value: String, using boundary: String) throws -> String {
+        try validateFormFieldName(name)
+        try validateHeaderComponent(value, of: "value for field \"\(name)\"")
+        guard !value.contains(boundary) else {
+            throw HRequestError.malformedRequest(reason: "Multipart value for field \"\(name)\" contains the boundary string")
+        }
+
+        var fieldString = "--\(boundary)\r\n"
+        fieldString += "Content-Disposition: form-data; name=\"\(name)\"\r\n"
+        fieldString += "\r\n"
+        fieldString += "\(value)\r\n"
+        return fieldString
+    }
+
+    /// Validates a multipart field or file name: no CR/LF (header injection) and no double
+    /// quote (it would terminate the quoted `name` in `Content-Disposition`).
+    private static func validateFormFieldName(_ name: String) throws {
+        try validateHeaderComponent(name, of: "field name")
+        guard !name.contains("\"") else {
+            throw HRequestError.malformedRequest(reason: "Multipart field name \"\(name)\" contains a double quote")
+        }
+    }
+
+    /// Validates that a value embedded in a multipart header does not contain CR, LF, or NUL.
+    /// CR/LF would let a malicious value start a new header (header injection); NUL is rejected
+    /// as defense in depth because some intermediaries treat it as a terminator. Scalars are
+    /// compared because a CRLF pair is a single `Character`.
+    private static func validateHeaderComponent(_ value: String, of component: String) throws {
+        let scalars = value.unicodeScalars
+        guard !scalars.contains("\r"), !scalars.contains("\n"), !scalars.contains("\0") else {
+            throw HRequestError.malformedRequest(reason: "Multipart \(component) contains an invalid character")
+        }
+    }
+}

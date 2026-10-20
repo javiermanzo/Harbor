@@ -10,6 +10,7 @@
 import XCTest
 import LogBird
 @testable import Harbor
+@testable import HarborCore
 
 /// POST request with debug logging and arbitrary body parameters.
 private struct DebugPostRequest: HPostRequestProtocol, HDebugRequestProtocol, @unchecked Sendable {
@@ -31,6 +32,22 @@ private struct NotJSONEncodable {
 }
 
 final class HarborLogRedactionTests: XCTestCase {
+
+    func testPrintableBodyRedactsTruncatesAndDescribesWhatItCannotPrint() {
+        let policy = HRedactionPolicy(isEnabled: true)
+
+        // JSON secrets are redacted
+        XCTAssertFalse(policy.printableBody(Data(#"{"access_token":"abc123","ok":true}"#.utf8)).contains("abc123"))
+        // Binary payloads are described by their size
+        XCTAssertEqual(policy.printableBody(Data([0xFF, 0xFE, 0xFD])), "<binary 3 bytes>")
+        // Long bodies are cut with a marker
+        let long = policy.printableBody(Data(String(repeating: "a", count: 20_000).utf8))
+        XCTAssertTrue(long.hasSuffix("… <truncated>"))
+        XCTAssertLessThan(long.count, 17_000)
+        // With sensitive logging on, nothing is hidden
+        XCTAssertTrue(HRedactionPolicy(isEnabled: false).printableBody(Data("tok-1".utf8)).contains("tok-1"))
+    }
+
 
     override func setUp() async throws {
         await Harbor.setLogSensitiveValues(false)

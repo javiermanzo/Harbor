@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import HarborCore
 
 // MARK: - Base Protocol
 /// The requirements shared by every REST request. Conform to one of the method protocols

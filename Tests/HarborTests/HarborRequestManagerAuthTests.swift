@@ -7,6 +7,7 @@
 
 import XCTest
 @testable import Harbor
+@testable import HarborCore
 
 private final class MockAuthProvider: HAuthProviderProtocol {
     func getAuthorizationHeader() async -> HAuthorizationHeader? {
@@ -665,6 +666,17 @@ final class HarborRequestManagerAuthTests: XCTestCase {
             return
         }
         XCTAssertEqual(provider.headerCallCount, 1)
+    }
+
+    func testReplacingTheAuthProviderForgetsTheRememberedCredentialsAtOnce() async {
+        let request = MockGetRequest<MockModel>(needsAuth: true, url: "https://example.com/remembered")
+        HRequestManager.rememberAuthHeader(HAuthorizationHeader(key: "Authorization", value: "Bearer old"), for: request)
+        XCTAssertEqual(HRequestManager.rememberedAuthHeaders.count, 1)
+
+        Harbor.setAuthProvider(nil)
+
+        // Without any later request touching the map
+        XCTAssertTrue(HRequestManager.rememberedAuthHeaders.isEmpty)
     }
 
     /// Stores a body as an immediately expired, stale servable cache entry for the given request.

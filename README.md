@@ -8,7 +8,15 @@
 [![Platforms](https://img.shields.io/badge/Platforms-macOS_iOS-yellowgreen?style=flat-square)](https://img.shields.io/badge/Platforms-macOS_iOS-yellowgreen?style=flat-square) 
 [![Swift Package Manager](https://img.shields.io/badge/Swift_Package_Manager-compatible-orange?style=flat-square)](https://swiftpackageindex.com/javiermanzo/Harbor)
 
-Harbor is a protocol-oriented networking library for Swift, built for Swift 6 strict concurrency. It provides a multi-layer cache, authentication with token refresh, retry policies, mTLS, SSL pinning, log redaction, mocking and JSON-RPC 2.0 out of the box.
+Harbor is a protocol-oriented networking library for Swift, built for Swift 6 strict concurrency (`async/await` and a global actor, no callbacks). You declare each request as a `Sendable` struct and Harbor takes care of the rest.
+
+It ships as three products, so you only link what you use:
+
+| Product | What it gives you |
+| --- | --- |
+| `Harbor` | REST requests (GET, POST, PUT, PATCH, DELETE) with typed results that never throw, a multi-layer HTTP cache with ETags and offline fallback, multipart uploads, streaming, and mocks for tests |
+| `HarborJRPC` | JSON-RPC 2.0 calls, batches and notifications, built on top of `Harbor` |
+| `HarborWebSocket` | WebSocket connections (RFC 6455): an `AsyncSequence` of incoming messages, `send`, keep-alive pings and a handshake that goes through the same pipeline as REST. It does not depend on `Harbor` |
 
 ## Table of Contents
 - [Requirements](#requirements)
@@ -29,6 +37,7 @@ Harbor is a protocol-oriented networking library for Swift, built for Swift 6 st
   - [Multipart Requests](#multipart-requests)
   - [Streaming Requests](#streaming-requests)
   - [JSON-RPC](#json-rpc)
+  - [WebSocket](#websocket)
   - [Debugging & Logging](#debugging--logging)
   - [Mocking](#mocking)
 - [AI Assistant Skills](#ai-assistant-skills)
@@ -59,10 +68,13 @@ Then add the products you need to your target:
     name: "MyApp",
     dependencies: [
         .product(name: "Harbor", package: "Harbor"),
-        .product(name: "HarborJRPC", package: "Harbor") // Only if you need JSON-RPC support
+        .product(name: "HarborJRPC", package: "Harbor"),      // Only if you need JSON-RPC support
+        .product(name: "HarborWebSocket", package: "Harbor") // Only if you need WebSocket support
     ]
 )
 ```
+
+`HarborWebSocket` does not need `Harbor`: it carries the shared configuration (`Harbor.setAuthProvider(_:)`, SSL pinning, mTLS, logging, retry policy) and links none of the REST code (cache, mocks, request protocols). Add `Harbor` only if you also make REST requests.
 
 ---
 
@@ -203,7 +215,7 @@ task.cancel()
 
 ### Configuration
 
-Global configuration lives in the `Harbor` enum, isolated to `@HRequestManagerActor`, so every setter is called with `await`.
+Global configuration lives in the `Harbor` enum, isolated to `@HRequestManagerActor`, so every setter is called with `await`. Authentication, retry, SSL pinning, mTLS, the custom `URLSession` and logging are shared: configure them once and `Harbor`, `HarborJRPC` and `HarborWebSocket` all follow them.
 
 ```swift
 // Headers sent with every request
@@ -518,6 +530,58 @@ Other details:
 - Notifications set `isNotification = true` and are sent with `notify()`.
 - Integers beyond `Int` decode as `HJSONValue.decimal`. Their digits are exact on iOS 18 / macOS 15 and later (swift-foundation `JSONDecoder`); on earlier OS versions they may be rounded through `Double`. The same applies to big integers passed in `HJRPCParams`.
 
+### WebSocket
+
+The `HarborWebSocket` product opens WebSocket connections (RFC 6455) on `URLSessionWebSocketTask`. The handshake goes through Harbor's pipeline (auth provider with the `401` refresh flow, default headers, retry policy, mTLS, pinning, custom session, logging); the open connection is an actor that streams messages and sends yours.
+
+```swift
+import HarborWebSocket
+
+struct ChatSocket: HWebSocketRequestProtocol {
+    let url = "wss://chat.example.com/rooms/{room}"
+    let pathParameters: [String: String]?
+    let needsAuth = true
+    let subprotocols = ["chat.v2"]            // Sec-WebSocket-Protocol
+    let pingInterval: TimeInterval? = 30      // keep-alive; a missing pong closes the connection
+
+    init(room: String) {
+        pathParameters = ["room": room]
+    }
+}
+
+struct ChatEvent: Codable, Sendable {
+    let user: String
+    let text: String
+}
+
+func chat() async throws {
+    // connect() throws an HWebSocketError when the handshake fails.
+    let socket = try await ChatSocket(room: "swift").connect()
+
+    try await socket.send("hello")                                  // text
+    try await socket.send(Data([0x01]))                             // binary
+    try await socket.send(json: ["room": "swift"])                  // JSON as text
+
+    // Ends when the connection closes: normally after a close frame (see `state`),
+    // throwing when the connection is lost without one.
+    do {
+        for try await message in socket.messages {
+            let event = try message.decode(ChatEvent.self)
+            print(event.user, event.text)
+        }
+    } catch {
+        await socket.close()   // leaving the loop by throw/break does not close the connection
+        throw error
+    }
+}
+```
+
+Other details:
+- Every requirement except `url` has a default: `pathParameters`, `queryParameters`, `headerParameters`, `subprotocols`, `needsAuth`, `retryPolicy` (handshake only; connections are never reconnected automatically), `timeoutInterval` (handshake), `pingInterval` (or `HarborWebSocket.setDefaultPingInterval(_:)`) and `maximumMessageSize`.
+- `state` is `.open` or `.closed(code:reason:)`. Messages are read continuously and buffered until iterated; iterate `messages` from one place. Cancelling the iterating task closes the connection with `.goingAway`; leaving the loop any other way does not. Call `close()` when done: a connection stays open until either side closes it.
+- `HWebSocketError` is the WebSocket's own error set, split by the life of a connection. Opening: `.invalidURL(reason:)`, `.authProviderNeeded`, `.authNeeded`, `.handshakeFailed(statusCode:)`, `.noConnection`, `.timeout`, `.cannotFindHost`, `.cannotConnectToHost`, `.certificate`. Open: `.notConnected`, `.pingTimeout`, `.messageTooBig`, `.connectionFailed(URLError)` (a connection lost without a close frame, including the POSIX errors `URLSession` reports for a dropped socket), `.encodingFailed` and `.decodingFailed`. Any time: `.cancelled`, `.unknown`. `send`, `ping()` and `decode(_:)` use typed throws.
+- `HMock` does not apply to WebSocket connections; test against a loopback server (see `.agents/skills/harbor/examples/websocket.md`).
+
 ### Debugging & Logging
 
 Harbor logs through [LogBird](https://github.com/javiermanzo/LogBird). Logging is enabled by default in DEBUG builds and disabled in release; `setLoggingEnabled(true)` turns it on in release builds too. Security warnings (such as a custom session bypassing SSL pinning) are always logged.
@@ -539,7 +603,7 @@ func configureLogging() async {
 }
 ```
 
-Every logged value goes through one redaction policy: request and response headers, query values, path/query/body parameters, cURL commands, response bodies and `HRequestError.api` descriptions. Sensitive keys (`authorization`, `cookie`, `set-cookie`, `x-api-key`, `password`, `token`, `secret`, the auth provider's header, plus the keys configured with `updateLogSensitiveKeys(_:)`) are printed as `<redacted>`. Matching is case-insensitive and ignores separators. `await Harbor.setLogSensitiveValues(true)` disables redaction (for local debugging only).
+Every logged value goes through one redaction policy: request and response headers, query values, path/query/body parameters, cURL commands, response bodies and `HRequestError.api` descriptions. Sensitive keys (`authorization`, `cookie`, `set-cookie`, `x-api-key`, `password`, `token`, `secret`, `sec-websocket-protocol`, the auth provider's header, plus the keys configured with `updateLogSensitiveKeys(_:)`) are printed as `<redacted>`. Matching is case-insensitive and ignores separators. `await Harbor.setLogSensitiveValues(true)` disables redaction (for local debugging only).
 
 The cURL command only includes cookies (redacted by default) when the session sends them: with Harbor's own sessions that is when `Harbor.setHTTPShouldHandleCookies(true)` is on, reading `HTTPCookieStorage.shared`; with a custom session, according to its configuration.
 
@@ -588,7 +652,7 @@ func registerMocks() async {
 If you use an AI coding assistant, Harbor ships documentation written for it:
 
 - [**AGENTS.md**](AGENTS.md): instructions for working on this repository (design rules, code organization, testing, CI).
-- [**.agents/skills/harbor/SKILL.md**](.agents/skills/harbor/SKILL.md): the skill for writing code with Harbor, with deep dives on request protocols, caching, security, architecture and testing, and copy-ready examples.
+- [**.agents/skills/harbor/SKILL.md**](.agents/skills/harbor/SKILL.md): the skill for writing code with Harbor, with deep dives on request protocols, caching, security, architecture and testing, and copy-ready examples (REST, JSON-RPC, WebSocket).
 - [**.agents/skills/harbor-migration-v3-to-v4/SKILL.md**](.agents/skills/harbor-migration-v3-to-v4/SKILL.md): the v3 → v4 migration guide, listing every breaking change and how to refactor it.
 
 ---

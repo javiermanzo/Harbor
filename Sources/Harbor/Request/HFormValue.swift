@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import HarborCore
 
 /// A typed value for a multipart form field.
 public enum HFormValue: Sendable {

@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import HarborCore
 
 /// Namespace for caching-related types and functionality.
 public enum HCache {}
@@ -602,30 +603,10 @@ extension HCache {
             return Int(unquoted)
         }
 
-        /// HTTP-date formatters for the three formats allowed by RFC 9110 (IMF-fixdate, RFC 850, asctime),
-        /// one instance per format so the date format is never mutated between parses.
-        private static let httpDateFormatters: [DateFormatter] = {
-            let formats = [
-                "EEE, dd MMM yyyy HH:mm:ss zzz",
-                "EEEE, dd-MMM-yy HH:mm:ss zzz",
-                "EEE MMM d HH:mm:ss yyyy"
-            ]
-            return formats.map { format in
-                let formatter = DateFormatter()
-                formatter.locale = Locale(identifier: "en_US_POSIX")
-                formatter.timeZone = TimeZone(secondsFromGMT: 0)
-                formatter.dateFormat = format
-                return formatter
-            }
-        }()
-
         /// Parses an HTTP-date header value (`Expires`, `Last-Modified`, `Date`).
         /// - Parameter string: The header value, in any of the three RFC 9110 date formats.
         static func parseHTTPDate(_ string: String) -> Date? {
-            for formatter in httpDateFormatters {
-                if let date = formatter.date(from: string) { return date }
-            }
-            return nil
+            HHTTPDate.parse(string)
         }
 
         /// Resolves the values of the header fields listed in a `Vary` header from the given
@@ -873,17 +854,17 @@ extension HCache {
 extension HCache.Manager {
     /// Retrieves cached data decoded with Harbor's shared `JSONDecoder` (see `getCachedData(forKey:config:requestHeaders:decode:)`).
     func getCachedData<T: HModel>(forKey key: String, type: T.Type, config: HCache.Configuration, requestHeaders: [String: String]? = nil) async -> T? {
-        await getCachedData(forKey: key, config: config, requestHeaders: requestHeaders) { try HConfig.jsonDecoder.decode(T.self, from: $0) }
+        await getCachedData(forKey: key, config: config, requestHeaders: requestHeaders) { try HRESTConfig.jsonDecoder.decode(T.self, from: $0) }
     }
 
     /// Retrieves a revalidatable body decoded with Harbor's shared `JSONDecoder` (see `getRevalidatableCachedData(forKey:requestHeaders:decode:)`).
     func getRevalidatableCachedData<T: HModel>(forKey key: String, type: T.Type, requestHeaders: [String: String]? = nil) async -> T? {
-        await getRevalidatableCachedData(forKey: key, requestHeaders: requestHeaders) { try HConfig.jsonDecoder.decode(T.self, from: $0) }
+        await getRevalidatableCachedData(forKey: key, requestHeaders: requestHeaders) { try HRESTConfig.jsonDecoder.decode(T.self, from: $0) }
     }
 
     /// Retrieves a `stale-if-error` body decoded with Harbor's shared `JSONDecoder` (see `getStaleOnErrorData(forKey:requestHeaders:decode:)`).
     func getStaleOnErrorData<T: HModel>(forKey key: String, type: T.Type, requestHeaders: [String: String]? = nil) async -> T? {
-        await getStaleOnErrorData(forKey: key, requestHeaders: requestHeaders) { try HConfig.jsonDecoder.decode(T.self, from: $0) }
+        await getStaleOnErrorData(forKey: key, requestHeaders: requestHeaders) { try HRESTConfig.jsonDecoder.decode(T.self, from: $0) }
     }
 }
 

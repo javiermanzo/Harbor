@@ -7,6 +7,7 @@
 
 import XCTest
 @testable import Harbor
+@testable import HarborCore
 
 /// Records whether a slow decode is in progress, shared between the decoding request and the test.
 private final class DecodeProbe: @unchecked Sendable {

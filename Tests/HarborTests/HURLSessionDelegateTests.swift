@@ -389,6 +389,23 @@ final class HURLSessionDelegateTests: XCTestCase {
         }
     }
 
+    func testCrossOriginRedirectStripsTheWebSocketSubprotocolButSameOriginKeepsIt() {
+        // Given a handshake that authenticates by offering a token as the subprotocol
+        let origin = URL(string: "wss://api.example.com/socket")
+        var proposed = makeRedirectRequest(to: "wss://other.example.com/socket")
+        proposed.setValue("SECRET-TOKEN", forHTTPHeaderField: "Sec-WebSocket-Protocol")
+
+        // When
+        let crossOrigin = HURLSessionDelegate.redirectRequest(proposed, originURL: origin, authHeaderKey: nil)
+        var sameOriginProposal = makeRedirectRequest(to: "wss://api.example.com/other")
+        sameOriginProposal.setValue("SECRET-TOKEN", forHTTPHeaderField: "Sec-WebSocket-Protocol")
+        let sameOrigin = HURLSessionDelegate.redirectRequest(sameOriginProposal, originURL: origin, authHeaderKey: nil)
+
+        // Then
+        XCTAssertNil(crossOrigin.value(forHTTPHeaderField: "Sec-WebSocket-Protocol"))
+        XCTAssertEqual(sameOrigin.value(forHTTPHeaderField: "Sec-WebSocket-Protocol"), "SECRET-TOKEN")
+    }
+
     // MARK: - Helpers
 
     /// Answers a challenge through the delegate's forwarding entry point.

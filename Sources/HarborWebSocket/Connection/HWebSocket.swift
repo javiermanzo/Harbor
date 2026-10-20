@@ -156,6 +156,9 @@ public extension HWebSocket {
         case .failed(let error):
             throw mapped(error)
         case .timedOut:
+            // The server may have closed the connection while the ping was pending: it is closed
+            // for the reason the close frame says, not because of a missing pong.
+            guard case .open = state else { throw .notConnected }
             await pingTimedOut()
             throw .pingTimeout
         }
@@ -274,7 +277,10 @@ extension HWebSocket {
         do {
             try await task.send(message.taskMessage)
         } catch {
-            throw mapped(error)
+            let failure = mapped(error)
+            // A send racing a local `close()` is cancelled by the task, but the caller was not.
+            if failure == .cancelled, !Task.isCancelled, case .closed = state { throw .notConnected }
+            throw failure
         }
         await logContext?.logSent(message)
     }

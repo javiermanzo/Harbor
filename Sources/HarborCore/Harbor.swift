@@ -25,7 +25,8 @@ public extension Harbor {
     /// never reads entries stored for another one. Replacing the provider does not delete
     /// those entries: call `Harbor.clearAllCache()` on logout to remove a previous user's
     /// data from memory and disk. It does forget the credentials remembered for offline cache
-    /// lookups, so the new provider is consulted again.
+    /// lookups, so the new provider is consulted again. Already open `HWebSocket` connections
+    /// are not affected: close them on logout.
     /// - Note: This is a method rather than a `get set` property to allow cross-actor mutation, as Swift forbids mutating actor-isolated static properties from outside the actor's context.
     /// - Parameter authProvider: The provider supplying authorization headers, or `nil` to remove it.
     static func setAuthProvider(_ authProvider: HAuthProviderProtocol?) {

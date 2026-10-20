@@ -85,7 +85,7 @@ func configureMTLS() async {
 
 ## Redirects
 
-When a redirect leaves the original origin (scheme, host or port; default ports made explicit), Harbor's delegate strips the auth provider's header key, `Authorization`, `Cookie`, `Proxy-Authorization`, `Set-Cookie` and `X-API-Key` from the new request. Same-origin redirects are followed unchanged.
+When a redirect leaves the original origin (scheme, host or port; default ports made explicit), Harbor's delegate strips the auth provider's header key, `Authorization`, `Cookie`, `Proxy-Authorization`, `Set-Cookie`, `X-API-Key` and `Sec-WebSocket-Protocol` (WebSocket clients often authenticate by offering a token as the subprotocol) from the new request. Same-origin redirects are followed unchanged. WebSocket handshakes go through the same delegate; their debug logs redact subprotocols like any sensitive header.
 
 ## Custom URLSession
 

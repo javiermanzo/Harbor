@@ -43,7 +43,8 @@ public final class HURLSessionDelegate: NSObject, Sendable {
 
     /// Header names (lowercased) always removed from a redirect that leaves the original origin,
     /// on top of `HConfig.sensitiveHeaders` and the auth provider's header key.
-    private static let crossOriginStrippedHeaders: Set<String> = ["authorization", "cookie", "proxy-authorization"]
+    /// `sec-websocket-protocol` is included because WebSocket clients commonly offer a token as the subprotocol.
+    private static let crossOriginStrippedHeaders: Set<String> = ["authorization", "cookie", "proxy-authorization", "sec-websocket-protocol"]
 
     /// Client identity configuration for mutual TLS.
     private let mTLSIdentity: HMTLSIdentity?
@@ -177,8 +178,8 @@ extension HURLSessionDelegate {
 
     /// Returns the request to follow for a redirect. When the redirect target has a different
     /// origin (scheme, host or port) than `originURL`, credentials are removed: the auth
-    /// provider's header key, `Authorization`, `Cookie`, `Proxy-Authorization` and every
-    /// header in `HConfig.sensitiveHeaders`. Same-origin redirects are followed unchanged.
+    /// provider's header key, `Authorization`, `Cookie`, `Proxy-Authorization`,
+    /// `Sec-WebSocket-Protocol` and every header in `HConfig.sensitiveHeaders`. Same-origin redirects are followed unchanged.
     /// - Parameters:
     ///   - request: The request `URLSession` proposes for the new location.
     ///   - originURL: The URL the credentials were intended for.

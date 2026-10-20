@@ -502,6 +502,53 @@ final class HarborWebSocketTests: XCTestCase {
         XCTAssertEqual(state, .closed(code: .policyViolation, reason: Data("banned".utf8)))
     }
 
+    func testManualPingReportsNotConnectedWhenTheServerClosedWhileItWasPending() async throws {
+        // Given a server that never answers pings and closes cleanly as soon as one arrives
+        let server = try await startServer(autoReplyPing: false) { connection in
+            Task {
+                _ = await connection.waitForFrames(count: 1)
+                connection.close()
+            }
+        }
+        let socket = try await TestSocket(url: server.url(), pingInterval: 0.5).connect()
+
+        // When a manual ping outlives the close
+        let failure: HWebSocketError?
+        do throws(HWebSocketError) {
+            try await socket.ping()
+            failure = nil
+        } catch {
+            failure = error
+        }
+
+        // Then it does not claim a missing pong: the connection was closed by the server
+        XCTAssertEqual(failure, .notConnected)
+        guard case .closed(let code, _) = await socket.state else { return XCTFail("Expected a closed connection") }
+        XCTAssertEqual(code, .normalClosure)
+    }
+
+    func testSendRacingALocalCloseNeverReportsCancelled() async throws {
+        // Given
+        let server = try await startServer()
+        let socket = try await TestSocket(url: server.url()).connect()
+
+        // When many sends race a close that the caller itself requested
+        let errors = await withTaskGroup(of: HWebSocketError?.self) { group -> [HWebSocketError] in
+            for index in 0..<20 {
+                group.addTask {
+                    do throws(HWebSocketError) { try await socket.send("m\(index)"); return nil } catch { return error }
+                }
+            }
+            group.addTask { await socket.close(); return nil }
+            var collected: [HWebSocketError] = []
+            for await error in group { if let error { collected.append(error) } }
+            return collected
+        }
+
+        // Then the only failure a sender can see is that the connection is closed
+        XCTAssertTrue(errors.allSatisfy { $0 == .notConnected }, "\(errors)")
+    }
+
     func testNonFinitePingIntervalDisablesPings() async throws {
         // Given
         let server = try await startServer()

@@ -39,15 +39,14 @@ extension RequestsView {
                     do {
                         for try await message in socket.messages {
                             let text: String
-                            switch message {
-                            case .text(let value):
-                                if let payload = try? message.decode(EchoPayload.self) {
-                                    text = "Echoed payload #\(payload.id): \(payload.text)"
-                                } else {
-                                    text = "Received: \(value)"
+                            // `decode` works for text and binary messages alike.
+                            if let payload = try? message.decode(EchoPayload.self) {
+                                text = "Echoed payload #\(payload.id): \(payload.text)"
+                            } else {
+                                switch message {
+                                case .text(let value): text = "Received: \(value)"
+                                case .data(let data): text = "Received \(data.count) bytes"
                                 }
-                            case .data(let data):
-                                text = "Received \(data.count) bytes"
                             }
                             await MainActor.run {
                                 addResult(text)

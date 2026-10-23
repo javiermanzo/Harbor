@@ -7,6 +7,7 @@
 
 import Foundation
 import Harbor
+import HarborCore
 
 /// The reason a JSON-RPC call failed. Thrown by `request()`, `notify()` and `HarborJRPC.batch(_:)`,
 /// and returned in `HJRPCResponse.error` by `requestResult()`.
@@ -23,7 +24,8 @@ public enum HJRPCRequestError: Sendable {
     case urlNeeded
     /// Invalid HTTP response received.
     case invalidHttpResponse
-    /// `notify()` was called on a request whose `isNotification` is `false`.
+    /// `notify()` was called on a request whose `isNotification` is `false`, or `request()` /
+    /// `requestResult()` on one whose `isNotification` is `true`. Nothing was sent.
     case invalidRequest
     /// The server response is not a valid JSON-RPC response.
     case invalidResponse
@@ -31,7 +33,8 @@ public enum HJRPCRequestError: Sendable {
     case idMismatch(expected: HJRPCId?, actual: HJRPCId?)
     /// The request has `needsAuth` set but no provider was configured with `Harbor.setAuthProvider(_:)`.
     case authProviderNeeded
-    /// The server rejected the credentials (`401`) and they could not be refreshed.
+    /// The server answered `401` and the credentials could not be refreshed (or the request has
+    /// no `needsAuth`). A JSON-RPC error object in a `401` body is not decoded.
     case authNeeded
     /// Error occurred while encoding/decoding the model.
     case codable(modelName: String, error: Error)
@@ -54,6 +57,8 @@ public enum HJRPCRequestError: Sendable {
     /// An unexpected error that is not a `URLError`. Wraps the original error.
     case unknown(Error)
 }
+
+// MARK: - Mapping
 
 extension HJRPCRequestError {
     /// Maps an `HRequestError` to an `HJRPCRequestError`.
@@ -102,11 +107,18 @@ extension HJRPCRequestError: Error {}
 // MARK: - LocalizedError
 
 extension HJRPCRequestError: LocalizedError {
+    /// Maximum number of characters of the response body included in an `.api` description.
+    private static let bodyPreviewLimit = 500
+
     /// A human-readable description of the error.
     public var errorDescription: String? {
         switch self {
-        case .api(let statusCode, _):
-            return "The API returned an error with status code \(statusCode)."
+        case .api(let statusCode, let data):
+            let description = "The API returned an error with status code \(statusCode)."
+            guard !data.isEmpty else { return description }
+            // Redacted like `HRequestError.api` and debug logs: sensitive fields are masked
+            // before the preview is cut.
+            return description + " Body: \(HRedactionPolicy.current.bodyPreview(data, limit: Self.bodyPreviewLimit))"
         case .jrpcError(let error):
             return "JSON-RPC error \(error.code): \(error.message)"
         case .urlNeeded:
@@ -114,7 +126,7 @@ extension HJRPCRequestError: LocalizedError {
         case .invalidHttpResponse:
             return "The server returned an invalid HTTP response."
         case .invalidRequest:
-            return "notify() was called on a request whose isNotification is false."
+            return "The request's isNotification does not match the call: send notifications with notify() and other requests with request() or requestResult()."
         case .invalidResponse:
             return "The server response is not a valid JSON-RPC response."
         case .idMismatch(let expected, let actual):
@@ -126,7 +138,7 @@ extension HJRPCRequestError: LocalizedError {
         case .authNeeded:
             return "Authentication is required for this request."
         case .codable(let modelName, let error):
-            return "Failed to encode or decode the model \(modelName): \(error.localizedDescription)"
+            return "Failed to encode or decode the model \(modelName): \(String(describing: error))"
         case .noConnection:
             return "No internet connection available."
         case .malformedRequest(let reason):
@@ -145,6 +157,47 @@ extension HJRPCRequestError: LocalizedError {
             return "Network request failed (\(error.code.rawValue)): \(error.localizedDescription)"
         case .unknown(let error):
             return "Unexpected error: \(String(describing: error))"
+        }
+    }
+}
+
+// MARK: - Equatable
+
+extension HJRPCRequestError: Equatable {
+    /// Two errors are equal when they are the same case with equal payloads. Wrapped errors
+    /// that are not `Equatable` (`codable`, `unknown`) are compared by their type, bridged
+    /// domain and code, and description; `networkFailure` compares the `URLError` codes.
+    public static func == (lhs: HJRPCRequestError, rhs: HJRPCRequestError) -> Bool {
+        switch (lhs, rhs) {
+        case let (.api(lhsStatus, lhsData), .api(rhsStatus, rhsData)):
+            return lhsStatus == rhsStatus && lhsData == rhsData
+        case let (.jrpcError(lhsError), .jrpcError(rhsError)):
+            return lhsError == rhsError
+        case let (.idMismatch(lhsExpected, lhsActual), .idMismatch(rhsExpected, rhsActual)):
+            return lhsExpected == rhsExpected && lhsActual == rhsActual
+        case (.urlNeeded, .urlNeeded),
+             (.invalidHttpResponse, .invalidHttpResponse),
+             (.invalidRequest, .invalidRequest),
+             (.invalidResponse, .invalidResponse),
+             (.authProviderNeeded, .authProviderNeeded),
+             (.authNeeded, .authNeeded),
+             (.noConnection, .noConnection),
+             (.timeout, .timeout),
+             (.cannotFindHost, .cannotFindHost),
+             (.cannotConnectToHost, .cannotConnectToHost),
+             (.certificate, .certificate),
+             (.cancelled, .cancelled):
+            return true
+        case let (.codable(lhsModel, lhsError), .codable(rhsModel, rhsError)):
+            return lhsModel == rhsModel && HRequestError.isSameError(lhsError, rhsError)
+        case let (.malformedRequest(lhsReason), .malformedRequest(rhsReason)):
+            return lhsReason == rhsReason
+        case let (.networkFailure(lhsError), .networkFailure(rhsError)):
+            return lhsError.code == rhsError.code
+        case let (.unknown(lhsError), .unknown(rhsError)):
+            return HRequestError.isSameError(lhsError, rhsError)
+        default:
+            return false
         }
     }
 }

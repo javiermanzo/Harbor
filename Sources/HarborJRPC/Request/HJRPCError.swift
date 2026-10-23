@@ -9,7 +9,7 @@ import Foundation
 import Harbor
 
 /// Represents a JSON-RPC error returned by the server.
-public struct HJRPCError {
+public struct HJRPCError: Sendable {
     /// The error code as defined by the JSON-RPC specification.
     public let code: Int
     /// A human-readable error message.
@@ -45,9 +45,13 @@ public struct HJRPCError {
     }
 }
 
-// MARK: - HModel
+// MARK: - Codable
 
-extension HJRPCError: HModel {}
+extension HJRPCError: Codable {}
+
+// MARK: - Equatable
+
+extension HJRPCError: Equatable {}
 
 // MARK: - Standard Codes
 

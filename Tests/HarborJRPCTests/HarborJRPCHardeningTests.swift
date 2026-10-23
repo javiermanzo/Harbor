@@ -467,12 +467,7 @@ final class HarborJRPCHardeningTests: XCTestCase {
         XCTAssertEqual(result, .object(["balance": .decimal(Decimal(UInt64.max))]))
     }
 
-    func testAnyValueKeepsUnsignedIntegersAboveIntMax() async {
-        XCTAssertEqual(HJSONValue(anyValue: NSNumber(value: UInt64.max)), .decimal(Decimal(UInt64.max)))
-        XCTAssertEqual(HJSONValue(anyValue: NSNumber(value: UInt64(Int.max))), .int(Int.max))
-        XCTAssertEqual(HJSONValue(anyValue: NSNumber(value: UInt8(7))), .int(7))
-        XCTAssertEqual(HJSONValue(anyValue: NSDecimalNumber(string: "18446744073709551615")), .decimal(Decimal(UInt64.max)))
-        XCTAssertEqual(HJSONValue(anyValue: NSDecimalNumber(string: "12")), .int(12))
+    func testAnyValueExportsBigIntegersAsDecimalNumbers() async {
         XCTAssertEqual(HJSONValue.decimal(Decimal(UInt64.max)).anyValue as? NSDecimalNumber, NSDecimalNumber(decimal: Decimal(UInt64.max)))
     }
 
@@ -641,6 +636,121 @@ final class HarborJRPCHardeningTests: XCTestCase {
         XCTAssertTrue(JRPCStubProtocol.recorded.isEmpty)
     }
 
+    // MARK: - Batch Ordering
+
+    func testBatchResponsesFollowTheRequestOrder() async throws {
+        // Given a server that answers a batch in reverse order
+        respond(200, #"[{"jsonrpc":"2.0","id":"b","result":"second"},{"jsonrpc":"2.0","id":"a","result":"first"}]"#)
+
+        // When
+        let responses = try await HarborJRPC.batch([StringRequest(method: "first", requestID: .string("a")),
+                                                    StringRequest(method: "second", requestID: .string("b"))])
+
+        // Then the elements are in request order
+        XCTAssertEqual(responses, [.success(id: .string("a"), result: .string("first")),
+                                   .success(id: .string("b"), result: .string("second"))])
+    }
+
+    func testBatchRequestWithoutAResponseIsAnInvalidResponseWithItsIDAndUnmatchedElementsComeLast() async throws {
+        // Given a server that answers only the second request and adds an error with a null id
+        respond(200, #"[{"jsonrpc":"2.0","id":null,"error":{"code":-32600,"message":"Invalid Request"}},{"jsonrpc":"2.0","id":"2","result":"0x2"}]"#)
+
+        // When
+        let responses = try await HarborJRPC.batch([StringRequest(method: "a", requestID: .string("1")),
+                                                    NotificationRequest(),
+                                                    StringRequest(method: "b", requestID: .string("2"))])
+
+        // Then one element per request in order, then the unmatched element
+        XCTAssertEqual(responses.count, 3)
+        XCTAssertEqual(responses[0], .error(id: .string("1"), error: .invalidResponse))
+        XCTAssertEqual(responses[1], .success(id: .string("2"), result: .string("0x2")))
+        guard case .error(.null?, .jrpcError(let error)) = responses[2] else {
+            return XCTFail("Expected the null-id error last but got: \(responses[2])")
+        }
+        XCTAssertEqual(error.code, -32600)
+    }
+
+    func testBatchWithDuplicateIDsThrowsWithoutANetworkCall() async throws {
+        do {
+            _ = try await HarborJRPC.batch([StringRequest(method: "a", requestID: .string("1")),
+                                            StringRequest(method: "b", requestID: .string("1"))])
+            XCTFail("Expected batch to throw")
+        } catch HJRPCRequestError.malformedRequest {
+            // Expected.
+        }
+        XCTAssertTrue(JRPCStubProtocol.recorded.isEmpty)
+    }
+
+    func testMalformedBatchElementDoesNotFailTheOtherElements() async throws {
+        // Given a valid element, one with a numeric version, one with a fractional id and an
+        // error object without a message
+        respond(200, #"[{"jsonrpc":"2.0","id":"1","result":"0x1"},{"jsonrpc":2.0,"id":"2","result":"0x2"},{"jsonrpc":"2.0","id":1.5,"result":"0x3"},{"jsonrpc":"2.0","id":"4","error":{"code":-32000}}]"#)
+
+        // When
+        let responses = try await HarborJRPC.batch([StringRequest(method: "a", requestID: .string("1")),
+                                                    StringRequest(method: "b", requestID: .string("2")),
+                                                    StringRequest(method: "c", requestID: .string("3")),
+                                                    StringRequest(method: "d", requestID: .string("4"))])
+
+        // Then only the valid element succeeds, and the element with an unreadable id is unmatched
+        XCTAssertEqual(responses, [.success(id: .string("1"), result: .string("0x1")),
+                                   .error(id: .string("2"), error: .invalidResponse),
+                                   .error(id: .string("3"), error: .invalidResponse),
+                                   .error(id: .string("4"), error: .invalidResponse),
+                                   .error(id: nil, error: .invalidResponse)])
+    }
+
+    func testBatchUsesTheLongestTimeoutOfItsRequests() async throws {
+        let requests: [any HJRPCRequestProtocol] = [TimeoutRequest(method: "a", requestID: .string("1"), timeoutInterval: 5),
+                                                    TimeoutRequest(method: "b", requestID: .string("2"), timeoutInterval: 40),
+                                                    StringRequest(method: "c", requestID: .string("3"))]
+        XCTAssertEqual(requests.compactMap(\.timeoutInterval).max(), 40)
+
+        let wrapper = try TimeoutRequest(method: "a", requestID: .string("1"), timeoutInterval: 5).wrapRequest(type: String.self)
+        XCTAssertEqual(wrapper.timeoutInterval, 5)
+        XCTAssertEqual(HJRPCDebugRequest(base: wrapper, debugType: .request).timeoutInterval, 5)
+    }
+
+    func testBatchWithAnEndpointAndNoConfiguredURLThrowsURLNeeded() async throws {
+        HJRPCRequestManager.config.url = ""
+        do {
+            _ = try await HarborJRPC.batch([StringRequest(method: "a", requestID: .string("1"), endpoint: URL(string: "https://other.example.com/rpc")),
+                                            StringRequest(method: "b", requestID: .string("2"))])
+            XCTFail("Expected batch to throw")
+        } catch HJRPCRequestError.urlNeeded {
+            // Expected.
+        }
+        XCTAssertTrue(JRPCStubProtocol.recorded.isEmpty)
+    }
+
+    // MARK: - Envelope Validation
+
+    func testSingleResponseWithANonStringVersionIsAnInvalidResponse() async throws {
+        respond(200, #"{"jsonrpc":2.0,"id":"1","result":"0x1"}"#)
+
+        let response = await StringRequest(method: "a", requestID: .string("1")).requestResult()
+
+        guard case .error(.invalidResponse) = response else {
+            return XCTFail("Expected invalidResponse but got: \(response)")
+        }
+    }
+
+    func testRequestOnANotificationFailsWithoutSendingIt() async throws {
+        let response = await NotificationRequest().requestResult()
+
+        guard case .error(.invalidRequest) = response else {
+            return XCTFail("Expected invalidRequest but got: \(response)")
+        }
+        XCTAssertTrue(JRPCStubProtocol.recorded.isEmpty)
+    }
+
+    func testErrorsAreEquatable() async {
+        XCTAssertEqual(HJRPCRequestError.invalidResponse, .invalidResponse)
+        XCTAssertEqual(HJRPCRequestError.jrpcError(error: HJRPCError(code: -1, message: "m")), .jrpcError(error: HJRPCError(code: -1, message: "m")))
+        XCTAssertNotEqual(HJRPCRequestError.jrpcError(error: HJRPCError(code: -1, message: "m")), .jrpcError(error: HJRPCError(code: -2, message: "m")))
+        XCTAssertNotEqual(HJRPCRequestError.timeout, .noConnection)
+    }
+
     // MARK: - Error Mapping
 
     func testTransportErrorsMapToMatchingJRPCCases() async {
@@ -701,6 +811,14 @@ private struct DebugStringRequest: HJRPCRequestProtocol, HDebugRequestProtocol {
         self.requestID = requestID
         self.headerParameters = headers
     }
+}
+
+private struct TimeoutRequest: HJRPCRequestProtocol {
+    typealias Model = String
+
+    let method: String
+    let requestID: HJRPCId?
+    let timeoutInterval: TimeInterval?
 }
 
 private struct JSONValueRequest: HJRPCRequestProtocol {

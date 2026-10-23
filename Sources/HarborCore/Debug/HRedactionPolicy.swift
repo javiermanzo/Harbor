@@ -223,7 +223,7 @@ package struct HRedactionPolicy: Sendable {
     ///   - limit: Maximum number of characters kept.
     /// - Returns: The preview, a byte count for non-UTF-8 data, or a placeholder for JSON-like
     ///   bodies that cannot be parsed while redaction is enabled.
-    func bodyPreview(_ data: Data, limit: Int) -> String {
+    package func bodyPreview(_ data: Data, limit: Int) -> String {
         guard let body = String(data: data, encoding: .utf8) else {
             return "\(data.count) bytes of non-UTF-8 data"
         }

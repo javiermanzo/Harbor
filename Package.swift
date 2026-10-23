@@ -43,7 +43,7 @@ let package = Package(
 
         .target(
             name: "HarborJRPC",
-            dependencies: ["Harbor"]),
+            dependencies: ["Harbor", "HarborCore"]),
         .testTarget(
             name: "HarborJRPCTests",
             dependencies: ["HarborJRPC"]),

@@ -6,91 +6,29 @@
 //
 
 import Foundation
-import Harbor
 
 /// The result of a single request inside a JSON-RPC batch response.
 public enum HJRPCBatchResponse: Sendable {
     /// The request completed successfully with its raw JSON result and the identifier echoed by the server.
     case success(id: HJRPCId?, result: HJSONValue)
-    /// The request failed with an error and the identifier echoed by the server.
+    /// The request failed with an error and the identifier echoed by the server (or, for a request
+    /// the server did not answer, the identifier it was sent with).
     case error(id: HJRPCId?, error: HJRPCRequestError)
 }
 
-// MARK: - Internal Batch Payload
+// MARK: - Identifier
 
-/// The body of a response to a JSON-RPC batch.
-enum HJRPCBatchPayload {
-    /// An empty (or whitespace-only) body: the server's answer to a batch of notifications.
-    case empty
-    /// An array with one response object per answered request.
-    case responses([HJRPCResult<HJSONValue>])
-    /// A single response object, sent when the server rejects the batch as a whole
-    /// (e.g. a parse error or an invalid batch, JSON-RPC 2.0 section 6).
-    case single(HJRPCResult<HJSONValue>)
-}
-
-// MARK: - HModel
-
-extension HJRPCBatchPayload: HModel {
-    /// Decodes an array of responses, or a single response object rejecting the whole batch.
-    init(from decoder: Decoder) throws {
-        let container = try decoder.singleValueContainer()
-        if let responses = try? container.decode([HJRPCResult<HJSONValue>].self) {
-            self = .responses(responses)
-        } else {
-            self = .single(try container.decode(HJRPCResult<HJSONValue>.self))
-        }
-    }
-
-    /// Encodes the payload back to its JSON form (used by mocks and tests).
-    func encode(to encoder: Encoder) throws {
-        var container = encoder.singleValueContainer()
+public extension HJRPCBatchResponse {
+    /// The identifier of the element: the `id` echoed by the server, or the one the request was
+    /// sent with when the server did not answer it. `nil` when the element carries no `id`.
+    var id: HJRPCId? {
         switch self {
-        case .empty:
-            try container.encodeNil()
-        case .responses(let responses):
-            try container.encode(responses)
-        case .single(let response):
-            try container.encode(response)
+        case .success(let id, _), .error(let id, _):
+            return id
         }
     }
 }
 
-// MARK: - Internal Batch Wrapper
+// MARK: - Equatable
 
-/// Internal wrapper that adapts a JSON-RPC batch payload to Harbor's request protocol.
-struct HJRPCBatchWrapper {
-    /// The debug type to log with, or `nil` when no batched request opted into logging.
-    let requestedDebugType: HDebugRequestType?
-    /// The encoded batch array that is sent.
-    let rawBody: Data?
-    /// The ids of the batched requests, in order (`nil` for notifications).
-    let requestIDs: [HJRPCId?]
-    /// The endpoint shared by every batched request.
-    let url: String
-    /// Whether any batched request needs auth.
-    let needsAuth: Bool
-    /// The merged retry policy (see `HarborJRPC.batch(_:)`).
-    let retryPolicy: HRetryPolicy?
-    /// The merged headers of the batched requests.
-    let headerParameters: [String: String]?
-}
-
-// MARK: - HJRPCTransportRequest
-
-extension HJRPCBatchWrapper: HJRPCTransportRequest {
-    /// The decoded batch response body.
-    typealias Model = HJRPCBatchPayload
-
-    /// The batch is sent from `rawBody`; there are no dictionary body parameters.
-    var bodyParameters: [String: Any]? { nil }
-
-    /// Decodes the batch response. An empty (or whitespace-only) body decodes as `.empty`; any
-    /// other body must be a JSON array of responses or a single response object.
-    func parseData<T: Codable>(data: Data, model: T.Type) throws -> T {
-        if data.isBlankJSONBody, let empty = HJRPCBatchPayload.empty as? T {
-            return empty
-        }
-        return try JSONDecoder().decode(T.self, from: data)
-    }
-}
+extension HJRPCBatchResponse: Equatable {}

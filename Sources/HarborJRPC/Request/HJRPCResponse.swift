@@ -6,7 +6,6 @@
 //
 
 import Foundation
-import Harbor
 
 /// Response wrapper for JSON-RPC requests.
 public enum HJRPCResponse<Model: Sendable>: Sendable {

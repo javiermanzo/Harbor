@@ -6,12 +6,14 @@ Mocks are resolved inside Harbor's request manager, not at the `URLProtocol` lev
 
 Consequences:
 
-- Mocked requests skip the connectivity check and the initial auth-header lookup, so Harbor never *generates* `.noConnection` or `.authProviderNeeded` for them. A mock's own `error` (for example `.noConnection`) is returned as-is.
-- The status code still drives behavior. A mocked 503 is retried by the request's `retryPolicy`, a 2xx is decoded with `parseData(data:model:)` (and cached for GET requests), and a 401 calls the auth provider's `authFailed()`.
-- A mock's `error` ends the attempt with that error, after `delay`, and goes through the retry policy like the real failure it stands for: `.timeout` is retried for idempotent requests, `.noConnection` / `.cannotFindHost` / `.cannotConnectToHost` for any method, `.api(statusCode:)` per `retryableStatusCodes`. Other errors are not retried.
+- Mocked requests skip the connectivity check and never fail with `.authProviderNeeded`, so Harbor never *generates* `.noConnection` or `.authProviderNeeded` for them. A mock's own `error` (for example `.noConnection`) is returned as-is.
+- They do carry the auth provider's current header when `needsAuth` is set, so the cache and the `401` flow behave as for a real response.
+- The status code still drives behavior. A mocked 503 is retried by the request's `retryPolicy`, a 2xx is decoded with `parseData(data:model:)` (and cached for GET requests), and a 401 on a `needsAuth` request with a provider runs the refresh flow exactly as against a server (`../harbor-core/auth.md`): a header that already rotated is re-sent without `authFailed()`; otherwise `authFailed()`, then a re-attempt only if the header changed, else `.authNeeded` (`mockCallCount(for:)` is then 1). A mocked 401 without a provider, or on a request without `needsAuth`, is `.authNeeded`.
+- A mock's `error` ends the attempt with that error, after `delay`, and goes through the retry policy like the real failure it stands for: `.timeout` is retried for idempotent requests, `.noConnection` / `.cannotFindHost` / `.cannotConnectToHost` for any method, `.api(statusCode:)` per `retryableStatusCodes`, `.invalidHttpResponse` like a non-HTTP response and `.networkFailure(URLError)` by its code. Other errors are not retried.
+- `delay` is capped at `HRetryPolicy.maxDelay` (60 s); cancelling the request ends it early.
 - Mocks are keyed by request type identity: one mock (or sequence) per type.
 - `HJRPCRequestProtocol` requests can't be mocked with `HMock`, because they are sent through internal wrapper types. Use a `URLProtocol` stub on a custom session instead (see below).
-- WebSocket connections can't be mocked with `HMock` or a `URLProtocol` stub (`URLSession` does not route WebSocket tasks through `URLProtocol`). Test them against a loopback server; Harbor's suite ships one on `NWProtocolWebSocket` plus a raw HTTP responder for rejected handshakes (`Tests/HarborWebSocketTests/Helpers`), see `examples/websocket.md`.
+- WebSocket connections can't be mocked with `HMock` or a `URLProtocol` stub (`URLSession` does not route WebSocket tasks through `URLProtocol`). Test them against a loopback server; Harbor's suite ships one on `NWProtocolWebSocket` plus a raw HTTP responder for rejected handshakes (`Tests/HarborWebSocketTests/Helpers`), see `../harbor-websocket/examples.md`.
 
 Mocks are on by default in DEBUG builds and off in release builds. `Harbor.setMocksEnabled(true/false)` turns them on or off (`setMocksEnabled(true)` also enables them in release, e.g. for a UI-test or demo configuration); read the current value with `Harbor.mocksEnabled`.
 
@@ -64,7 +66,7 @@ func mockAPI() async {
 }
 ```
 
-Registering a mock replaces any mock or sequence for the same type, and vice versa. `HMockSequence(request:responses:)` takes `HMockSequence.Response` values (`.init(statusCode:jsonResponse:error:headers:delay:)`). `Harbor.mockCallCount(for:)` counts every mocked attempt for the type, retries included, since the last `removeAllMocks()`.
+Registering a mock replaces any mock or sequence for the same type, and vice versa. `HMockSequence(request:responses:)` takes `HMockSequence.Response` values (`.init(statusCode:jsonResponse:error:delay:headers:)`, the same order as `HMock`). `Harbor.mockCallCount(for:)` counts every mocked attempt for the type, retries included, since the last `removeAllMocks()`.
 
 ## XCTest patterns
 
@@ -141,7 +143,7 @@ actor RefreshCounter {
     func increment() { count += 1 }
 }
 
-final class RotatingAuthProvider: HAuthProviderProtocol {
+final class RotatingAuthProvider: HAuthProviderProtocol {   // a new header after each refresh
     let counter = RefreshCounter()
 
     func getAuthorizationHeader() async -> HAuthorizationHeader? {
@@ -175,10 +177,10 @@ func authRefreshScenario() async -> Int {
 
 ## Stubbing the network (custom session)
 
-To exercise the real transport (cache headers through `URLCache`, JSON-RPC requests, redirects), install a `URLProtocol` subclass on a custom session:
+To exercise the real transport (cache headers through `URLCache`, JSON-RPC requests, redirects), install a `URLProtocol` subclass on a custom session. Create the session with Harbor's delegate so redirect stripping, pinning and mTLS stay active:
 
 ```swift
-final class StubURLProtocol: URLProtocol, @unchecked Sendable {
+final class StubURLProtocol: URLProtocol {
     nonisolated(unsafe) static var responseBody = Data(#"{"jsonrpc":"2.0","id":"1","result":"0x10"}"#.utf8)
 
     override class func canInit(with request: URLRequest) -> Bool { true }
@@ -199,21 +201,24 @@ func installStubSession() async {
     let configuration = URLSessionConfiguration.ephemeral
     configuration.protocolClasses = [StubURLProtocol.self]
     await Harbor.setMocksEnabled(false)
-    await Harbor.setCustomURLSession(URLSession(configuration: configuration))
+    let delegate = await Harbor.makeURLSessionDelegate()
+    await Harbor.setCustomURLSession(URLSession(configuration: configuration, delegate: delegate, delegateQueue: nil))
 }
 ```
 
-Remember to call `await Harbor.setCustomURLSession(nil)` in `tearDown`. A JSON-RPC response's `id` must match the request's: set `requestID` on the request (for example `.string("1")`) when stubbing, otherwise the request fails with `.idMismatch`. Harbor's own test suite uses an internal `setProtocolClasses` hook (`@testable import Harbor`), which isn't part of the public API.
+Remember to call `await Harbor.setCustomURLSession(nil)` in `tearDown`. A JSON-RPC response's `id` must match the request's: set `requestID` on the request (for example `.string("1")`) when stubbing, otherwise the request fails with `.idMismatch`; in a batch every request needs its own id. A stub that answers asynchronously must not capture `self` (`URLProtocol` is not `Sendable`): copy it into a `nonisolated(unsafe) let` first.
+
+Harbor's own test suite injects stubs into the sessions Harbor builds with `Harbor.setProtocolClasses(_:)`, a `package` hook in HarborCore that any test target of the package can call (apps cannot); its suites reset the global configuration with `HarborTestDefaults.restore()` (`Tests/HarborTests/Helpers`).
 
 ## Tips
 
 - Reset global state in `setUp` / `tearDown`: mocks, cache, auth provider, custom session, pins.
 - Harbor's configuration is global. Run tests that change it serially, or give each test its own request types.
-- Use `HRetryPolicy(maxRetries:baseDelay: 0, jitter: 0...0)` in tests to avoid real backoff delays. `Retry-After: 0` on mocked 429/503 responses works too.
+- Use `HRetryPolicy(maxRetries: 2, baseDelay: 0, jitter: 0...0)` in tests to avoid real backoff delays. `Retry-After: 0` on mocked 429/503 responses works too.
 - Real-network tests in this repo run only with `HARBOR_RUN_NETWORK_TESTS=1`.
 
 ## Related files
 
-- `Sources/Harbor/Mock/HMock.swift`, `HMockSequence.swift`, `HMocker.swift`.
+- `Sources/Harbor/Mock/HMock.swift`, `HMockSequence.swift`, `HMocker.swift`, `HRetryPolicy+Mock.swift` (retry classification of a mock's `error`).
 - `Sources/Harbor/Request/HRequestManager+Execution.swift` (`executeMockAttempt`) and `HRequestManager+Mock.swift` (`resolveMock`).
 - `Tests/HarborTests/HarborMockTests.swift`, `HarborRequestRetryTests.swift`.

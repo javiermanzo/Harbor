@@ -152,7 +152,7 @@ struct CreateUserFromModelRequest: HPostRequestProtocol {
 }
 ```
 
-The body is the first non-nil of `rawBody`, `multipartBody` and `bodyParameters`. `rawBody` is sent with `Content-Type: application/json` unless `headerParameters` sets a `Content-Type` (matched case-insensitively).
+The body is the first non-nil of `rawBody`, `multipartBody` and `bodyParameters`. `rawBody` is sent with `Content-Type: application/json` unless the default headers or `headerParameters` set a `Content-Type` (matched case-insensitively).
 
 ### POST that returns the created model
 
@@ -368,4 +368,4 @@ struct ResilientCreateRequest: HPostRequestProtocol {
 
 - `../protocols.md`: full protocol reference.
 - `advanced.md`: streaming, multipart, auth, pagination, cancellation.
-- `jrpc.md`: JSON-RPC.
+- `../../harbor-jrpc/SKILL.md`: JSON-RPC; `../../harbor-websocket/SKILL.md`: WebSocket.

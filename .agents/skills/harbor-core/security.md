@@ -1,6 +1,6 @@
 # Harbor Security
 
-Covers SSL pinning, mutual TLS, redirects, custom sessions, authentication and log redaction.
+Covers SSL pinning, mutual TLS, redirects and custom sessions. They apply to every product: REST requests, JSON-RPC calls (sent as REST POSTs) and WebSocket handshakes. Authentication: `auth.md`. Log redaction: `logging.md`.
 
 ## SSL pinning
 
@@ -49,7 +49,9 @@ How it works (`HURLSessionDelegate`):
 3. The SPKI hash of every certificate in the chain (leaf, intermediates, root) is compared with the pins. One match accepts the connection. Certificates with unsupported key types are skipped, with one warning per host.
 4. On a mismatch or an untrusted chain, the challenge is cancelled and the request fails with `HRequestError.certificate`. It is never retried and never served from cache.
 
-Malformed pins (not base64 SHA-256) trigger a security warning when set and are ignored. If only malformed pins are configured for a host, every connection to it fails.
+Malformed pins (not base64 SHA-256) trigger a security warning when set and are ignored. If only malformed pins are configured for a host, every connection to it fails; an empty pin list (`[]`) rejects every connection too and logs a warning (pass `nil` to stop pinning).
+
+Hosts passed to `setSSLPinningKeys(_:forHosts:)` are trimmed, lowercased and stripped of a trailing dot. They must be bare host names as `URLProtectionSpace.host` reports them, and match exactly (pin `api.example.com` and `cdn.example.com` separately; subdomains are not included): a value with a scheme, a port or a path (`https://api.example.com`, `api.example.com:443`), spaces inside or non-ASCII characters (use punycode, `xn--bcher-kva.de`) can never match, so it logs a security warning and is skipped. A host without pins of its own falls back to the global pins or, without them, to default handling (no pinning).
 
 Only certificate-specific failures surface as `HRequestError.certificate`: a pin mismatch, an untrusted chain, an mTLS rejection and the certificate `URLError` codes (`serverCertificateUntrusted`, `serverCertificateHasBadDate`, `serverCertificateHasUnknownRoot`, `serverCertificateNotYetValid`, `clientCertificateRejected`, `clientCertificateRequired`). A generic `URLError.secureConnectionFailed` maps to `.networkFailure` and is retried as a transient failure for idempotent (or opted-in) requests.
 
@@ -79,13 +81,14 @@ func configureMTLS() async {
 ```
 
 - The password provider is called once, during import, and the password isn't retained. `HMTLS(p12FileUrl:hosts:passwordProvider:)` is the only initializer.
+- The latest call wins: when `setMTLS(_:)` or `clearMTLS()` is called again while an import is running (e.g. a biometric prompt), the earlier `setMTLS(_:)` changes nothing when it finishes and throws `CancellationError`, so a slow import can never reinstall an identity after logout.
 - The P12 is read and imported off the actor. The identity is imported into memory only (`kSecImportToMemoryOnly`) on iOS and on macOS 15 and later. On macOS 14, `SecPKCS12Import` has no in-memory option and persists the key and certificates to the default (login) keychain.
 - The identity and its certificate chain are presented only to the `hosts` you list (case-insensitive). With `hosts: nil` they go to every host that asks for a client certificate, so scoping is recommended. Other hosts get default handling.
 - On failure, mTLS stays disabled and the error is thrown.
 
 ## Redirects
 
-When a redirect leaves the original origin (scheme, host or port; default ports made explicit), Harbor's delegate strips the auth provider's header key, `Authorization`, `Cookie`, `Proxy-Authorization`, `Set-Cookie`, `X-API-Key` and `Sec-WebSocket-Protocol` (WebSocket clients often authenticate by offering a token as the subprotocol) from the new request. Same-origin redirects are followed unchanged. WebSocket handshakes go through the same delegate; their debug logs redact subprotocols like any sensitive header.
+When a redirect leaves the original origin (scheme, host or port; default ports made explicit), Harbor's delegate strips the auth provider's header key and every header whose name contains a built-in sensitive key (the same list that drives log redaction: `Authorization`, `Proxy-Authorization`, `Cookie`, `Set-Cookie`, `X-API-Key`, `Api-Key`, any `…Token`, `…Secret`, `…Signature`, `…Credential`, and `Sec-WebSocket-Protocol`, since WebSocket clients often authenticate by offering a token as the subprotocol) from the new request. Same-origin redirects are followed unchanged. WebSocket handshakes go through the same delegate; their debug logs redact subprotocols like any sensitive header.
 
 ## Custom URLSession
 
@@ -127,93 +130,18 @@ final class AppSessionDelegate: NSObject, URLSessionTaskDelegate, Sendable {
 }
 ```
 
-A session-level challenge handler can call `harbor.handleChallenge(challenge, task: nil, completionHandler:)`. Harbor logs a security warning, even with logging disabled, when pins or mTLS are configured and the custom session doesn't use its delegate, or when pins or mTLS change while a custom session holds an older delegate. In the second case, build a new delegate and session. `setDefaultResourceTimeoutInterval(_:)` doesn't apply to custom sessions. The per-request timeout does, because it is set on each `URLRequest`.
-
-## Authentication
-
-```swift
-actor TokenStore {
-    private(set) var accessToken: String?
-    func update(_ token: String?) { accessToken = token }
-}
-
-final class OAuthProvider: HAuthProviderProtocol {
-    let store: TokenStore
-
-    init(store: TokenStore) {
-        self.store = store
-    }
-
-    func getAuthorizationHeader() async -> HAuthorizationHeader? {
-        guard let token = await store.accessToken else { return nil }   // nil: send without credentials
-        return HAuthorizationHeader(key: "Authorization", value: "Bearer \(token)")
-    }
-
-    func authFailed() async {
-        // Refresh the token (or log out). Called at most once per request; concurrent
-        // requests rejected with the same header share one call. Not called when
-        // getAuthorizationHeader() already returns a header different from the rejected one.
-        await store.update("refreshed-token")
-    }
-}
-
-struct AccountRequest: HGetRequestProtocol {
-    typealias Model = String
-    let url = "https://api.example.com/account"
-    let needsAuth = true
-}
-
-func authFlow() async {
-    let store = TokenStore()
-    await Harbor.setAuthProvider(OAuthProvider(store: store))
-    _ = await AccountRequest().request()
-
-    // Logout
-    await store.update(nil)
-    await Harbor.setAuthProvider(nil)
-    await Harbor.clearAllCache()   // cached responses are per credential but are not deleted automatically
-}
-```
-
-Flow:
-
-- A request with `needsAuth == false` never consults the provider. With `needsAuth == true` and no provider, it fails with `.authProviderNeeded`.
-- The header is applied to the built `URLRequest`. Your request value is never mutated.
-- On a 401, Harbor asks the provider for its current header (`getAuthorizationHeader()` is called at most twice per request: once to detect a rotated header and, only after `authFailed()`, once more for the refreshed one). If it already differs from the rejected one (a refresh finished meanwhile), the request is re-sent with it without calling `authFailed()`. Otherwise Harbor calls `authFailed()` exactly once per request (concurrent requests rejected with the same header share one call), fetches the header again, and re-sends the request once if it changed. When no re-send is possible, or the re-sent request is rejected again, the error is `.authNeeded`; a request that ends in `.authNeeded` after a 401 has always triggered `authFailed()`, and never more than once. A 401 on a request that doesn't need auth is `.authNeeded` without calling the provider. These extra attempts are separate from `retryPolicy.maxRetries`.
-
-## Log redaction
-
-Debug output is opt-in per request (`HDebugRequestProtocol`) and gated by `Harbor.setLoggingEnabled(_:)` (default: on in DEBUG, off in release; it works in release builds when enabled). Security warnings are logged regardless of that setting.
-
-Everything Harbor prints goes through one redaction policy (`HRedactionPolicy`): request and response headers, query values, path, query and body parameters, cURL commands, response bodies and `HRequestError.api` descriptions. A key is sensitive when its normalized form (lowercased, `-`, `_` and spaces removed) contains:
-
-- a built-in credential key (`authorization`, `cookie`, `set-cookie`, `x-api-key`, `password`, `token`, `secret`, `session_id`, ...), which always applies;
-- a configurable key, managed with `Harbor.updateLogSensitiveKeys(_:)`;
-- the header key the auth provider's credential was sent under.
-
-```swift
-func configureRedaction() async {
-    await Harbor.updateLogSensitiveKeys(.add(["otp", "pin_code"]))  // extend
-    await Harbor.updateLogSensitiveKeys(.set(["otp"]))              // replace the configurable set
-    await Harbor.updateLogSensitiveKeys(.reset)                     // defaults
-    await Harbor.updateLogSensitiveKeys(.clear)                     // only the built-in floor remains
-    await Harbor.setLogSensitiveValues(true)                        // print everything unredacted (local debugging only)
-    await Harbor.setLogSensitiveValues(false)                       // default: redact as <redacted>
-}
-```
+A session-level challenge handler can call `harbor.handleChallenge(challenge, task: nil, completionHandler:)`; without the task, a rejected handshake surfaces as `.cancelled` instead of `.certificate`. Harbor logs a security warning, even with logging disabled, when pins or mTLS are configured and the custom session's delegate is not an `HURLSessionDelegate` (a delegate that forwards to one gets it too: ignore it then), and when the session's `HURLSessionDelegate` was created before the last pin or mTLS change, whether the change came before or after `setCustomURLSession(_:)`. In the second case, build a new delegate and session. `setDefaultResourceTimeoutInterval(_:)` doesn't apply to custom sessions. The per-request timeout does, because it is set on each `URLRequest`.
 
 ## Checklist
 
 - Pin with at least one backup pin, and scope pins to the hosts you control.
 - Scope the mTLS identity with `hosts:`. Load the password lazily.
 - Use `Harbor.makeURLSessionDelegate()` for any custom session, and rebuild it after changing pins or mTLS.
-- Call `Harbor.clearAllCache()` on logout.
-- Keep `setLogSensitiveValues(false)` outside local debugging.
+- Call `Harbor.clearAllCache()` on logout (`auth.md`).
+- Keep `setLogSensitiveValues(false)` outside local debugging (`logging.md`).
 
 ## Related files
 
 - `Sources/HarborCore/Request/HURLSessionDelegate.swift`: challenges, pin matching, redirects.
 - `Sources/HarborCore/Utils/HSPKI.swift`: SPKI reconstruction and pin computation.
-- `Sources/HarborCore/Request/HmTLS.swift`, `Sources/HarborCore/Utils/PKCS12.swift`: mTLS import.
-- `Sources/HarborCore/Debug/HRedactionPolicy.swift`: log redaction.
-- `Sources/HarborCore/Auth/HAuthProviderProtocol.swift`.
+- `Sources/HarborCore/Request/HMTLS.swift`, `HMTLSIdentity.swift`, `HMTLSError.swift`, `Sources/HarborCore/Utils/PKCS12.swift`: mTLS configuration and import.

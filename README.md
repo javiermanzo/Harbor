@@ -92,7 +92,7 @@ Harbor is protocol-oriented: you declare each request as a `struct` conforming t
 | `HPatchRequestProtocol` | PATCH | `HResponse` |
 | `HDeleteRequestProtocol` | DELETE | `HResponse` |
 
-Every property except `url` (and `bodyParameters` for body requests) has a default: `needsAuth` (`false`), `retryPolicy` (`nil`), `pathParameters`, `headerParameters`, `queryParameters`, `cacheType`, `timeoutInterval` (all `nil`). All requirements are get-only, so you can implement them as `let` constants or computed properties. The `url` must use the `http` or `https` scheme; anything else (such as `file://`) fails with `.malformedRequest(reason:)`.
+Every requirement except `url` (plus the `Model` of a GET and `bodyParameters` for body requests) has a default: `needsAuth` (`false`), `retryPolicy` (`nil`), `pathParameters`, `headerParameters`, `queryParameters`, `cacheType`, `timeoutInterval`, `multipartBody`, `rawBody` (all `nil`). All requirements are get-only, so you can implement them as `let` constants or computed properties. The `url` must use the `http` or `https` scheme; anything else (such as `file://`) fails with `.malformedRequest(reason:)`.
 
 ### Making Requests
 
@@ -153,7 +153,7 @@ func createUser() async {
 
 `bodyParameters` is a get-only requirement: a computed property keeps the request a plain `Sendable` struct (a stored `[String: Any]` would require `@unchecked Sendable`). A body that `JSONSerialization` cannot encode fails with `HRequestError.malformedRequest(reason:)` instead of being sent empty.
 
-The body is the first non-nil of `rawBody`, `multipartBody` and `bodyParameters`. To send pre-encoded data (for example an `Encodable` model) use `rawBody`, which is sent as-is with `Content-Type: application/json` unless `headerParameters` sets a `Content-Type` (header names match case-insensitively, so `content-type` also replaces it):
+The body is the first non-nil of `rawBody`, `multipartBody` and `bodyParameters`. To send pre-encoded data (for example an `Encodable` model) use `rawBody`, which is sent as-is with `Content-Type: application/json` unless the default headers or `headerParameters` set a `Content-Type` (header names match case-insensitively, so `content-type` also replaces it):
 
 ```swift
 struct UpdateUserRequest: HPutRequestProtocol {
@@ -215,7 +215,7 @@ task.cancel()
 
 ### Configuration
 
-Global configuration lives in the `Harbor` enum, isolated to `@HRequestManagerActor`, so every setter is called with `await`. Authentication, retry, SSL pinning, mTLS, the custom `URLSession` and logging are shared: configure them once and `Harbor`, `HarborJRPC` and `HarborWebSocket` all follow them.
+Global configuration lives in the `Harbor` enum, isolated to `@HRequestManagerActor`, so every setter is called with `await`. Authentication, default headers, timeouts, cookies, SSL pinning, mTLS, the custom `URLSession` and logging are shared: configure them once and `Harbor`, `HarborJRPC` and `HarborWebSocket` all follow them. Retry policies are set per request.
 
 ```swift
 // Headers sent with every request
@@ -274,9 +274,9 @@ struct SecureRequest: HGetRequestProtocol {
 }
 ```
 
-On a 401, Harbor asks the provider for its current header. If it already differs from the rejected one (another request's refresh finished meanwhile), the request is sent again with it without calling `authFailed()`. Otherwise Harbor calls `authFailed()` exactly once per request (concurrent requests rejected with the same credential share a single call) and, if the provider then returns a different header, sends the request once more with it. When no re-send is possible, or the re-sent request is rejected again, the request fails with `.authNeeded`; by then `authFailed()` has been called exactly once.
+On a 401, Harbor asks the provider for its current header. If it already differs from the rejected one (another request's refresh finished meanwhile), the request is sent again with it without calling `authFailed()`. Otherwise Harbor calls `authFailed()` exactly once per request (concurrent requests rejected with the same credential share a single call) and, if the provider then returns a different header, sends the request once more with it. When no re-send is possible, or the re-sent request is rejected again, the request fails with `.authNeeded`; by then `authFailed()` has been called exactly once. A request cancelled while it waits for `authFailed()` stops waiting and fails with `.cancelled`, and replacing the provider (e.g. on logout) while a refresh runs makes the waiting requests give up instead of retrying with the old provider's header. A `401` on a request without `needsAuth` is `.authNeeded` too (the provider is not consulted and the body is not returned).
 
-Cached responses (`.custom` cache) of requests that send a credential are namespaced by a hash of it, so one user never reads another user's entries: the auth provider's header of `needsAuth` requests and sensitive headers such as `Authorization`, `Proxy-Authorization`, `Cookie` or `X-API-Key` set in the default headers or in `headerParameters`. `.urlCache` keys entries by URL only and is not namespaced: use `.custom` for credential-dependent responses. A `needsAuth` request sent without a credential (the provider returned `nil`) is neither cached nor served from cache. Replacing the provider does not delete existing entries: **call `await Harbor.clearAllCache()` on logout.** A response whose request started before `Harbor.clearAllCache()` or `Harbor.setAuthProvider(_:)` is still returned to its caller, but it is not written to the cache nor remembered for offline lookups.
+Cached responses (`.custom` cache) of requests that send a credential are namespaced by a hash of it, so one user never reads another user's entries: the auth provider's header of `needsAuth` requests and sensitive headers such as `Authorization`, `Proxy-Authorization`, `Cookie` or `X-API-Key` set in the default headers or in `headerParameters`. `.urlCache` keys entries by URL only and is not namespaced: use `.custom` for credential-dependent responses. A `needsAuth` request sent without a credential (the provider returned `nil`) is neither cached nor served from cache. Replacing the provider does not delete existing entries: **call `await Harbor.clearAllCache()` on logout.** A response whose request was in flight when `Harbor.clearAllCache()` or `Harbor.setAuthProvider(_:)` ran is still returned to its caller, but it is not written to the cache nor remembered for offline lookups.
 
 ### Retry Policies
 
@@ -335,6 +335,8 @@ func configurePinning() async {
 
 A failed pin, a rejected client identity or a certificate-specific TLS error (untrusted, expired or unknown-root server certificate) fails the request with `HRequestError.certificate`. A generic `URLError.secureConnectionFailed` is reported as `.networkFailure` and treated as a transient failure.
 
+Hosts must be bare host names (`api.example.com`, punycode for internationalized names), matched exactly: a value with a scheme, a port, a path or non-ASCII characters can never match, so it logs a security warning and is ignored. An empty pin list rejects every connection it applies to (pass `nil` to stop pinning).
+
 #### mTLS
 The client identity is extracted from a PKCS#12 archive off the actor. The password provider is called once, when the identity is extracted, and the password is not retained. Scope the identity to the hosts that request it so it is never offered to other servers.
 
@@ -350,14 +352,14 @@ func configureMTLS(certURL: URL) async throws {
 }
 ```
 
-The identity is imported into memory only on iOS and on macOS 15 and later; on macOS 14, `SecPKCS12Import` persists it to the login keychain.
+The identity is imported into memory only on iOS and on macOS 15 and later; on macOS 14, `SecPKCS12Import` persists it to the login keychain. The latest `setMTLS(_:)` or `clearMTLS()` call wins: an import still waiting for its password when a later call arrives changes nothing and throws `CancellationError`.
 
 #### Redirects
-When a redirect leaves the original origin (scheme, host or port), Harbor strips credentials from the redirected request: the auth provider's header, `Authorization`, `Cookie`, `Proxy-Authorization` and the other sensitive headers.
+When a redirect leaves the original origin (scheme, host or port), Harbor strips credentials from the redirected request: the auth provider's header and every header named after a sensitive key (`Authorization`, `Proxy-Authorization`, `Cookie`, `Set-Cookie`, `X-API-Key`, `Sec-WebSocket-Protocol`, any `…-Token`, `…-Secret`, ...).
 
 ### Custom URLSession
 
-`Harbor.setCustomURLSession(_:)` makes Harbor use your session as-is (pass `nil` to restore the default). SSL pinning, mTLS and redirect credential stripping are implemented by Harbor's session delegate, so **they are not applied to a custom session unless it uses the delegate returned by `Harbor.makeURLSessionDelegate()`** (or your own delegate forwards to it). Harbor logs a warning when pins or mTLS are configured and the custom session bypasses them.
+`Harbor.setCustomURLSession(_:)` makes Harbor use your session as-is (pass `nil` to restore the default). SSL pinning, mTLS and redirect credential stripping are implemented by Harbor's session delegate, so **they are not applied to a custom session unless it uses the delegate returned by `Harbor.makeURLSessionDelegate()`** (or your own delegate forwards to it). Harbor logs a warning when pins or mTLS are configured and the custom session bypasses them, and when its delegate was created before the last pin or mTLS change.
 
 ```swift
 func configureCustomSession() async {
@@ -387,11 +389,11 @@ func configureCache() async {
 ```
 
 The custom cache:
-- honors `Cache-Control` (`no-store`, `no-cache`, `must-revalidate`, `max-age`, `stale-while-revalidate`, `stale-if-error`), `Expires`, `Age`, `Date` and `Vary` (Vary'd header values are stored hashed on disk); a `no-store` response, or a body larger than `maxObjectSizeInMBs`, also evicts the previous entry for that key;
-- revalidates stored entries with `If-None-Match` / `If-Modified-Since` and serves the cached body on `304 Not Modified` (a 304 without a usable cached body triggers one unconditional refetch); a validator you set yourself in `headerParameters` is kept, Harbor does not inject its own, and a 304 answering it is returned to you as `.api(statusCode: 304, data:)`;
+- honors `Cache-Control` (`no-store`, `no-cache`, `must-revalidate`, `max-age`, `stale-while-revalidate`, `stale-if-error`), `Expires` (an invalid one, such as `0`, means already expired), `Age`, `Date` and `Vary` (Vary'd header values are stored hashed on disk); a `no-store` response, or a body larger than `maxObjectSizeInMBs`, also evicts the previous entry for that key;
+- revalidates stored entries with `If-None-Match` / `If-Modified-Since` and serves the cached body on `304 Not Modified`, refreshing it with the 304's headers (a `no-store` 304 removes it). A 304 without a usable cached body, or validating another `ETag` than the stored one, triggers one unconditional refetch. A validator you set yourself in `headerParameters` is kept, Harbor does not inject its own, and a 304 answering it is returned to you as `.api(statusCode: 304, data:)`;
 - keeps expired entries without validators while their `stale-if-error` window still allows serving them;
 - ignores the shared-cache-only directives `s-maxage` and `proxy-revalidate` (it is a private cache);
-- evicts least-recently-used entries when the disk capacity is exceeded;
+- evicts least-recently-used entries when the disk capacity is exceeded (the directory is shared: a per-request configuration can raise the capacity, never shrink it);
 - namespaces entries by the credential a request is sent with, whether from the auth provider or from sensitive headers such as `Authorization` or `X-API-Key` (see [Authentication](#authentication)).
 
 A GET request can keep a success status out of the cache by overriding `shouldCache(statusCode:)` (for example to return `false` for a `202 Accepted`, so it doesn't replace the good copy).
@@ -469,7 +471,7 @@ Sources: `.cacheOnly` (throws `HRequestError.noCachedDataFound` on a miss), `.re
 
 ### JSON-RPC
 
-The `HarborJRPC` product implements JSON-RPC 2.0, including batches and notifications. Requests use the same transport as Harbor (auth provider, mTLS, pinning, logging).
+The `HarborJRPC` product implements JSON-RPC 2.0, including batches and notifications. Requests use the same transport as Harbor (auth provider, mTLS, pinning, logging), and `import HarborJRPC` also brings `Harbor`.
 
 ```swift
 import HarborJRPC
@@ -502,13 +504,14 @@ func readChain() async throws {
         let balance = try await GetBalanceRequest(address: "0x0000000000000000000000000000000000000000").request()
         print(blockNumber, balance)
     } catch HJRPCRequestError.jrpcError(let rpcError) {
-        // Error objects are surfaced even when the server answers with a 4xx/5xx status.
+        // Error objects are surfaced even when the server answers with a 4xx/5xx status
+        // (except a 401, which goes through the auth flow and ends in .authNeeded).
         print(rpcError.code, rpcError.message, rpcError.httpStatusCode ?? 200)
     }
 }
 ```
 
-Batches send several requests in one HTTP call. `HarborJRPC.batch(_:)` is `async throws`: it throws when the batch as a whole fails, and returns one `HJRPCBatchResponse` per response element (paired by id, results as `HJSONValue`). An empty batch returns `[]` without a network call. As with a single call, every element of a 2xx response must carry the configured `jsonrpc` version; an element that does not is an `.error` with `.invalidResponse` and does not fail the rest of the batch.
+Batches send several requests in one HTTP call. `HarborJRPC.batch(_:)` is `async throws`: it throws when the batch as a whole fails, and returns one `HJRPCBatchResponse` per request that is not a notification, **in request order** (Harbor matches the server's answers by id, so ids must be unique; results as `HJSONValue`). A request the server did not answer is an `.error` with `.invalidResponse`, and answers matching no request (such as an error with a `null` id) come last. An empty batch returns `[]` without a network call. As with a single call, every element of a 2xx response must carry the configured `jsonrpc` version; an element that does not is an `.error` with `.invalidResponse` and does not fail the rest of the batch.
 
 ```swift
 func batchCalls() async throws {
@@ -527,7 +530,9 @@ func batchCalls() async throws {
 Other details:
 - Parameters are `.named([String: any Encodable & Sendable])` or `.positioned([any Encodable & Sendable])`. A value JSON cannot represent (e.g. `Double.nan`) fails with `HJRPCRequestError.codable` instead of being sent as `null`.
 - Set `endpoint: URL?` on a request to call another endpoint than the configured one.
-- Notifications set `isNotification = true` and are sent with `notify()`.
+- Notifications set `isNotification = true` and are sent with `notify()`; `request()` on one fails with `.invalidRequest` without sending it.
+- `timeoutInterval` overrides Harbor's default for a call (a batch uses the longest of its requests).
+- `HJRPCRequestError` is `Equatable`, and debug logs name your request type and method.
 - Integers beyond `Int` decode as `HJSONValue.decimal`. Their digits are exact on iOS 18 / macOS 15 and later (swift-foundation `JSONDecoder`); on earlier OS versions they may be rounded through `Double`. The same applies to big integers passed in `HJRPCParams`.
 
 ### WebSocket
@@ -578,9 +583,10 @@ func chat() async throws {
 
 Other details:
 - Every requirement except `url` has a default: `pathParameters`, `queryParameters`, `headerParameters`, `subprotocols`, `needsAuth`, `retryPolicy` (handshake only; connections are never reconnected automatically), `timeoutInterval` (handshake), `pingInterval` (or `HarborWebSocket.setDefaultPingInterval(_:)`) and `maximumMessageSize`.
-- `state` is `.open` or `.closed(code:reason:)`. Messages are read continuously and buffered until iterated; iterate `messages` from one place. Cancelling the iterating task closes the connection with `.goingAway`; leaving the loop any other way does not. Call `close()` when done: a connection stays open until either side closes it.
-- `HWebSocketError` is the WebSocket's own error set, split by the life of a connection. Opening: `.invalidURL(reason:)`, `.authProviderNeeded`, `.authNeeded`, `.handshakeFailed(statusCode:)`, `.noConnection`, `.timeout`, `.cannotFindHost`, `.cannotConnectToHost`, `.certificate`. Open: `.notConnected`, `.pingTimeout`, `.messageTooBig`, `.connectionFailed(URLError)` (a connection lost without a close frame, including the POSIX errors `URLSession` reports for a dropped socket), `.encodingFailed` and `.decodingFailed`. Any time: `.cancelled`, `.unknown`. `send`, `ping()` and `decode(_:)` use typed throws.
-- `HMock` does not apply to WebSocket connections; test against a loopback server (see `.agents/skills/harbor/examples/websocket.md`).
+- `state` is `.open` or `.closed(code:reason:)`. Messages are read continuously and buffered (without limit) until iterated; iterate `messages` from one place. Cancelling the iterating task closes the connection with `.goingAway`; leaving the loop any other way does not. Call `close()` when done: a connection stays open until either side closes it. `close(code:reason:)` sends reserved codes as `.normalClosure` and cuts the reason to the 123 bytes a close frame allows.
+- `ping()` waits for the pong for the connection's ping interval (10 seconds without one); `send` and `ping()` on a closed connection, or racing its close, throw `.notConnected`.
+- `HWebSocketError` is the WebSocket's own error set, split by the life of a connection. Opening: `.invalidURL(reason:)`, `.authProviderNeeded`, `.authNeeded`, `.handshakeFailed(statusCode:)`, `.noConnection`, `.timeout`, `.cannotFindHost`, `.cannotConnectToHost`, `.certificate`. Open: `.notConnected`, `.pingTimeout`, `.messageTooBig`, `.connectionFailed(URLError)` (any connection lost without a close frame, including the POSIX errors `URLSession` reports for a dropped socket), `.encodingFailed` and `.decodingFailed`. Any time: `.cancelled`, `.unknown`. `messages` throws only `.connectionFailed`, `.pingTimeout` and `.messageTooBig`. `connect()`, `send`, `ping()` and `decode(_:)` use typed throws.
+- `HMock` does not apply to WebSocket connections; test against a loopback server (see `.agents/skills/harbor-websocket/examples.md`).
 
 ### Debugging & Logging
 
@@ -603,13 +609,13 @@ func configureLogging() async {
 }
 ```
 
-Every logged value goes through one redaction policy: request and response headers, query values, path/query/body parameters, cURL commands, response bodies and `HRequestError.api` descriptions. Sensitive keys (`authorization`, `cookie`, `set-cookie`, `x-api-key`, `password`, `token`, `secret`, `sec-websocket-protocol`, the auth provider's header, plus the keys configured with `updateLogSensitiveKeys(_:)`) are printed as `<redacted>`. Matching is case-insensitive and ignores separators. `await Harbor.setLogSensitiveValues(true)` disables redaction (for local debugging only).
+Every logged value goes through one redaction policy: request and response headers, query values, path/query/body parameters (also inside the logged URL, together with its user info and fragment), cURL commands, response bodies and `HRequestError.api` descriptions; error descriptions never include an error's `userInfo`. Sensitive keys (`authorization`, `cookie`, `set-cookie`, `x-api-key`, `password`, `token`, `secret`, `sec-websocket-protocol`, the auth provider's header, plus the keys configured with `updateLogSensitiveKeys(_:)`) are printed as `<redacted>`. Matching is case-insensitive and ignores separators. `await Harbor.setLogSensitiveValues(true)` disables redaction (for local debugging only).
 
-The cURL command only includes cookies (redacted by default) when the session sends them: with Harbor's own sessions that is when `Harbor.setHTTPShouldHandleCookies(true)` is on, reading `HTTPCookieStorage.shared`; with a custom session, according to its configuration.
+The cURL command only includes stored cookies (redacted by default) when the session sends them: with Harbor's own sessions that is when `Harbor.setHTTPShouldHandleCookies(true)` is on, reading `HTTPCookieStorage.shared`; with a custom session, according to its configuration. An explicit `Cookie` header is printed otherwise.
 
 ### Mocking
 
-Mocks are resolved inside Harbor's request pipeline: when mocks are enabled and a mock is registered for a request type, each attempt returns the mock instead of hitting the network, still going through status handling, retries, auth and decoding. Production code needs no changes.
+Mocks are resolved inside Harbor's request pipeline: when mocks are enabled and a mock is registered for a request type, each attempt returns the mock instead of hitting the network, still going through status handling, retries, the `401` refresh flow, caching and decoding. Mocked requests skip the connectivity check and never fail with `.authProviderNeeded`; they do carry the provider's header when `needsAuth` is set. Production code needs no changes. Mocks apply to REST requests only.
 
 ```swift
 func registerMocks() async {
@@ -652,8 +658,12 @@ func registerMocks() async {
 If you use an AI coding assistant, Harbor ships documentation written for it:
 
 - [**AGENTS.md**](AGENTS.md): instructions for working on this repository (design rules, code organization, testing, CI).
-- [**.agents/skills/harbor/SKILL.md**](.agents/skills/harbor/SKILL.md): the skill for writing code with Harbor, with deep dives on request protocols, caching, security, architecture and testing, and copy-ready examples (REST, JSON-RPC, WebSocket).
-- [**.agents/skills/harbor-migration-v3-to-v4/SKILL.md**](.agents/skills/harbor-migration-v3-to-v4/SKILL.md): the v3 → v4 migration guide, listing every breaking change and how to refactor it.
+- One skill per product, so an assistant only loads what the code uses:
+  - [**harbor**](.agents/skills/harbor/SKILL.md): REST requests, with deep dives on request protocols, caching and testing, and copy-ready examples.
+  - [**harbor-jrpc**](.agents/skills/harbor-jrpc/SKILL.md): JSON-RPC 2.0 calls, notifications and batches.
+  - [**harbor-websocket**](.agents/skills/harbor-websocket/SKILL.md): WebSocket connections, pings, reconnection and testing.
+- [**harbor-core**](.agents/skills/harbor-core/SKILL.md): what every product shares (global configuration, authentication and token refresh, SSL pinning, mTLS, custom sessions, retry policy, logging and redaction) and the architecture.
+- [**harbor-migration-v3-to-v4**](.agents/skills/harbor-migration-v3-to-v4/SKILL.md): the v3 → v4 migration guide, listing every breaking change and how to refactor it.
 
 ---
 

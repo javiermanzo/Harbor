@@ -1,4 +1,4 @@
-# Harbor JSON-RPC Examples
+# HarborJRPC Examples
 
 `HarborJRPC` sends JSON-RPC 2.0 calls (single, notification, batch) through Harbor's pipeline: auth provider, retry policy, transport security, logging and custom session. Every call is an HTTP `POST`.
 
@@ -18,7 +18,7 @@ func configureRPC() async {
 }
 ```
 
-For single calls (`request()` / `requestResult()`), the `jsonrpc` member of the response must equal the configured version, otherwise the call fails with `.invalidResponse`; notifications don't check it. Every element of a 2xx batch response is checked the same way: a missing or different `jsonrpc` makes that element `.error(id:error: .invalidResponse)` without failing the others (a 2xx single object rejecting the whole batch throws `.invalidResponse`); elements of a non-2xx response are not checked. A request can target another endpoint without changing the global URL through `endpoint: URL?`.
+For single calls (`request()` / `requestResult()`), the `jsonrpc` member of the response must be a string equal to the version the call was sent with, otherwise the call fails with `.invalidResponse`; notifications don't check it. Every element of a 2xx batch response is checked the same way: a missing or different `jsonrpc`, or an element that is not a valid response object, makes that element `.error(id:error: .invalidResponse)` without failing the others (a 2xx single object rejecting the whole batch throws `.invalidResponse`); elements of a non-2xx response are not version-checked. A request can target another endpoint without changing the global URL through `endpoint: URL?`.
 
 ## The protocol
 
@@ -41,6 +41,7 @@ struct GetBalanceRequest: HJRPCRequestProtocol {
 | `needsAuth: Bool` | `false` |
 | `retryPolicy: HRetryPolicy?` | `nil` |
 | `headerParameters: [String: String]?` | `nil` |
+| `timeoutInterval: TimeInterval?` | `nil`: Harbor's default (a batch uses the longest of its requests) |
 | `isNotification: Bool` | `false` |
 | `requestID: HJRPCId?` | `nil`: a UUID string id is generated |
 | `endpoint: URL?` | `nil`: the configured URL |
@@ -197,7 +198,7 @@ func sendNotification() async throws {
 }
 ```
 
-`notify()` throws `HJRPCRequestError.invalidRequest` when `isNotification` is `false` (the only case that produces it). A 2xx response with an empty body counts as delivered. A 2xx body that isn't JSON-RPC throws `.codable`, and a JSON-RPC error object throws `.jrpcError`.
+`notify()` throws `HJRPCRequestError.invalidRequest` when `isNotification` is `false`, and `request()` / `requestResult()` fail with it, without sending anything, when `isNotification` is `true`. A 2xx response with an empty body, or with a JSON object that is not an error object, counts as delivered. A 2xx body that isn't a JSON object (an HTML page) throws `.codable`, and a JSON-RPC error object throws `.jrpcError`.
 
 ## Batches
 
@@ -230,9 +231,9 @@ func batch() async throws {
 }
 ```
 
-- `HarborJRPC.batch(_:)` is `async throws`. It throws when the batch as a whole fails: no endpoint, mixed endpoints (`.malformedRequest`), encoding, transport or HTTP errors, a body that isn't a batch response, or a single error object rejecting the batch (`.jrpcError`).
-- Responses are paired by the `id` the server echoes. Servers may reorder or omit them.
-- Merge rules: all requests must resolve to the same endpoint. Headers are merged (the first request setting a header wins). The batch is authenticated if any request has `needsAuth`. It is logged if any request conforms to `HDebugRequestProtocol`. The first non-nil `retryPolicy` is used, but its `retryNonIdempotentRequests` is kept only if **every** request opts in.
+- `HarborJRPC.batch(_:)` is `async throws`. It throws when the batch as a whole fails: no endpoint (`.urlNeeded`), mixed endpoints or two requests sharing an `id` (`.malformedRequest`), encoding, transport or HTTP errors, a body that isn't a batch response, or a single error object rejecting the batch (`.jrpcError`).
+- The result has one element per request that is not a notification, **in request order**: Harbor matches the server's answers to the requests by `id` (servers may reorder them), so `responses[i]` answers the i-th non-notification request even with generated ids. An element carrying a JSON-RPC error object is `.error(id:, error: .jrpcError(error:))`; a request the server did not answer is `.error(id: <its id>, error: .invalidResponse)`. An element's `id` is `nil` only when the server's element has none (a malformed element whose id cannot be read). Elements whose `id` matches no request (e.g. an error with a `null` id) come after them. `HJRPCBatchResponse.id` reads an element's id.
+- Merge rules: all requests must resolve to the same endpoint. Headers are merged (the first request setting a header wins). The batch is authenticated if any request has `needsAuth`. It is logged if any request conforms to `HDebugRequestProtocol`. The longest `timeoutInterval` applies. The first non-nil `retryPolicy` is used, but its `retryNonIdempotentRequests` is kept only if **every** request opts in.
 
 ## Errors
 
@@ -240,7 +241,7 @@ func batch() async throws {
 func handle(_ error: HJRPCRequestError) {
     switch error {
     case .jrpcError(let rpcError):
-        // Also returned for 4xx/5xx responses whose body is a JSON-RPC error object
+        // Also returned for 4xx/5xx responses whose body is a JSON-RPC error object (not a 401)
         print(rpcError.code, rpcError.message, rpcError.data as Any, rpcError.httpStatusCode as Any)
         if rpcError.standardCode == .methodNotFound { print("Unknown method") }
         if rpcError.isServerError { print("Implementation-defined server error") }
@@ -249,7 +250,7 @@ func handle(_ error: HJRPCRequestError) {
     case .idMismatch(let expected, let actual):
         print("id mismatch", expected as Any, actual as Any)
     case .invalidResponse:
-        print("Not a JSON-RPC response (or wrong jsonrpc version)")
+        print("Not a JSON-RPC response (wrong jsonrpc version, or a batch request without an answer)")
     case .urlNeeded:
         print("Call HarborJRPC.configure(url:) first")
     case .noConnection, .timeout, .cannotFindHost, .cannotConnectToHost, .networkFailure:
@@ -266,7 +267,9 @@ func handle(_ error: HJRPCRequestError) {
 }
 ```
 
-Standard codes (`HJRPCStandardCode`): `.parseError` (-32700), `.invalidRequest` (-32600), `.methodNotFound` (-32601), `.invalidParams` (-32602) and `.internalError` (-32603). The server error range is -32099...-32000 (`isServerError`).
+Standard codes (`HJRPCStandardCode`): `.parseError` (-32700), `.invalidRequest` (-32600), `.methodNotFound` (-32601), `.invalidParams` (-32602) and `.internalError` (-32603). The server error range is -32099...-32000 (`isServerError`); `isStandard` tells whether the code is one of the standard ones.
+
+`HJRPCRequestError`, `HJRPCError` and `HJRPCBatchResponse` are `Equatable`. A `401` never surfaces as `.jrpcError`: Harbor's auth flow reports it as `.authNeeded`.
 
 ## Debug logging
 
@@ -307,7 +310,7 @@ struct BlockView: View {
 
 ## Testing
 
-`HMock` can't target JSON-RPC requests, because they are sent through internal wrapper types. Stub the transport with a `URLProtocol` on a custom session and give the request a fixed `requestID` so the stubbed response `id` matches. See `../testing.md`.
+`HMock` can't target JSON-RPC requests, because they are sent through internal wrapper types. Stub the transport with a `URLProtocol` on a custom session and give the request a fixed `requestID` so the stubbed response `id` matches. See `../harbor/testing.md` (Stubbing the network).
 
 ```swift
 struct FixedIDBlockNumberRequest: HJRPCRequestProtocol {
@@ -317,8 +320,11 @@ struct FixedIDBlockNumberRequest: HJRPCRequestProtocol {
 }
 ```
 
+In a batch, give every request its own fixed id (two requests with the same id throw `.malformedRequest`).
+
 ## Related files
 
 - `Sources/HarborJRPC/HarborJRPC.swift`: configuration and `batch`.
-- `Sources/HarborJRPC/Request/HJRPCRequestProtocol.swift`, `HJRPCRequestManager.swift`.
-- `Sources/HarborJRPC/Request/HJRPCRequestError.swift`, `HJRPCError.swift`, `HJSONValue.swift`, `HJRPCId.swift`.
+- `Sources/HarborJRPC/Request/HJRPCRequestProtocol.swift`, `HJRPCRequestManager.swift` (single calls, notifications, batches and their ordering).
+- `Sources/HarborJRPC/Request/HJRPCRequestWrapper.swift`, `HJRPCBatchWrapper.swift`, `HJRPCDebugRequest.swift`, `HJRPCTransportRequest.swift`: the internal REST requests that carry the calls; `HJRPCBatchPayload.swift`, `HJRPCResult.swift`: response decoding.
+- `Sources/HarborJRPC/Request/HJRPCRequestError.swift`, `HJRPCError.swift`, `HJSONValue.swift`, `HJRPCId.swift`, `HJRPCBatchResponse.swift`.

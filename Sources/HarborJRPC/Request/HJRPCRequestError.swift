@@ -156,7 +156,7 @@ extension HJRPCRequestError: LocalizedError {
         case .networkFailure(let error):
             return "Network request failed (\(error.code.rawValue)): \(error.localizedDescription)"
         case .unknown(let error):
-            return "Unexpected error: \(String(describing: error))"
+            return "Unexpected error: \(HRequestError.safeDescription(of: error))"
         }
     }
 }

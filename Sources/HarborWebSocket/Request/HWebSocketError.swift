@@ -197,10 +197,9 @@ extension HWebSocketError: LocalizedError {
         case .connectionFailed(let error):
             return "The WebSocket connection failed (\(error.code.rawValue)): \(error.localizedDescription)"
         case .unknown(let error):
-            // Domain, code and message only: an `NSError`'s description includes its `userInfo`,
+            // Message, domain and code only: an `NSError`'s description includes its `userInfo`,
             // where `URLSession` puts the failing URL and its query (which may hold a token).
-            let nsError = error as NSError
-            return "Unexpected error (\(nsError.domain) \(nsError.code)): \(nsError.localizedDescription)"
+            return "Unexpected error: \(HRequestError.safeDescription(of: error))"
         }
     }
 }

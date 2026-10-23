@@ -134,8 +134,21 @@ extension HRequestError: LocalizedError {
         case .networkFailure(let error):
             return "Network request failed (\(error.code.rawValue)): \(error.localizedDescription)"
         case .unknown(let error):
-            return "Unexpected error: \(String(describing: error))"
+            return "Unexpected error: \(Self.safeDescription(of: error))"
         }
+    }
+}
+
+// MARK: - Safe Descriptions
+
+extension HRequestError {
+    /// A description of an arbitrary error without its `userInfo`, where `URLSession` puts the
+    /// failing URL and its query (which may hold a credential): the message, domain and code.
+    /// Shared by the error types of the other products.
+    /// - Parameter error: The error to describe.
+    package static func safeDescription(of error: Error) -> String {
+        let nsError = error as NSError
+        return "\(nsError.localizedDescription) (\(nsError.domain) \(nsError.code))"
     }
 }
 

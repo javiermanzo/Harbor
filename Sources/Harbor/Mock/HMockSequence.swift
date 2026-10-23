@@ -28,28 +28,30 @@ public struct HMockSequence: Sendable {
         /// Optional error the attempt fails with instead of producing a response. It goes
         /// through the retry policy like the real failure it stands for.
         public let error: HRequestError?
+        /// Optional delay in seconds before returning the response, capped at
+        /// `HRetryPolicy.maxDelay` (60 s). Cancelling the request ends it early.
+        public let delay: Double?
         /// Optional HTTP response headers (e.g. `Cache-Control`, `ETag`, `Retry-After`).
         public let headers: [String: String]?
-        /// Optional delay in seconds before returning the response.
-        public let delay: Double?
 
-        /// Creates a new response for a sequence.
+        /// Creates a new response for a sequence. The parameters follow the order of
+        /// `HMock(request:statusCode:jsonResponse:error:delay:headers:)`.
         /// - Parameters:
         ///   - statusCode: The HTTP status code to return
         ///   - jsonResponse: Optional JSON response body
         ///   - error: Optional error to return instead of success
-        ///   - headers: Optional HTTP response headers
         ///   - delay: Optional delay in seconds before returning the response
+        ///   - headers: Optional HTTP response headers
         public init(statusCode: Int,
                     jsonResponse: String? = nil,
                     error: HRequestError? = nil,
-                    headers: [String: String]? = nil,
-                    delay: Double? = nil) {
+                    delay: Double? = nil,
+                    headers: [String: String]? = nil) {
             self.statusCode = statusCode
             self.jsonResponse = jsonResponse
             self.error = error
-            self.headers = headers
             self.delay = delay
+            self.headers = headers
         }
     }
 

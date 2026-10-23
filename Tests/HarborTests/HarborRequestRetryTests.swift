@@ -854,6 +854,106 @@ final class HarborRequestRetryTests: XCTestCase {
         XCTAssertEqual(response.failure, .api(statusCode: 304, data: Data()))
     }
 
+    func testNotModifiedForCallerValidatorsIsReturnedEvenWhenHarborHoldsABody() async throws {
+        // Given a cached body with ETag "v1" and a request carrying its own validator "v2"
+        Harbor.setDefaultCacheType(.custom(HCache.Configuration(expirationTime: .oneHour)))
+        await Harbor.clearAllCache()
+        HRequestStubProtocol.mode = .notModifiedWhenConditional
+        let request = StubbedGetRequest(url: "https://example.com/caller-validators-cached", headerParameters: ["If-None-Match": "\"v2\""])
+        let url = try XCTUnwrap(URL(string: request.url))
+        let storeResponse = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: ["Cache-Control": "max-age=0", "ETag": "\"v1\""])
+        await request.saveCache(Data(#"{"quote":"cached"}"#.utf8), response: storeResponse, authHeader: nil)
+
+        // When the server confirms the caller's copy
+        let response = await request.request()
+
+        // Then the 304 goes to the caller, and Harbor's entry keeps its own validator
+        XCTAssertEqual(response.failure, .api(statusCode: 304, data: Data()))
+        let storedETag = await request.cachedETag()
+        XCTAssertEqual(storedETag, "\"v1\"")
+    }
+
+    func testNotModifiedWithAnotherETagRefetchesInsteadOfServingTheStoredBody() async throws {
+        // Given a cached body with ETag "v1"
+        Harbor.setDefaultCacheType(.custom(HCache.Configuration(expirationTime: .oneHour)))
+        await Harbor.clearAllCache()
+        let request = StubbedGetRequest(url: "https://example.com/replaced-etag")
+        let url = try XCTUnwrap(URL(string: request.url))
+        let storeResponse = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: ["Cache-Control": "max-age=0", "ETag": "\"v1\""])
+        await request.saveCache(Data(#"{"quote":"cached"}"#.utf8), response: storeResponse, authHeader: nil)
+
+        // When the 304 validates another representation ("v2"), then a full response follows
+        HRequestStubProtocol.mode = .outcomes([.status(304, headers: ["ETag": "\"v2\""]), .status(200)])
+        let response = await request.request()
+
+        // Then the stored "v1" body is not served: the request is re-issued without validators
+        XCTAssertEqual(HRequestStubProtocol.startLoadingCount, 2)
+        guard case .success(let model) = response else {
+            return XCTFail("Expected the refetched body but got: \(response)")
+        }
+        XCTAssertEqual(model.quote, "ok")
+    }
+
+    func testNotModifiedWithNoStoreServesTheBodyAndRemovesTheEntry() async throws {
+        // Given a cached body with a validator
+        Harbor.setDefaultCacheType(.custom(HCache.Configuration(expirationTime: .oneHour)))
+        await Harbor.clearAllCache()
+        let request = StubbedGetRequest(url: "https://example.com/now-no-store")
+        let url = try XCTUnwrap(URL(string: request.url))
+        let storeResponse = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: ["Cache-Control": "max-age=0", "ETag": "\"v1\""])
+        await request.saveCache(Data(#"{"quote":"cached"}"#.utf8), response: storeResponse, authHeader: nil)
+
+        // When the server confirms it but no longer allows storing it
+        HRequestStubProtocol.mode = .outcomes([.status(304, headers: ["Cache-Control": "no-store"])])
+        let response = await request.request()
+
+        // Then this caller gets the body, and the entry is gone
+        guard case .success(let model) = response else {
+            return XCTFail("Expected the cached body but got: \(response)")
+        }
+        XCTAssertEqual(model.quote, "cached")
+        let storedETag = await request.cachedETag()
+        XCTAssertNil(storedETag)
+    }
+
+    func testNoCacheEntryIsNotServedStaleOnError() async throws {
+        // Given an entry marked no-cache with a stale-if-error window
+        Harbor.setDefaultCacheType(.custom(HCache.Configuration(expirationTime: .oneHour)))
+        await Harbor.clearAllCache()
+        let request = StubbedGetRequest(url: "https://example.com/no-cache-stale")
+        let url = try XCTUnwrap(URL(string: request.url))
+        let storeResponse = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: ["Cache-Control": "no-cache, stale-if-error=600"])
+        await request.saveCache(Data(#"{"quote":"stale"}"#.utf8), response: storeResponse, authHeader: nil)
+
+        // When the server fails
+        HRequestStubProtocol.mode = .status(500)
+        let response = await request.request()
+
+        // Then no-cache forbids serving it without revalidation
+        XCTAssertEqual(response.failure, .api(statusCode: 500, data: Data(#"{"quote":"ok"}"#.utf8)))
+    }
+
+    func testVaryUsesTheRequestHeaderWhateverTheCaseOfTheDefaultHeader() async throws {
+        // Given a lowercase default header and a request overriding it with another case
+        Harbor.setDefaultCacheType(.custom(HCache.Configuration(expirationTime: .oneHour)))
+        await Harbor.clearAllCache()
+        Harbor.setDefaultHeaderParameters(["accept-language": "en"])
+        defer { Harbor.setDefaultHeaderParameters(nil) }
+        let french = StubbedGetRequest(url: "https://example.com/vary-case", headerParameters: ["Accept-Language": "fr"])
+        let english = StubbedGetRequest(url: "https://example.com/vary-case")
+        let url = try XCTUnwrap(URL(string: french.url))
+        let storeResponse = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: ["Cache-Control": "max-age=600", "Vary": "Accept-Language"])
+
+        // When the French response is stored
+        await french.saveCache(Data(#"{"quote":"bonjour"}"#.utf8), response: storeResponse, authHeader: nil)
+
+        // Then only the French request is served it
+        let frenchCached = await french.cache()
+        let englishCached = await english.cache()
+        XCTAssertEqual(frenchCached?.quote, "bonjour")
+        XCTAssertNil(englishCached)
+    }
+
     func testUnconditional304IsNotRefetched() async throws {
         // Given a server answering 304 to a request without validators
         HRequestStubProtocol.mode = .status(304)

@@ -22,6 +22,7 @@ private final class JRPCStubProtocol: URLProtocol {
         let url: URL?
         let headers: [String: String]
         let body: Data
+        let timeoutInterval: TimeInterval
     }
 
     private static let lock = NSLock()
@@ -61,7 +62,7 @@ private final class JRPCStubProtocol: URLProtocol {
 
         Self.lock.lock()
         let index = Self._recorded.count
-        Self._recorded.append(Recorded(url: request.url, headers: request.allHTTPHeaderFields ?? [:], body: body))
+        Self._recorded.append(Recorded(url: request.url, headers: request.allHTTPHeaderFields ?? [:], body: body, timeoutInterval: request.timeoutInterval))
         let response = Self._responses[min(index, Self._responses.count - 1)]
         Self.lock.unlock()
 
@@ -173,6 +174,8 @@ final class HarborJRPCHardeningTests: XCTestCase {
         XCTAssertEqual(debugRequest.rawBody, wrapper.rawBody)
         XCTAssertEqual(debugRequest.headerParameters, ["X-Trace": "1"])
         XCTAssertFalse((wrapper as Any) is HDebugRequestProtocol, "Requests that do not opt in must not be logged")
+        // Logs name the app's request and method, not the wrapper
+        XCTAssertEqual(debugRequest.logName, "DebugStringRequest (eth_chainId)")
     }
 
     func testDebugRequestIsSentThroughHarbor() async throws {
@@ -709,6 +712,11 @@ final class HarborJRPCHardeningTests: XCTestCase {
         let wrapper = try TimeoutRequest(method: "a", requestID: .string("1"), timeoutInterval: 5).wrapRequest(type: String.self)
         XCTAssertEqual(wrapper.timeoutInterval, 5)
         XCTAssertEqual(HJRPCDebugRequest(base: wrapper, debugType: .request).timeoutInterval, 5)
+
+        // The batch is sent with the longest one
+        respond(200, #"[{"jsonrpc":"2.0","id":"1","result":"a"},{"jsonrpc":"2.0","id":"2","result":"b"},{"jsonrpc":"2.0","id":"3","result":"c"}]"#)
+        _ = try await HarborJRPC.batch(requests)
+        XCTAssertEqual(JRPCStubProtocol.recorded.first?.timeoutInterval, 40)
     }
 
     func testBatchWithAnEndpointAndNoConfiguredURLThrowsURLNeeded() async throws {

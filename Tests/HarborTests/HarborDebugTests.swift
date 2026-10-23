@@ -602,11 +602,8 @@ final class HarborDebugTests: XCTestCase {
         let request = TestDebugRequest(debugType: .response)
         let body = "plain-body-without-tokens"
         let data = body.data(using: .utf8)!
-        let response = HTTPURLResponse(url: URL(string: "https://api.example.com/")!,
-                                       statusCode: 200, httpVersion: nil,
-                                       headerFields: ["Content-Type": "text/plain"])!
 
-        let result = await request.redactedResponseBody(data: data, httpResponse: response)
+        let result = request.redactedResponseBody(data: data)
         XCTAssertEqual(result, body)
     }
 
@@ -641,11 +638,8 @@ final class HarborDebugTests: XCTestCase {
     func testRedactedResponseBodyReturnsBinaryPlaceholderForNonUTF8() async {
         let request = TestDebugRequest(debugType: .response)
         let data = Data([0xFF, 0xFE, 0xFD, 0x80])
-        let response = HTTPURLResponse(url: URL(string: "https://api.example.com/image")!,
-                                       statusCode: 200, httpVersion: nil,
-                                       headerFields: ["Content-Type": "application/octet-stream"])!
 
-        let result = await request.redactedResponseBody(data: data, httpResponse: response)
+        let result = request.redactedResponseBody(data: data)
 
         XCTAssertEqual(result, "<binary 4 bytes>")
     }
@@ -655,11 +649,8 @@ final class HarborDebugTests: XCTestCase {
         let request = TestDebugRequest(debugType: .response)
         let body = String(repeating: "a", count: 20 * 1024)
         let data = body.data(using: .utf8)!
-        let response = HTTPURLResponse(url: URL(string: "https://api.example.com/")!,
-                                       statusCode: 200, httpVersion: nil,
-                                       headerFields: ["Content-Type": "text/plain"])!
 
-        let result = await request.redactedResponseBody(data: data, httpResponse: response)
+        let result = request.redactedResponseBody(data: data)
 
         let marker = "… <truncated>"
         XCTAssertEqual(result?.count, 16 * 1024 + marker.count)

@@ -113,7 +113,7 @@ package struct HRedactionPolicy: Sendable {
 
     /// Whether `key` is sensitive under this policy. Always `false` when redaction is disabled.
     /// - Parameter key: A header name, query item name or body field name.
-    func isSensitive(_ key: String) -> Bool {
+    package func isSensitive(_ key: String) -> Bool {
         isEnabled && HJSONRedactor.isSensitiveKey(key, needles: needles)
     }
 
@@ -223,6 +223,26 @@ package struct HRedactionPolicy: Sendable {
         components.percentEncodedFragment = nil
         guard let base = components.string else { return url.absoluteString }
         return base + (query.map { "?\($0)" } ?? "") + (fragment.map { "#\($0)" } ?? "")
+    }
+
+    /// `redactedURLString(_:)` for a URL built from path parameters: the values of sensitive
+    /// parameters, already substituted into the path, are replaced by `redacted` too.
+    /// - Parameters:
+    ///   - url: The URL to print.
+    ///   - pathParameters: The path parameters substituted into `url`, or `nil` for none.
+    package func redactedURLString(_ url: URL, pathParameters: [String: String]?) -> String {
+        guard isEnabled,
+              let sensitiveValues = pathParameters?.filter({ isSensitive($0.key) && !$0.value.isEmpty }).values,
+              !sensitiveValues.isEmpty,
+              var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
+            return redactedURLString(url)
+        }
+        var path = components.percentEncodedPath
+        for value in sensitiveValues {
+            path = path.replacingOccurrences(of: HURLBuilder.percentEncodedPathValue(value), with: "redacted")
+        }
+        components.percentEncodedPath = path
+        return redactedURLString(components.url ?? url)
     }
 
     // MARK: - Error Previews

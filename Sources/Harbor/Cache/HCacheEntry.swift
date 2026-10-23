@@ -91,7 +91,7 @@ extension HCache {
         /// - Parameter maxAge: Freshness lifetime used when the entry has no stored expiration time.
         func isDiscardable(maxAge: TimeInterval?) -> Bool {
             guard !hasValidator, isExpired(maxAge: maxAge, grace: servableStaleWindow) else { return false }
-            if !mustRevalidate, let window = staleIfError, let freshness = expirationTime,
+            if !alwaysStale, !mustRevalidate, let window = staleIfError, let freshness = expirationTime,
                Date().timeIntervalSince(timestamp) - freshness <= window {
                 return false
             }

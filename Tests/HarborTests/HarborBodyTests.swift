@@ -52,12 +52,10 @@ final class HarborBodyTests: XCTestCase {
         }
     }
 
-    func testMultipartRejectsNewlineInValue() async {
-        XCTAssertThrowsError(try HURLBuilder.convertFormField(named: "name", value: "va\r\nlue", using: "Boundary-test")) { error in
-            guard case HRequestError.malformedRequest = error else {
-                return XCTFail("Expected malformedRequest but got: \(error)")
-            }
-        }
+    func testMultipartKeepsLineBreaksInAValue() async throws {
+        // A text value is the part's body (e.g. a textarea), so line breaks are kept as-is
+        let field = try HURLBuilder.convertFormField(named: "comment", value: "line 1\r\nline 2\nline 3", using: "Boundary-test")
+        XCTAssertTrue(field.hasSuffix("\r\n\r\nline 1\r\nline 2\nline 3\r\n"))
     }
 
     func testMultipartRejectsQuoteInName() async {

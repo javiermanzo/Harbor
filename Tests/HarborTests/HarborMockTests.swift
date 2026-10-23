@@ -34,13 +34,19 @@ private struct SlowDecodingRequest: HGetRequestProtocol {
     }
 }
 
-/// Auth provider that always issues the same header and counts `authFailed()` calls.
+/// Auth provider that counts `authFailed()` calls and, when `rotates` is set, issues a new
+/// header after each of them (a successful token refresh).
 @HRequestManagerActor
 private final class CountingAuthProvider: HAuthProviderProtocol {
     private(set) var authFailedCount = 0
+    private let rotates: Bool
+
+    init(rotates: Bool = true) {
+        self.rotates = rotates
+    }
 
     func getAuthorizationHeader() async -> HAuthorizationHeader? {
-        HAuthorizationHeader(key: "Authorization", value: "Bearer token")
+        HAuthorizationHeader(key: "Authorization", value: "Bearer token-\(rotates ? authFailedCount : 0)")
     }
 
     func authFailed() async {
@@ -236,6 +242,26 @@ final class HarborMockTests: XCTestCase {
         XCTAssertEqual(model.quote, "after-auth")
         XCTAssertEqual(provider.authFailedCount, 1)
         XCTAssertEqual(Harbor.mockCallCount(for: MockGetRequest<MockModel>.self), 2)
+    }
+
+    func testMocked401WithAnUnchangedHeaderGivesUpLikeARealOne() async throws {
+        // Given a provider whose refresh does not change its header
+        let provider = CountingAuthProvider(rotates: false)
+        Harbor.setAuthProvider(provider)
+        Harbor.register(mockSequence: HMockSequence(request: MockGetRequest<MockModel>.self, responses: [
+            .init(statusCode: 401),
+            .init(statusCode: 200, jsonResponse: #"{"quote":"never"}"#)
+        ]))
+
+        // When
+        let response = await MockGetRequest<MockModel>(needsAuth: true, url: "https://example.com").request()
+
+        // Then the request gives up after authFailed(), as against a real server
+        guard case .error(.authNeeded) = response else {
+            return XCTFail("Expected .authNeeded but got: \(response)")
+        }
+        XCTAssertEqual(provider.authFailedCount, 1)
+        XCTAssertEqual(Harbor.mockCallCount(for: MockGetRequest<MockModel>.self), 1)
     }
 
     func testMockedTransportErrorIsRetried() async throws {

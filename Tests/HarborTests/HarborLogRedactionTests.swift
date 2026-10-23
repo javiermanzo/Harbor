@@ -191,6 +191,27 @@ final class HarborLogRedactionTests: XCTestCase {
         XCTAssertEqual(redacted, "user=bob&password=<redacted>")
     }
 
+    func testLoggedURLRedactsSensitivePathParameterValues() async {
+        let request = PathDebugRequest()
+        let url = URL(string: "https://api.example.com/reset/s3cr%2Ft/42")!
+
+        XCTAssertEqual(request.printableURL(url, policy: HRedactionPolicy(isEnabled: true)), "https://api.example.com/reset/redacted/42")
+        XCTAssertEqual(request.printableURL(url, policy: HRedactionPolicy(isEnabled: false)), "https://api.example.com/reset/s3cr%2Ft/42")
+    }
+
+    func testCurlKeepsACookieHeaderTheSessionDoesNotReplace() async {
+        // Given cookie handling off, so the session does not add stored cookies
+        await Harbor.setHTTPShouldHandleCookies(false)
+        var urlRequest = URLRequest(url: URL(string: "https://api.example.com/me")!)
+        urlRequest.setValue("sid=1", forHTTPHeaderField: "Cookie")
+
+        // When
+        let curl = await PathDebugRequest().generateCurl(urlRequest: urlRequest)
+
+        // Then the explicit header is printed (redacted)
+        XCTAssertTrue(curl.contains("-H \"Cookie: <redacted>\""), curl)
+    }
+
     // MARK: - Response Headers
 
     func testLogResponseRedactsSetCookieHeader() async throws {
@@ -368,4 +389,11 @@ final class HarborLogRedactionTests: XCTestCase {
         XCTAssertEqual(securityLogs.last?.level, .warning)
         await HLogger.securityLogger.clearLogs()
     }
+}
+
+/// A logged request whose path carries a sensitive parameter.
+private struct PathDebugRequest: HGetRequestProtocol, HDebugRequestProtocol {
+    typealias Model = String
+    let url = "https://api.example.com/reset/{token}/{id}"
+    let pathParameters: [String: String]? = ["token": "s3cr/t", "id": "42"]
 }

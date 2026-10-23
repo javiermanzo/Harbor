@@ -51,3 +51,10 @@ extension HJRPCDebugRequest: HRequestWithResultProtocol {
 // MARK: - HDebugRequestProtocol
 
 extension HJRPCDebugRequest: HDebugRequestProtocol {}
+
+// MARK: - HLogNamedRequest
+
+extension HJRPCDebugRequest: HLogNamedRequest {
+    /// Forwarded from `base`, so logs name the app's request instead of this wrapper.
+    var logName: String { base.logName }
+}

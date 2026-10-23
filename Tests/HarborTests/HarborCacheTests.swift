@@ -421,6 +421,32 @@ final class HarborCacheTests: XCTestCase {
         XCTAssertEqual(result3, 7200, "Should use the fallback time for the no-cache directive")
     }
 
+    func testHugeCapacitiesDoNotOverflow() async {
+        let config = HCache.Configuration(maxObjectSizeInMBs: .max, memoryCacheCapacityInMBs: .max, diskCacheCapacityInMBs: .max)
+        XCTAssertGreaterThan(config.diskCacheCapacityInBytes, 0)
+        XCTAssertGreaterThan(config.memoryCacheCapacityInBytes, 0)
+        XCTAssertGreaterThan(config.maxObjectSizeInBytes, 0)
+    }
+
+    func testMemoryLimitIsNeverUnlimitedWithoutACustomDefault() async {
+        Harbor.setDefaultCacheType(.urlCache())
+        XCTAssertGreaterThan(HCache.Manager.shared.memoryCacheCostLimit, 0)
+        Harbor.setDefaultCacheType(.disabled)
+    }
+
+    func testURLCacheFreshnessDoesNotCountTheUpstreamAgeTwice() async {
+        // A CDN kept the origin `Date` and added `Age: 300`; the response arrived 300 s after `Date`
+        let now = Date()
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(identifier: "GMT")
+        formatter.dateFormat = "EEE, dd MMM yyyy HH:mm:ss 'GMT'"
+        let response = HTTPURLResponse(url: URL(string: "https://test.com")!, statusCode: 200, httpVersion: nil,
+                                       headerFields: ["Date": formatter.string(from: now.addingTimeInterval(-300)), "Age": "300", "Cache-Control": "max-age=600"])!
+
+        XCTAssertTrue(HCache.Manager.isFresh(urlCacheResponse: response, now: now))
+    }
+
     func testParseExpiresHeader() async {
         // Test Expires header parsing by using calculateEffectiveExpirationTime
 
@@ -441,11 +467,13 @@ final class HarborCacheTests: XCTestCase {
         XCTAssertNotNil(result)
         XCTAssertTrue(result! > 3500 && result! < 3700, "Should parse valid Expires header correctly")
 
-        // Test invalid format
-        let invalidResponse = HTTPURLResponse(url: url, statusCode: 200, httpVersion: "HTTP/1.1",
-                                            headerFields: ["Expires": "invalid-date"])
-        let invalidResult = HCache.Manager.shared.calculateEffectiveExpirationTime(fromResponse: invalidResponse, fallbackTime: 1800)
-        XCTAssertEqual(invalidResult, 1800, "Should fallback to provided time for invalid Expires header")
+        // An invalid date (e.g. `0` or `-1`) means already expired (RFC 9111, section 5.3)
+        for invalid in ["invalid-date", "0", "-1"] {
+            let invalidResponse = HTTPURLResponse(url: url, statusCode: 200, httpVersion: "HTTP/1.1",
+                                                headerFields: ["Expires": invalid])
+            let invalidResult = HCache.Manager.shared.calculateEffectiveExpirationTime(fromResponse: invalidResponse, fallbackTime: 1800)
+            XCTAssertEqual(invalidResult, 0, "An invalid Expires header (\(invalid)) must count as already expired")
+        }
     }
 
     // MARK: - Cache Integration Tests

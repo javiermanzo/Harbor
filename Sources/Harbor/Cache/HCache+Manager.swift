@@ -25,11 +25,11 @@ extension HCache {
     /// usage is tracked by an in-memory index built lazily from the directory, and eviction is
     /// least-recently-used: reads refresh the entry's access time.
     ///
-    /// Marked `@unchecked Sendable`: memory and index access is serialized by
-    /// `@HRequestManagerActor`, disk access by `diskQueue` (writes and deletes run under a
-    /// barrier), and `NSCache` is internally thread-safe.
+    /// Memory and index access is serialized by `@HRequestManagerActor` (which also makes the
+    /// class `Sendable`), disk access by `diskQueue` (writes and deletes run under a barrier),
+    /// and `NSCache` is internally thread-safe.
     @HRequestManagerActor
-    final class Manager: @unchecked Sendable {
+    final class Manager {
 
         /// Shared instance of the cache manager.
         static let shared = Manager()
@@ -49,6 +49,11 @@ extension HCache {
 
         /// Token to track cache clearance cycles, preventing L1/L2 sync races.
         private var cacheClearToken = 0
+
+        /// Number of removals of each key (keyed by file name) since the last `clearAllCache`.
+        /// A read or write that was suspended while its key was removed does not bring the
+        /// entry back into memory or the disk index.
+        private var removalEpochs: [String: Int] = [:]
 
         /// Size and last access of every file on disk. `nil` until first needed; built from a
         /// single directory listing instead of listing the directory on every write.
@@ -76,6 +81,15 @@ extension HCache {
         /// per-request configuration (no last-writer-wins).
         private var largestRequestedMemoryCapacity = 0
 
+        /// Disk capacity of the global default cache configuration (0 when it is not `.custom`).
+        private var defaultDiskCapacity: Int
+
+        /// Largest disk capacity requested by any configuration used to store an entry since the
+        /// global default was last set. Like the memory limit, the disk limit only grows with
+        /// per-request configurations: one request type with a small capacity never evicts the
+        /// entries stored under the larger shared one.
+        private var largestRequestedDiskCapacity = 0
+
         /// Creates the shared manager: sets up the cache directory and the memory cache.
         private init() {
             // 1. Setup cache directory safely in Library/Caches
@@ -90,10 +104,12 @@ extension HCache {
 
             // 3. Configure NSCache limits: bounded by cost (body bytes) only, no fixed count.
             self.defaultMemoryCapacity = Configuration().memoryCacheCapacityInBytes
+            self.defaultDiskCapacity = Configuration().diskCacheCapacityInBytes
             memoryCache.totalCostLimit = defaultMemoryCapacity
 
             // 4. Discard expired and outdated files in the background. Only metadata headers are
-            //    read, off the actor and without blocking disk reads or writes.
+            //    read, off the actor, at background priority; writes queued behind the scan wait
+            //    for it.
             Task(priority: .background) { @HRequestManagerActor [weak self] in
                 await self?.performStartupCleanup()
             }
@@ -161,7 +177,8 @@ extension HCache {
         /// Expired entries are never served, except within their `stale-while-revalidate`
         /// window. Entries that carry validators (ETag / Last-Modified) — including `no-cache`
         /// entries, which are always stale — are kept as a source of validators; entries
-        /// without validators are evicted on expiration.
+        /// without validators are evicted once expired and outside their `stale-if-error`
+        /// window.
         /// - Parameters:
         ///   - key: The cache key string.
         ///   - config: The cache configuration containing expiration limits.
@@ -169,6 +186,8 @@ extension HCache {
         ///   - decode: Decodes the cached body (the request's `parseData(data:model:)`).
         /// - Returns: Decoded model if found and valid, `nil` otherwise.
         func getCachedData<T: HModel>(forKey key: String, config: HCache.Configuration, requestHeaders: [String: String]? = nil, decode: @Sendable (Data) throws -> T) async -> T? {
+            // Entries promoted to memory below count against this configuration's limit too.
+            registerCapacities(of: config)
             let nsKey = NSString(string: key)
 
             // L1: Memory Cache
@@ -180,11 +199,12 @@ extension HCache {
                 }
                 guard metadata.matchesVary(Self.varyKey(for: metadata.vary, requestHeaders: requestHeaders)) else { return nil }
                 noteAccess(forKey: key)
-                return decodeEntry(entry.data, decode: decode)
+                return await decodeEntry(entry.data, decode: decode)
             }
 
             // L2: Disk Cache
             let token = cacheClearToken
+            let epoch = removalEpoch(forKey: key)
             guard let (metadata, body) = await loadDiskEntry(forKey: key) else { return nil }
 
             // Vary mismatch: the stored variant cannot satisfy this request. It is a miss,
@@ -201,11 +221,12 @@ extension HCache {
                 return nil
             }
 
-            guard let model = decodeEntry(body, decode: decode) else { return nil }
+            guard let model = await decodeEntry(body, decode: decode) else { return nil }
 
-            // A clearAllCache that ran while the disk read was suspended wins: the entry is
-            // neither served nor promoted back into memory.
-            guard token == cacheClearToken else { return nil }
+            // A clearAllCache, or a removal of this key (`clearCache()`, a `no-store` response),
+            // that ran while the disk read was suspended wins: the entry is neither served nor
+            // promoted back into memory.
+            guard token == cacheClearToken, epoch == removalEpoch(forKey: key) else { return nil }
 
             // Promote to Memory Cache
             memoryCache.setObject(Entry(data: body, metadata: metadata), forKey: nsKey, cost: body.count)
@@ -219,25 +240,31 @@ extension HCache {
         /// - Parameters:
         ///   - key: The cache key string.
         ///   - requestHeaders: Optional HTTP request headers used for `Vary` validation.
+        ///   - validatedETag: The `ETag` of the `304`, when it has one. An entry stored with a
+        ///     different `ETag` (replaced since the validators were sent) is not the one the
+        ///     server validated, so it is not returned (RFC 9111, section 4.3.4).
         ///   - decode: Decodes the cached body (the request's `parseData(data:model:)`).
         /// - Returns: Decoded model if revalidatable, `nil` otherwise (including a body this
         ///   request cannot decode, which is kept).
-        func getRevalidatableCachedData<T: HModel>(forKey key: String, requestHeaders: [String: String]? = nil, decode: @Sendable (Data) throws -> T) async -> T? {
+        func getRevalidatableCachedData<T: HModel>(forKey key: String, requestHeaders: [String: String]? = nil, validatedETag: String? = nil, decode: @Sendable (Data) throws -> T) async -> T? {
             if let entry = memoryCache.object(forKey: NSString(string: key)) {
                 let metadata = entry.metadata
-                guard metadata.hasValidator, metadata.matchesVaryOrWildcard(Self.varyKey(for: metadata.vary, requestHeaders: requestHeaders)) else { return nil }
+                guard metadata.hasValidator,
+                      metadata.matchesVaryOrWildcard(Self.varyKey(for: metadata.vary, requestHeaders: requestHeaders)),
+                      Self.isValidated(metadata, by: validatedETag) else { return nil }
                 noteAccess(forKey: key)
-                return decodeEntry(entry.data, decode: decode)
+                return await decodeEntry(entry.data, decode: decode)
             }
 
             guard let (metadata, body) = await loadDiskEntry(forKey: key),
                   metadata.hasValidator,
-                  metadata.matchesVaryOrWildcard(Self.varyKey(for: metadata.vary, requestHeaders: requestHeaders)) else {
+                  metadata.matchesVaryOrWildcard(Self.varyKey(for: metadata.vary, requestHeaders: requestHeaders)),
+                  Self.isValidated(metadata, by: validatedETag) else {
                 return nil
             }
 
             noteAccess(forKey: key)
-            return decodeEntry(body, decode: decode)
+            return await decodeEntry(body, decode: decode)
         }
 
         /// Returns an expired entry when its `stale-if-error` window still allows serving it.
@@ -250,14 +277,14 @@ extension HCache {
         func getStaleOnErrorData<T: HModel>(forKey key: String, requestHeaders: [String: String]? = nil, decode: @Sendable (Data) throws -> T) async -> T? {
             if let entry = memoryCache.object(forKey: NSString(string: key)) {
                 guard Self.isServableOnError(entry.metadata, requestHeaders: requestHeaders) else { return nil }
-                return decodeEntry(entry.data, decode: decode)
+                return await decodeEntry(entry.data, decode: decode)
             }
 
             guard let (metadata, body) = await loadDiskEntry(forKey: key),
                   Self.isServableOnError(metadata, requestHeaders: requestHeaders) else {
                 return nil
             }
-            return decodeEntry(body, decode: decode)
+            return await decodeEntry(body, decode: decode)
         }
 
         /// Whether an entry satisfies the `stale-if-error` conditions for the given request headers.
@@ -265,7 +292,9 @@ extension HCache {
         ///   - metadata: The entry metadata.
         ///   - requestHeaders: Optional HTTP request headers used for `Vary` validation.
         private static func isServableOnError(_ metadata: HCache.EntryMetadata, requestHeaders: [String: String]?) -> Bool {
-            guard !metadata.mustRevalidate,
+            // `no-cache` forbids serving the entry without revalidation, even on errors.
+            guard !metadata.alwaysStale,
+                  !metadata.mustRevalidate,
                   metadata.isExpired(maxAge: nil),
                   let window = metadata.staleIfError,
                   let freshness = metadata.expirationTime,
@@ -288,13 +317,19 @@ extension HCache {
         ///   - config: The cache configuration (size limits and fallback expiration).
         ///   - response: The HTTP response whose headers drive expiration, validators and `Vary`.
         ///   - requestHeaders: The request headers the response was obtained with, for the `Vary` key.
-        func storeData(_ data: Data, forKey key: String, config: HCache.Configuration, response: HTTPURLResponse?, requestHeaders: [String: String]? = nil) async {
-            registerMemoryCapacity(of: config)
+        ///   - isCurrent: Evaluated right before the entry is written, in the same actor turn
+        ///     that reads the clear token: `false` drops the response (the request started
+        ///     before a `clearAllCache()` or an auth provider change), and the token covers any
+        ///     clear that runs afterwards.
+        func storeData(_ data: Data, forKey key: String, config: HCache.Configuration, response: HTTPURLResponse?, requestHeaders: [String: String]? = nil, isCurrent: @HRequestManagerActor () -> Bool = { true }) async {
+            registerCapacities(of: config)
 
             let directives = response?.value(forHTTPHeaderField: "Cache-Control").map { Self.parseCacheControlDirectives($0) }
 
             guard data.count <= config.maxObjectSizeInBytes, directives?.noStore != true else {
-                await removeCachedData(for: key)
+                if isCurrent() {
+                    await removeCachedData(for: key)
+                }
                 return
             }
 
@@ -314,11 +349,14 @@ extension HCache {
                 staleWhileRevalidate: directives?.staleWhileRevalidate.map { TimeInterval($0) }
             )
 
-            await persist(Entry(data: data, metadata: metadata), forKey: key, diskCapacity: config.diskCacheCapacityInBytes, token: cacheClearToken)
+            guard isCurrent() else { return }
+            await persist(Entry(data: data, metadata: metadata), forKey: key, token: cacheClearToken)
         }
 
         /// Refreshes the stored entry after a `304 Not Modified`: updates the timestamp and the
-        /// expiration from the response headers, and merges any updated validators.
+        /// expiration from the response headers, and merges any updated validators. A `304`
+        /// carries the `Cache-Control` a `200` would (RFC 9110, section 15.4.5): with `no-store`
+        /// the entry is removed, and its directives replace the stored ones.
         /// - Parameters:
         ///   - key: The cache key string.
         ///   - response: The 304 response; headers it omits keep the stored values.
@@ -335,6 +373,10 @@ extension HCache {
             guard let entry = current, token == cacheClearToken else { return }
 
             let directives = response?.value(forHTTPHeaderField: "Cache-Control").map { Self.parseCacheControlDirectives($0) }
+            if directives?.noStore == true {
+                await removeCachedData(for: key)
+                return
+            }
 
             // Headers absent from the 304 response retain the values of the stored entry.
             var metadata = entry.metadata
@@ -344,11 +386,14 @@ extension HCache {
             metadata.etag = response?.value(forHTTPHeaderField: "ETag") ?? entry.etag
             metadata.lastModified = response?.value(forHTTPHeaderField: "Last-Modified") ?? entry.lastModified
             metadata.alwaysStale = (directives?.noCache ?? entry.alwaysStale) || metadata.varyKey == "*"
-            metadata.mustRevalidate = directives.map(\.mustRevalidate) ?? entry.metadata.mustRevalidate
-            metadata.staleIfError = directives?.staleIfError.map { TimeInterval($0) } ?? entry.metadata.staleIfError
-            metadata.staleWhileRevalidate = directives?.staleWhileRevalidate.map { TimeInterval($0) } ?? entry.metadata.staleWhileRevalidate
+            if let directives {
+                metadata.mustRevalidate = directives.mustRevalidate
+                metadata.staleIfError = directives.staleIfError.map { TimeInterval($0) }
+                metadata.staleWhileRevalidate = directives.staleWhileRevalidate.map { TimeInterval($0) }
+            }
 
-            await persist(Entry(data: entry.data, metadata: metadata), forKey: key, diskCapacity: config.diskCacheCapacityInBytes, token: token)
+            registerCapacities(of: config)
+            await persist(Entry(data: entry.data, metadata: metadata), forKey: key, token: token)
         }
 
         /// Returns the stored validators (ETag and Last-Modified) for the given cache key, if available.
@@ -383,6 +428,7 @@ extension HCache {
         /// Clears all cached data, waiting until disk cleanup completes.
         func clearAllCache() async {
             cacheClearToken &+= 1
+            removalEpochs.removeAll()
             memoryCache.removeAllObjects()
             diskIndex = DiskIndex()
             lastPersistedAccess.removeAll()
@@ -400,8 +446,14 @@ extension HCache {
         /// Removes specific cached data, waiting until disk cleanup completes.
         /// - Parameter key: The cache key string of the entry to remove.
         func removeCachedData(for key: String) async {
+            removalEpochs[FileStorage.fileName(for: key), default: 0] &+= 1
             memoryCache.removeObject(forKey: NSString(string: key))
             await removeDiskData(forKey: key)
+        }
+
+        /// The number of removals of `key` since the last `clearAllCache` (see `removalEpochs`).
+        private func removalEpoch(forKey key: String) -> Int {
+            removalEpochs[FileStorage.fileName(for: key)] ?? 0
         }
 
         /// Applies the memory limit derived from the global default cache type. Called whenever
@@ -411,10 +463,13 @@ extension HCache {
         func applyDefaultCacheType(_ cacheType: HCache.CacheType) {
             if case .custom(let config) = cacheType {
                 defaultMemoryCapacity = config.memoryCacheCapacityInBytes
+                defaultDiskCapacity = config.diskCacheCapacityInBytes
             } else {
                 defaultMemoryCapacity = 0
+                defaultDiskCapacity = 0
             }
             largestRequestedMemoryCapacity = 0
+            largestRequestedDiskCapacity = 0
             updateMemoryCostLimit()
         }
 
@@ -455,18 +510,51 @@ extension HCache {
             await performStartupCleanup()
         }
 
-        // MARK: - Memory Limits
+        /// Runs the deletion step of the startup cleanup on files scanned with the given
+        /// modification dates. Intended for testing.
+        /// - Parameter candidates: The files and the modification dates the scan saw.
+        /// - Returns: The names of the deleted files.
+        nonisolated static func removeDiscardCandidatesForTesting(_ candidates: [(url: URL, modificationDate: Date?)]) -> [String] {
+            FileStorage.remove(candidates.map { FileStorage.DiscardCandidate(url: $0.url, modificationDate: $0.modificationDate) })
+        }
 
-        /// Raises the memory limit when a configuration asks for more than the current one.
-        private func registerMemoryCapacity(of config: HCache.Configuration) {
+        // MARK: - Capacity Limits
+
+        /// Raises the memory and disk limits when a configuration asks for more than the current ones.
+        private func registerCapacities(of config: HCache.Configuration) {
+            largestRequestedDiskCapacity = max(largestRequestedDiskCapacity, config.diskCacheCapacityInBytes)
             guard config.memoryCacheCapacityInBytes > largestRequestedMemoryCapacity else { return }
             largestRequestedMemoryCapacity = config.memoryCacheCapacityInBytes
             updateMemoryCostLimit()
         }
 
-        /// Applies the larger of the default and the largest requested memory capacity to the memory cache.
+        /// Applies the larger of the default and the largest requested memory capacity to the
+        /// memory cache. `NSCache` treats a limit of 0 as no limit, so before any `.custom`
+        /// configuration is known the default configuration's capacity applies.
         private func updateMemoryCostLimit() {
-            memoryCache.totalCostLimit = max(defaultMemoryCapacity, largestRequestedMemoryCapacity)
+            let limit = max(defaultMemoryCapacity, largestRequestedMemoryCapacity)
+            memoryCache.totalCostLimit = limit > 0 ? limit : Configuration().memoryCacheCapacityInBytes
+        }
+
+        /// The disk capacity entries are evicted down to: the larger of the default and the
+        /// largest requested one, or the default configuration's capacity when none is known.
+        private var diskCapacity: Int {
+            let capacity = max(defaultDiskCapacity, largestRequestedDiskCapacity)
+            return capacity > 0 ? capacity : Configuration().diskCacheCapacityInBytes
+        }
+
+        /// Whether a stored entry is the one a `304` validated: always, unless both carry an
+        /// `ETag` and they differ (weak comparison: `W/` prefixes are ignored).
+        /// - Parameters:
+        ///   - metadata: The stored entry.
+        ///   - validatedETag: The `ETag` of the `304`, if any.
+        private static func isValidated(_ metadata: HCache.EntryMetadata, by validatedETag: String?) -> Bool {
+            guard let validatedETag, let storedETag = metadata.etag else { return true }
+            func opaqueTag(_ tag: String) -> String {
+                let trimmed = tag.trimmingCharacters(in: .whitespaces)
+                return trimmed.hasPrefix("W/") ? String(trimmed.dropFirst(2)) : trimmed
+            }
+            return opaqueTag(validatedETag) == opaqueTag(storedETag)
         }
 
         // MARK: - Decoding
@@ -476,11 +564,14 @@ extension HCache {
         /// parsers) may share a URL, and an entry valid for one must survive a read by another.
         /// An entry nobody can decode anymore heals itself: the miss (or, for a revalidation,
         /// the unconditional refetch after a `304`) brings a full response that replaces it.
-        private func decodeEntry<T>(_ data: Data, decode: @Sendable (Data) throws -> T) -> T? {
+        ///
+        /// `nonisolated` and `async`, like the network flow's decoding: a large body is decoded
+        /// off `HRequestManagerActor`, so it does not hold up every other request meanwhile.
+        nonisolated private func decodeEntry<T: Sendable>(_ data: Data, decode: @Sendable (Data) throws -> T) async -> T? {
             do {
                 return try decode(data)
             } catch {
-                HLogger.log("A cached body cannot be decoded for this request; treating it as a miss", error: error, level: .debug)
+                await HLogger.log("A cached body cannot be decoded for this request; treating it as a miss", error: error, level: .debug)
                 return nil
             }
         }
@@ -513,8 +604,9 @@ extension HCache {
                 if let maxAge = directives.maxAge { return TimeInterval(maxAge) }
             }
 
-            if let expiresString = response.value(forHTTPHeaderField: "Expires"),
-               let expiresDate = Self.parseHTTPDate(expiresString) {
+            if let expiresString = response.value(forHTTPHeaderField: "Expires") {
+                // An invalid date (commonly `0` or `-1`) means already expired (RFC 9111, section 5.3).
+                guard let expiresDate = Self.parseHTTPDate(expiresString) else { return 0 }
                 let reference = response.value(forHTTPHeaderField: "Date").flatMap { Self.parseHTTPDate($0) } ?? now
                 return max(expiresDate.timeIntervalSince(reference), 0)
             }
@@ -559,7 +651,9 @@ extension HCache {
                 return true
             }
 
-            let currentAge = (date.map { max(now.timeIntervalSince($0), 0) } ?? 0) + Self.ageHeaderValue(of: response)
+            // `URLCache` does not keep the response time, so the apparent age (time since `Date`)
+            // stands in for the resident time: the larger of it and `Age` (RFC 9111, section 4.2.3).
+            let currentAge = max(date.map { max(now.timeIntervalSince($0), 0) } ?? 0, Self.ageHeaderValue(of: response))
             let grace = directives.mustRevalidate ? 0 : TimeInterval(max(directives.staleWhileRevalidate ?? 0, 0))
             return currentAge < lifetime + grace
         }
@@ -691,20 +785,21 @@ extension HCache {
         /// - Parameters:
         ///   - entry: The entry to persist.
         ///   - key: The cache key.
-        ///   - diskCapacity: The disk capacity in bytes.
         ///   - token: The clear token observed before the entry was produced. When a
         ///     `clearAllCache` ran since, the entry is not promoted nor indexed.
-        private func persist(_ entry: Entry, forKey key: String, diskCapacity: Int, token: Int) async {
+        private func persist(_ entry: Entry, forKey key: String, token: Int) async {
             guard let fileData = try? DiskCodec.encode(entry.metadata, body: entry.data) else {
                 HLogger.log("Failed to encode cache entry", level: .error)
                 return
             }
 
+            let epoch = removalEpoch(forKey: key)
             let written = await writeToDisk(fileData, forKey: key)
 
-            // Prevent L1/L2 desync if a clearAllCache executed while we were suspended writing to disk.
-            // The clear's barrier runs after this write, so the file itself is gone as well.
-            guard token == cacheClearToken else { return }
+            // Prevent L1/L2 desync if a clearAllCache, or a removal of this key, executed while
+            // we were suspended writing to disk. Its delete barrier runs after this write, so
+            // the file itself is gone as well.
+            guard token == cacheClearToken, epoch == removalEpoch(forKey: key) else { return }
 
             guard written else {
                 HLogger.log("Failed to persist cache entry on disk", level: .error)
@@ -714,7 +809,7 @@ extension HCache {
             memoryCache.setObject(entry, forKey: NSString(string: key), cost: entry.data.count)
             // The write itself set the file's modification date.
             recordPersistedAccess(FileStorage.fileName(for: key), at: Date())
-            await recordDiskWrite(forKey: key, size: fileData.count, diskCapacity: diskCapacity, token: token)
+            await recordDiskWrite(forKey: key, size: fileData.count, token: token)
         }
 
         /// Writes the encoded entry atomically. On iOS-family platforms the file is created with
@@ -744,7 +839,7 @@ extension HCache {
 
         /// Records a written file in the disk index and evicts the least recently used files
         /// until the disk capacity is respected. The file just written is never evicted.
-        private func recordDiskWrite(forKey key: String, size: Int, diskCapacity: Int, token: Int) async {
+        private func recordDiskWrite(forKey key: String, size: Int, token: Int) async {
             await ensureDiskIndex()
             guard token == cacheClearToken, diskIndex != nil else { return }
 
@@ -998,6 +1093,16 @@ extension HCache {
 // MARK: - Private File Storage Implementation
 
 private extension HCache {
+    /// Result of reading the metadata header of an entry file.
+    enum MetadataRead: Sendable {
+        /// The file could not be opened or read (it may be fine later).
+        case unreadable
+        /// The file is not a valid entry (other format version, truncated or corrupted).
+        case invalid
+        /// The metadata of a valid entry.
+        case metadata(EntryMetadata)
+    }
+
     /// Result of reading an entry file.
     enum DiskRead: Sendable {
         /// No file exists for the key.
@@ -1065,13 +1170,29 @@ private extension HCache {
         /// Reads only the metadata header of an entry file.
         /// - Parameter fileURL: The file URL.
         static func readMetadata(at fileURL: URL) -> EntryMetadata? {
-            guard let handle = try? FileHandle(forReadingFrom: fileURL) else { return nil }
+            guard case .metadata(let metadata) = readMetadataResult(at: fileURL) else { return nil }
+            return metadata
+        }
+
+        /// Reads only the metadata header of an entry file, telling a file that cannot be read
+        /// right now (e.g. protected before the first unlock, or too many open files) apart
+        /// from one that is not a valid entry.
+        /// - Parameter fileURL: The file URL.
+        static func readMetadataResult(at fileURL: URL) -> MetadataRead {
+            guard let handle = try? FileHandle(forReadingFrom: fileURL) else { return .unreadable }
             defer { try? handle.close() }
-            guard let prefix = try? handle.read(upToCount: DiskCodec.prefixLength),
-                  let headerLength = DiskCodec.headerLength(fromPrefix: prefix),
-                  let header = try? handle.read(upToCount: headerLength),
-                  header.count == headerLength else { return nil }
-            return DiskCodec.decodeMetadata(header)
+            guard let prefix = try? handle.read(upToCount: DiskCodec.prefixLength) else { return .unreadable }
+            guard let headerLength = DiskCodec.headerLength(fromPrefix: prefix) else { return .invalid }
+            guard let header = try? handle.read(upToCount: headerLength) else { return .unreadable }
+            guard header.count == headerLength, let metadata = DiskCodec.decodeMetadata(header) else { return .invalid }
+            return .metadata(metadata)
+        }
+
+        /// The modification date of a file, read from the file system on every call (`URL`
+        /// resource values are cached per instance, so they would miss a rewrite).
+        /// - Parameter fileURL: The file URL.
+        static func modificationDate(of fileURL: URL) -> Date? {
+            (try? FileManager.default.attributesOfItem(atPath: fileURL.path))?[.modificationDate] as? Date
         }
 
         /// Builds the disk index from the directory listing: sizes and modification dates only.
@@ -1089,24 +1210,28 @@ private extension HCache {
         }
 
         /// Lists the files the startup cleanup should delete: expired entries without
-        /// validators (past any `stale-while-revalidate` window), unreadable or outdated
-        /// entries, and legacy files.
+        /// validators (past any `stale-while-revalidate` and `stale-if-error` window), invalid or
+        /// outdated entries, and legacy files. A file that cannot be read right now is kept.
         /// - Parameter directory: The cache directory to scan.
         static func discardCandidates(at directory: URL) -> [DiscardCandidate] {
-            guard let files = try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: [.contentModificationDateKey]) else { return [] }
+            guard let files = try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil) else { return [] }
 
             var candidates: [DiscardCandidate] = []
             for fileURL in files {
                 switch fileURL.pathExtension {
                 case "cache":
-                    let modificationDate = (try? fileURL.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
-                    guard let metadata = readMetadata(at: fileURL) else {
-                        candidates.append(DiscardCandidate(url: fileURL, modificationDate: modificationDate))
+                    let modificationDate = modificationDate(of: fileURL)
+                    switch readMetadataResult(at: fileURL) {
+                    case .unreadable:
+                        // Kept: it may be valid and readable later (e.g. after the first unlock).
                         continue
-                    }
-                    // Expired entries are kept while they can be revalidated or served on error.
-                    if metadata.isDiscardable(maxAge: nil) {
+                    case .invalid:
                         candidates.append(DiscardCandidate(url: fileURL, modificationDate: modificationDate))
+                    case .metadata(let metadata):
+                        // Expired entries are kept while they can be revalidated or served on error.
+                        if metadata.isDiscardable(maxAge: nil) {
+                            candidates.append(DiscardCandidate(url: fileURL, modificationDate: modificationDate))
+                        }
                     }
                 case "meta":
                     // Legacy format: data file plus a .meta sidecar.
@@ -1126,8 +1251,7 @@ private extension HCache {
             var removed: [String] = []
             for candidate in candidates {
                 if let scanned = candidate.modificationDate {
-                    let current = (try? candidate.url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
-                    guard current == scanned else { continue }
+                    guard modificationDate(of: candidate.url) == scanned else { continue }
                 }
                 if (try? FileManager.default.removeItem(at: candidate.url)) != nil {
                     removed.append(candidate.url.lastPathComponent)

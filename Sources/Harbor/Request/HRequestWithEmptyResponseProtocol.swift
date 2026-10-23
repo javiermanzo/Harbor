@@ -14,7 +14,8 @@ import HarborCore
 public protocol HRequestWithEmptyResponseProtocol: HRequestBaseRequestProtocol {
     /// Sends the request. Never throws: failures are returned as `.error`. Cancelling the
     /// calling `Task` cancels the request (`.error(.cancelled)`).
-    /// - Returns: `.success` for a 2xx response, or `.error` with the reason it failed.
+    /// - Returns: `.success` for a 2xx response (or a `304 Not Modified` answering your own
+    /// conditional headers), or `.error` with the reason it failed.
     func request() async -> HResponse
 }
 

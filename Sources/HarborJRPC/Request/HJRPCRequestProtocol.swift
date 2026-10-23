@@ -203,6 +203,6 @@ extension HJRPCRequestProtocol {
             throw .codable(modelName: "HJRPCRequest", error: error)
         }
 
-        return HJRPCRequestWrapper<RawModel>(requestedDebugType: requestedDebugType, jsonBody: jsonBody, rawBody: rawBody, jrpcID: jrpcID, url: url, needsAuth: needsAuth, retryPolicy: retryPolicy, headerParameters: headerParameters, timeoutInterval: timeoutInterval)
+        return HJRPCRequestWrapper<RawModel>(requestedDebugType: requestedDebugType, jsonBody: jsonBody, rawBody: rawBody, jrpcID: jrpcID, url: url, needsAuth: needsAuth, retryPolicy: retryPolicy, headerParameters: headerParameters, timeoutInterval: timeoutInterval, logName: "\(String(describing: Swift.type(of: self))) (\(method))")
     }
 }

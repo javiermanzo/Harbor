@@ -15,6 +15,8 @@ protocol HJRPCTransportRequest: HPostRequestProtocol, HRequestWithResultProtocol
     /// The debug type to log with, or `nil` when no wrapped request opted into logging
     /// by conforming to `HDebugRequestProtocol`.
     var requestedDebugType: HDebugRequestType? { get }
+    /// The name debug logs show: the app's request type and JSON-RPC method, not the wrapper.
+    var logName: String { get }
 }
 
 // MARK: - Sending

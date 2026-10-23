@@ -29,6 +29,8 @@ struct HJRPCRequestWrapper<RawModel: HModel>: Sendable {
     let headerParameters: [String: String]?
     /// The timeout of the JSON-RPC request, or `nil` to use Harbor's default.
     let timeoutInterval: TimeInterval?
+    /// The name debug logs show (e.g. `BlockNumberRequest (eth_blockNumber)`).
+    let logName: String
 }
 
 // MARK: - HJRPCTransportRequest

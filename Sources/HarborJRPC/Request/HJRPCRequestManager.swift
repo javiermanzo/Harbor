@@ -197,7 +197,8 @@ extension HJRPCRequestManager {
                                               needsAuth: requests.contains { $0.needsAuth },
                                               retryPolicy: batchRetryPolicy(for: requests),
                                               headerParameters: batchHeaders(for: requests),
-                                              timeoutInterval: requests.compactMap(\.timeoutInterval).max())
+                                              timeoutInterval: requests.compactMap(\.timeoutInterval).max(),
+                                              logName: "JSON-RPC batch (\(requests.count) requests)")
         let response: HResponseWithResult = await harborRequest.send()
 
         switch response {

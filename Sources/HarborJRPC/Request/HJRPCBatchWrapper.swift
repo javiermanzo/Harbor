@@ -25,6 +25,8 @@ struct HJRPCBatchWrapper: Sendable {
     let headerParameters: [String: String]?
     /// The longest timeout of the batched requests, or `nil` to use Harbor's default.
     let timeoutInterval: TimeInterval?
+    /// The name debug logs show (e.g. `JSON-RPC batch (3 requests)`).
+    let logName: String
 }
 
 // MARK: - HJRPCTransportRequest

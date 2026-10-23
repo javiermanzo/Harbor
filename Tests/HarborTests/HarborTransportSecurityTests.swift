@@ -209,10 +209,10 @@ final class HarborTransportSecurityTests: XCTestCase {
     func testPinsForAHostWithASchemeOrSpacesAreTrimmedOrIgnored() async {
         // Given hosts with surrounding spaces, a scheme and non-ASCII characters
         HConfig.shared.sslPinningKeysByHost = nil
-        Harbor.setSSLPinningKeys([wrongPin], forHosts: ["  API.example.com  ", "https://api.example.com", "bücher.de"])
+        Harbor.setSSLPinningKeys([wrongPin], forHosts: ["  API.example.com  ", "https://api.example.com", "bücher.de", "api.example.com:443", "::1"])
 
-        // Then only the bare host is stored, normalized
-        XCTAssertEqual(HConfig.shared.sslPinningKeysByHost.map { Set($0.keys) }, ["api.example.com"])
+        // Then only the bare hosts are stored, normalized (an IPv6 address is a bare host)
+        XCTAssertEqual(HConfig.shared.sslPinningKeysByHost.map { Set($0.keys) }, ["api.example.com", "::1"])
     }
 
     // MARK: - Redirects (F5)

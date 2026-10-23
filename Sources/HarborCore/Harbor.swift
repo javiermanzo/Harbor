@@ -118,8 +118,9 @@ public extension Harbor {
     /// Host names are normalized (surrounding whitespace removed, lowercased, without a
     /// trailing root-label dot) before being stored and matched against
     /// `URLProtectionSpace.host`. They must be bare host names (`api.example.com`, punycode
-    /// for internationalized names): a value with a scheme, a path or non-ASCII characters
-    /// can never match, so it logs a security warning and is skipped.
+    /// for internationalized names), matched exactly (subdomains are not included): a value
+    /// with a scheme, a port, a path or non-ASCII characters can never match, so it logs a
+    /// security warning and is skipped.
     /// - Parameters:
     ///   - sslPinningKeys: The pins for the hosts, or `nil` to stop pinning them.
     ///   - hosts: The hosts the pins apply to (matched against `URLProtectionSpace.host`).
@@ -133,7 +134,7 @@ public extension Harbor {
                     continue
                 }
                 guard isPinnableHost(normalizedHost) else {
-                    HLogger.securityWarning("SSL pinning host \"\(host)\" is not a bare host name (no scheme, path, spaces or non-ASCII characters; use punycode) and can never match: it is ignored.")
+                    HLogger.securityWarning("SSL pinning host \"\(host)\" is not a bare host name (no scheme, port, path, spaces or non-ASCII characters; use punycode) and can never match: it is ignored.")
                     continue
                 }
                 keysByHost[normalizedHost] = sslPinningKeys
@@ -326,10 +327,12 @@ extension Harbor {
     }
 
     /// Whether `host` can match a `URLProtectionSpace.host`: an ASCII host name or IP
-    /// address without a scheme, path or whitespace.
+    /// address without a scheme, port, path or whitespace. (An IPv6 address has several colons;
+    /// a single one is a `host:port`.)
     /// - Parameter host: The normalized host.
     static func isPinnableHost(_ host: String) -> Bool {
         !host.contains("/") && !host.contains(where: \.isWhitespace) && host.allSatisfy(\.isASCII)
+            && host.filter { $0 == ":" }.count != 1
     }
 }
 

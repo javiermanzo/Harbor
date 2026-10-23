@@ -27,10 +27,7 @@ final class HarborSecurityTests: XCTestCase {
     }
 
     override func setUp() async throws {
-        Harbor.removeAllMocks()
-        // Reset security configurations
-        Harbor.setSSLPinningKeys(nil)
-        Harbor.clearMTLS()
+        await HarborTestDefaults.restore()
     }
 
     override func tearDown() async throws {

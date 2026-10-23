@@ -34,8 +34,10 @@ jobs:
       # Only warnings located under this repository's `Sources/` are fatal. The pattern is
       # anchored to the workspace path so dependency paths (`.build/checkouts/*/Sources/`)
       # can never match.
+      # Recent toolchains color diagnostics even when piped, so ANSI escapes are stripped first.
       run: |
-        if grep -E "^${GITHUB_WORKSPACE}/Sources/[^:]+:[0-9]+:[0-9]+: warning:" build.log; then
+        sed 's/\x1b\[[0-9;]*m//g' build.log > build-plain.log
+        if grep -E "^${GITHUB_WORKSPACE}/Sources/[^:]+:[0-9]+:[0-9]+: warning:" build-plain.log; then
           echo "::error::Compiler warnings found in Sources/. Fix them locally with: swift build -Xswiftc -warnings-as-errors"
           exit 1
         fi
@@ -84,7 +86,8 @@ jobs:
       run: python3 scripts/generate_coverage_report.py ./lcov.info ./base-coverage/lcov.info ./coverage_comment.md
 
     - name: Post Coverage Comment to PR
-      if: github.event_name == 'pull_request'
+      # A pull request from a fork gets a read-only token: it cannot comment.
+      if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
       uses: actions/github-script@d746ffe35508b1917358783b479e04febd2b8f71 # v9.0.0
       with:
         github-token: ${{ secrets.GITHUB_TOKEN }}
@@ -96,13 +99,14 @@ jobs:
           const owner = context.repo.owner;
           const repo = context.repo.repo;
 
-          const comments = await github.rest.issues.listComments({
+          const comments = await github.paginate(github.rest.issues.listComments, {
             owner,
             repo,
             issue_number,
+            per_page: 100,
           });
 
-          const botComment = comments.data.find(c =>
+          const botComment = comments.find(c =>
             c.user && c.user.login === 'github-actions[bot]' &&
             (c.body.includes('Coverage Report') || c.body.includes('Line Coverage Report'))
           );

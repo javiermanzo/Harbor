@@ -23,14 +23,7 @@ final class HarborConfigurationTests: XCTestCase {
     }
 
     override func tearDown() async throws {
-        // Reset all configurations to default
-        await Harbor.setDefaultHeaderParameters(nil)
-        await Harbor.setAuthProvider(nil)
-        await Harbor.setCustomURLSession(URLSession.shared)
-        await Harbor.setSSLPinningKeys(nil)
-        await Harbor.clearMTLS()
-        await Harbor.setMocksEnabled(true)
-        await Harbor.removeAllMocks()
+        await HarborTestDefaults.restore()
     }
 
     // MARK: - Default Headers Tests

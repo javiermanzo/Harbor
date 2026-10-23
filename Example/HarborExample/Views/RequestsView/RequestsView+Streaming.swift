@@ -6,10 +6,7 @@
 //
 
 import SwiftUI
-import HarborJRPC
-import HarborWebSocket
 import Harbor
-import LogBird
 
 // MARK: - Streaming and pagination requests
 extension RequestsView {

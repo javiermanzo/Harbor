@@ -119,9 +119,7 @@ final class HarborOfflineCacheFallbackTests: XCTestCase {
 
     override func tearDown() async throws {
         HRequestManager.connectivityMonitor = HRequestManagerMonitor()
-        Harbor.setProtocolClasses(nil)
-        HConfig.shared.customURLSession = nil
-        await Harbor.clearAllCache()
+        await HarborTestDefaults.restore()
     }
 
     func testFreshCustomCacheEntryIsServedWhenMonitorReportsOffline() async throws {

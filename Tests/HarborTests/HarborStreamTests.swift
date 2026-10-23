@@ -21,10 +21,7 @@ final class HarborStreamTests: XCTestCase {
     }
 
     override func tearDown() async throws {
-        // Clear all cache after each test
-        await Harbor.clearAllCache()
-        await Harbor.removeAllMocks()
-        await setStubbedProtocolClasses(nil)
+        await HarborTestDefaults.restore()
     }
 
     // MARK: - Request Stream Tests
@@ -135,7 +132,9 @@ final class HarborStreamTests: XCTestCase {
             XCTFail("Stream should not throw error: \(error)")
         }
 
-        XCTAssertEqual(results.count, 2, "Should get both cache and remote results")
+        guard results.count == 2 else {
+            return XCTFail("Should get both cache and remote results, got \(results.count)")
+        }
         XCTAssertEqual(results[0].0.value, "stream-both-test")
         XCTAssertEqual(results[0].1, .cache, "First result should be from cache")
         XCTAssertEqual(results[1].0.value, "stream-both-test")
@@ -207,7 +206,7 @@ final class HarborStreamTests: XCTestCase {
 
     func testRequestStreamNetworkError() async throws {
         LocalStubURLProtocol.clearStubs()
-        LocalStubURLProtocol.registerStub(for: URL(string: "https://stream.example.com/data")!, data: Data(), response: HTTPURLResponse(), error: URLError(.notConnectedToInternet))
+        LocalStubURLProtocol.registerStub(for: URL(string: "https://stream.example.com/test")!, data: Data(), response: HTTPURLResponse(), error: URLError(.notConnectedToInternet))
         await Harbor.setProtocolClasses([LocalStubURLProtocol.self])
         defer { Task { await Harbor.setProtocolClasses(nil) } }
 
@@ -220,14 +219,14 @@ final class HarborStreamTests: XCTestCase {
             }
             XCTFail("Stream should throw network error")
         } catch {
-            // Expected error (should be a network-related error)
-            XCTAssertTrue(error is HRequestError, "Should throw HRequestError")
+            // With nothing cached, the offline error surfaces
+            XCTAssertEqual(error as? HRequestError, .noConnection)
         }
     }
 
     func testRequestStreamCacheAndRemoteWithNetworkError() async throws {
         LocalStubURLProtocol.clearStubs()
-        LocalStubURLProtocol.registerStub(for: URL(string: "https://stream.example.com/data")!, data: Data(), response: HTTPURLResponse(), error: URLError(.notConnectedToInternet))
+        LocalStubURLProtocol.registerStub(for: URL(string: "https://stream.example.com/test")!, data: Data(), response: HTTPURLResponse(), error: URLError(.notConnectedToInternet))
         await Harbor.setProtocolClasses([LocalStubURLProtocol.self])
         defer { Task { await Harbor.setProtocolClasses(nil) } }
 
@@ -249,19 +248,18 @@ final class HarborStreamTests: XCTestCase {
         // Remove mock to simulate network error
         await Harbor.removeAllMocks()
 
-        // Test cache-and-remote stream with network error
+        // Test cache-and-remote stream when the device is offline
         var results: [(TestStreamData, HOriginType)] = []
         do {
             for try await (response, origin) in request.requestStream(source: .cacheAndRemote) {
                 results.append((response, origin))
             }
-            XCTFail("Stream should throw error when remote fails")
         } catch {
-             // Expected error
+            XCTFail("Offline, the fresh cached entry stands in for the network: the stream must not throw, got \(error)")
         }
 
-        // Should get only cache result since network fails
-        XCTAssertEqual(results.count, 1, "Should get only cache result when network fails")
+        // The cached copy that stood in for the network is yielded once, tagged .cache
+        XCTAssertEqual(results.count, 1, "Should get only the cached result when offline")
         XCTAssertEqual(results.first?.0.value, "stream-cache-with-error-test")
         XCTAssertEqual(results.first?.1, .cache)
     }
@@ -275,7 +273,7 @@ final class HarborStreamTests: XCTestCase {
         }
 
         let request = TestStreamRequest()
-        let url = "https://stream.example.com/data"
+        let url = "https://stream.example.com/test"
 
         // Manually store expired data in the cache (max-age=0 means it's immediately expired)
         let response = HTTPURLResponse(url: URL(string: url)!, statusCode: 200, httpVersion: nil, headerFields: ["Cache-Control": "max-age=0"])
@@ -298,7 +296,7 @@ final class HarborStreamTests: XCTestCase {
     /// It should ignore the invalid cache entry and proceed to yield the successful remote response.
     func testRequestStreamCacheAndRemoteDecodingError() async {
         let request = TestStreamRequest()
-        let url = "https://stream.example.com/data"
+        let url = "https://stream.example.com/test"
 
         // Store invalid JSON data in the cache so decoding throws
         let invalidData = Data("invalid json".utf8)

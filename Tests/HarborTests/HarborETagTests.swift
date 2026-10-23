@@ -13,9 +13,7 @@ import XCTest
 final class HarborETagTests: XCTestCase {
 
     override func setUp() async throws {
-        Harbor.removeAllMocks()
-        await Harbor.clearAllCache()
-        await Harbor.setDefaultCacheType(.urlCache())
+        await HarborTestDefaults.restore()
     }
 
     override func tearDown() async throws {

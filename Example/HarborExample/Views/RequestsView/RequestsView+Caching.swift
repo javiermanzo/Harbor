@@ -6,10 +6,7 @@
 //
 
 import SwiftUI
-import HarborJRPC
-import HarborWebSocket
 import Harbor
-import LogBird
 
 // MARK: - Caching requests
 extension RequestsView {

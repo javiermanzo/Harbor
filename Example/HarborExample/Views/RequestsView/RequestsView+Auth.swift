@@ -6,10 +6,7 @@
 //
 
 import SwiftUI
-import HarborJRPC
-import HarborWebSocket
 import Harbor
-import LogBird
 
 // MARK: - Authentication, headers and retry requests
 extension RequestsView {

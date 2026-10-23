@@ -6,10 +6,7 @@
 //
 
 import SwiftUI
-import HarborJRPC
-import HarborWebSocket
 import Harbor
-import LogBird
 
 // MARK: - Mocking and debug requests
 extension RequestsView {

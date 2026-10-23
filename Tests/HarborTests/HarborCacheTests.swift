@@ -22,10 +22,7 @@ final class HarborCacheTests: XCTestCase {
     }
 
     override func tearDown() async throws {
-        // Clear all cache after each test
-        await Harbor.clearAllCache()
-        Harbor.removeAllMocks()
-        Harbor.setDefaultCacheType(.disabled)
+        await HarborTestDefaults.restore()
     }
 
     // MARK: - Cache Configuration Tests

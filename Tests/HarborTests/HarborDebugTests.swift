@@ -19,9 +19,7 @@ final class HarborDebugTests: XCTestCase {
     }
 
     override func tearDown() async throws {
-        await Harbor.removeAllMocks()
-        await Harbor.setLogSensitiveValues(false)
-        await Harbor.setCustomURLSession(URLSession.shared)
+        await HarborTestDefaults.restore()
     }
 
     // MARK: - Debug Type Tests

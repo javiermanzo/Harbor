@@ -12,7 +12,7 @@ import XCTest
 final class HarborTests: XCTestCase {
 
     override func setUp() async throws {
-        await Harbor.removeAllMocks()
+        await HarborTestDefaults.restore()
     }
 
     override func tearDown() async throws {

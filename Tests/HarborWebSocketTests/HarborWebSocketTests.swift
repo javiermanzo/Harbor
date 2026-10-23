@@ -166,6 +166,7 @@ final class HarborWebSocketTests: XCTestCase {
         // Then
         let connection = try XCTUnwrap(server.connections.first)
         let frames = await connection.waitForFrames(count: 3)
+        guard frames.count == 3 else { return XCTFail("Expected 3 frames, got \(frames)") }
         XCTAssertEqual(frames[0], .text("hello"))
         XCTAssertEqual(frames[1], .data(Data([0xAA])))
         guard case .text(let json) = frames[2] else { return XCTFail("Expected a text frame") }

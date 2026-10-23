@@ -7,9 +7,7 @@
 
 import SwiftUI
 import HarborJRPC
-import HarborWebSocket
 import Harbor
-import LogBird
 
 // MARK: - JSON-RPC requests
 extension RequestsView {

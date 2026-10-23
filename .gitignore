@@ -17,8 +17,5 @@ Example/Pods
 Example/Podfile.lock
 Example/output
 
-# Harbor Cache files
-harbor_cache/
-
 TestResults
 TestResults.xcresult

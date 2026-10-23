@@ -9,6 +9,7 @@ import Foundation
 import HarborCore
 
 // MARK: - DELETE Request Protocol
+
 /// Protocol for DELETE requests that remove resources.
 public protocol HDeleteRequestProtocol: HRequestWithEmptyResponseProtocol {}
 

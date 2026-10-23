@@ -25,6 +25,7 @@ package enum HSessionProfile {
 }
 
 // MARK: - URLSession Management
+
 extension HRequestManager {
     /// Inputs that differentiate internally built sessions; requests with different
     /// signatures need different sessions. Timeouts are not part of it: they are set on each
@@ -32,7 +33,7 @@ extension HRequestManager {
     private struct SessionSignature: Hashable {
         /// The cache configuration a session is built for.
         enum CacheSignature: Hashable {
-            /// No `URLCache` (requests using `.custom` or `.disabled`).
+            /// No `URLCache` (REST requests using `.custom` or `.disabled`, and WebSocket connections).
             case isolated
             /// A `URLCache` (by identity) and the request cache policy.
             case urlCache(ObjectIdentifier, URLRequest.CachePolicy)
@@ -137,7 +138,7 @@ extension HRequestManager {
     }
 
     /// Number of retired sessions still held by in-flight attempts. Intended for testing.
-    package static var retiredURLSessionCount: Int {
+    static var retiredURLSessionCount: Int {
         retiredSessions.count
     }
 
@@ -146,7 +147,7 @@ extension HRequestManager {
     /// mTLS, SSL pinning, cookies, protocol classes) change. A user-provided session is never
     /// touched. Sessions still held by in-flight attempts are invalidated when those attempts
     /// release them.
-    package static func invalidateURLSession() {
+    static func invalidateURLSession() {
         let sessions = cachedSessions.values.map(\.session)
         cachedSessions.removeAll()
         sessions.forEach(retire)

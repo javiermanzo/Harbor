@@ -20,20 +20,7 @@ struct HRESTConfig {
     var cacheType: HCache.CacheType = .urlCache()
     /// Whether registered mocks answer requests. Default is true in DEBUG builds, false otherwise.
     var mocksEnabled: Bool = HBuild.isDebug
-    /// Default JSON decoder used for parsing responses.
-    nonisolated static var jsonDecoder: JSONDecoder {
-        get { HJSONDecoderStorage.decoder }
-        set { HJSONDecoderStorage.decoder = newValue }
-    }
-}
-
-/// Thread-safe storage for the default JSON decoder used across Harbor.
-private enum HJSONDecoderStorage {
-    /// The shared decoder, protected by a lock.
-    private static let storage = HLockedState(JSONDecoder())
-    /// Accessor for the thread-safe JSON decoder instance.
-    static var decoder: JSONDecoder {
-        get { storage.withLock { $0 } }
-        set { storage.withLock { $0 = newValue } }
-    }
+    /// Default JSON decoder used for parsing responses (`parseData(data:model:)`). It is
+    /// never reconfigured, and decoding with a shared `JSONDecoder` is thread-safe.
+    nonisolated static let jsonDecoder = JSONDecoder()
 }

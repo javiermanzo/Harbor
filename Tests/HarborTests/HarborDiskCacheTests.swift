@@ -19,6 +19,7 @@ final class HarborDiskCacheTests: XCTestCase {
 
     override func tearDown() async throws {
         await Harbor.clearAllCache()
+        Harbor.setDefaultCacheType(.urlCache())
         await HCache.Manager.shared.waitForPendingDiskOperations()
     }
 
@@ -140,6 +141,7 @@ final class HarborDiskCacheTests: XCTestCase {
         // Bodies are stored raw, so each 900 KB payload takes ~900 KB on disk:
         // three fit the 3 MB capacity, a fourth does not.
         let config = HCache.Configuration(diskCacheCapacityInMBs: 3)
+        Harbor.setDefaultCacheType(.custom(config))
         let entryData = try! JSONEncoder().encode(String(repeating: "a", count: 900 * 1024))
 
         let keys = [
@@ -169,6 +171,7 @@ final class HarborDiskCacheTests: XCTestCase {
     func testDiskCapacityIsEnforcedAcrossManyWrites() async throws {
         // Given a 1 MB capacity and 300 KB entries
         let config = HCache.Configuration(diskCacheCapacityInMBs: 1)
+        Harbor.setDefaultCacheType(.custom(config))
         let entryData = Data(count: 300 * 1024)
 
         // When many entries are written
@@ -185,6 +188,74 @@ final class HarborDiskCacheTests: XCTestCase {
         XCTAssertEqual(HCache.Manager.shared.diskIndexTotalSize, total)
         XCTAssertTrue(fileExists(for: "https://disk.test/capacity-9"), "The newest entry should be kept")
         XCTAssertFalse(fileExists(for: "https://disk.test/capacity-0"), "The oldest entry should be evicted")
+    }
+
+    func testASmallerPerRequestDiskCapacityNeverShrinksTheSharedCache() async throws {
+        // Given a 3 MB default and three 900 KB entries stored under it
+        Harbor.setDefaultCacheType(.custom(HCache.Configuration(diskCacheCapacityInMBs: 3)))
+        let entryData = Data(count: 900 * 1024)
+        for index in 0 ..< 3 {
+            await HCache.Manager.shared.storeData(entryData, forKey: "https://disk.test/shared-\(index)", config: HCache.Configuration(diskCacheCapacityInMBs: 3), response: nil)
+        }
+
+        // When a request type with a 1 MB capacity stores an entry
+        await HCache.Manager.shared.storeData(Data(count: 10), forKey: "https://disk.test/small", config: HCache.Configuration(diskCacheCapacityInMBs: 1), response: nil)
+        await HCache.Manager.shared.waitForPendingDiskOperations()
+
+        // Then the entries stored under the larger shared capacity are kept
+        for index in 0 ..< 3 {
+            XCTAssertTrue(fileExists(for: "https://disk.test/shared-\(index)"))
+        }
+    }
+
+    func testADiskReadSuspendedWhileTheKeyIsRewrittenDoesNotOverwriteTheNewerEntry() async throws {
+        // Given an entry on disk only
+        let key = "https://disk.test/read-vs-write"
+        let config = HCache.Configuration()
+        let fresh = HTTPURLResponse(url: URL(string: key)!, statusCode: 200, httpVersion: nil, headerFields: ["Cache-Control": "max-age=600"])
+        await HCache.Manager.shared.storeData(try JSONEncoder().encode("old"), forKey: key, config: config, response: fresh)
+        HCache.Manager.shared.simulateRelaunch()
+
+        // When a read is decoding the old body (off the actor) while a newer response is stored
+        let started = HLockedState(false)
+        let release = DispatchSemaphore(value: 0)
+        let read = Task { () -> String? in
+            await HCache.Manager.shared.getCachedData(forKey: key, config: config) { data in
+                started.withLock { $0 = true }
+                release.wait()
+                return try JSONDecoder().decode(String.self, from: data)
+            }
+        }
+        while !started.withLock({ $0 }) {
+            try await Task.sleep(nanoseconds: 5_000_000)
+        }
+        await HCache.Manager.shared.storeData(try JSONEncoder().encode("new"), forKey: key, config: config, response: fresh)
+        release.signal()
+        _ = await read.value
+
+        // Then the newer entry is the one served
+        let served: String? = await HCache.Manager.shared.getCachedData(forKey: key, type: String.self, config: config)
+        XCTAssertEqual(served, "new")
+    }
+
+    func testStartupCleanupKeepsAFileRewrittenAfterTheScan() async throws {
+        // Given an expired entry without validators, picked by the startup scan
+        let key = "https://disk.test/rewritten"
+        var expired = HCache.EntryMetadata(timestamp: Date(timeIntervalSinceNow: -3600), expirationTime: 60)
+        expired.etag = nil
+        try HCache.DiskCodec.encode(expired, body: Data("old".utf8)).write(to: fileURL(for: key))
+        let past = Date(timeIntervalSinceNow: -600)
+        try FileManager.default.setAttributes([.modificationDate: past], ofItemAtPath: fileURL(for: key).path)
+        let staleURL = fileURL(for: key)
+        _ = try staleURL.resourceValues(forKeys: [.contentModificationDateKey])
+
+        // When the file is rewritten (a fresh response) before the deletion runs
+        try HCache.DiskCodec.encode(HCache.EntryMetadata(timestamp: Date(), expirationTime: 3600), body: Data("new".utf8)).write(to: fileURL(for: key))
+        let removed = HCache.Manager.removeDiscardCandidatesForTesting([(staleURL, past)])
+
+        // Then the rewritten file is kept
+        XCTAssertTrue(removed.isEmpty)
+        XCTAssertTrue(fileExists(for: key))
     }
 
     // MARK: - Format Tests

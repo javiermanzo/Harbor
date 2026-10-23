@@ -17,9 +17,13 @@ enum PKCS12Error {
     case malformedContents
 }
 
-// MARK: - Error, Equatable
+// MARK: - Error
 
-extension PKCS12Error: Error, Equatable {}
+extension PKCS12Error: Error {}
+
+// MARK: - Equatable
+
+extension PKCS12Error: Equatable {}
 
 /// Helper class to extract client identity and certificates from a PKCS#12 archive.
 struct PKCS12 {
@@ -27,22 +31,13 @@ struct PKCS12 {
     /// Logger instance for PKCS#12 import events. Toggled by `Harbor.setLoggingEnabled(_:)`.
     static let logger = LogBird(subsystem: "com.harbor", category: "p12")
 
-    /// The label of the imported item.
-    let label: String?
-    /// The key identifier.
-    let keyID: Data?
-    /// The trust management object.
-    let trust: SecTrust?
     /// The certificate chain including intermediate certificates.
     let certChain: [SecCertificate]?
     /// The extracted client identity.
     let identity: SecIdentity?
 
     /// Creates a new PKCS12 container with parsed contents.
-    private init(label: String?, keyID: Data?, trust: SecTrust?, certChain: [SecCertificate]?, identity: SecIdentity?) {
-        self.label = label
-        self.keyID = keyID
-        self.trust = trust
+    private init(certChain: [SecCertificate]?, identity: SecIdentity?) {
         self.certChain = certChain
         self.identity = identity
     }
@@ -79,16 +74,13 @@ struct PKCS12 {
 
         guard let theItemsNSArray = items as NSArray?,
               let dictArray = theItemsNSArray as? [[String: AnyObject]] else {
-            #if DEBUG
-            Self.logger.log("PKCS12: error loading items")
-            #endif
+            if HBuild.isDebug {
+                Self.logger.log("PKCS12: error loading items")
+            }
             throw .malformedContents
         }
 
-        return PKCS12(label: getValue(by: kSecImportItemLabel, dictionaryArray: dictArray),
-                      keyID: getValue(by: kSecImportItemKeyID, dictionaryArray: dictArray) as Data?,
-                      trust: getValue(by: kSecImportItemTrust, dictionaryArray: dictArray),
-                      certChain: getValue(by: kSecImportItemCertChain, dictionaryArray: dictArray),
+        return PKCS12(certChain: getValue(by: kSecImportItemCertChain, dictionaryArray: dictArray),
                       identity: getValue(by: kSecImportItemIdentity, dictionaryArray: dictArray))
     }
 

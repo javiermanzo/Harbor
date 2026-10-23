@@ -129,49 +129,6 @@ extension HJSONValue {
             return object.mapValues { $0.anyValue }
         }
     }
-
-    /// Creates a JSON value from a `JSONSerialization` object graph.
-    /// - Parameter anyValue: An object produced by `JSONSerialization` (`NSNull`, `Bool`, `String`, `NSNumber`, `[Any]` or `[String: Any]`).
-    init?(anyValue: Any) {
-        switch anyValue {
-        case is NSNull:
-            self = .null
-        case let value as String:
-            self = .string(value)
-        case let value as NSDecimalNumber:
-            let decimal = value.decimalValue
-            if decimal.isIntegerOutsideIntRange {
-                self = .decimal(decimal)
-            } else if decimal.isIntegral {
-                self = .int(value.intValue)
-            } else {
-                self = .double(value.doubleValue)
-            }
-        case let value as NSNumber:
-            if CFGetTypeID(value) == CFBooleanGetTypeID() {
-                self = .bool(value.boolValue)
-            } else if CFNumberIsFloatType(value) {
-                self = .double(value.doubleValue)
-            } else if Self.isUnsigned(value), value.uint64Value > UInt64(Int.max) {
-                // `intValue` would wrap an unsigned value above Int.max to a negative number.
-                self = .decimal(Decimal(value.uint64Value))
-            } else {
-                self = .int(value.intValue)
-            }
-        case let value as [Any]:
-            self = .array(value.compactMap { HJSONValue(anyValue: $0) })
-        case let value as [String: Any]:
-            self = .object(value.compactMapValues { HJSONValue(anyValue: $0) })
-        default:
-            return nil
-        }
-    }
-
-    /// Whether the number stores an unsigned integer (Objective-C type `Q`, `L`, `I`, `S` or `C`).
-    private static func isUnsigned(_ number: NSNumber) -> Bool {
-        let type = String(cString: number.objCType)
-        return ["Q", "L", "I", "S", "C"].contains(type)
-    }
 }
 
 // MARK: - Decimal Helpers

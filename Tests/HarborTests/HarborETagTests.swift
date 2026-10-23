@@ -13,13 +13,11 @@ import XCTest
 final class HarborETagTests: XCTestCase {
 
     override func setUp() async throws {
-        await Harbor.removeAllMocks()
-        await Harbor.clearAllCache()
-        await Harbor.setDefaultCacheType(.urlCache())
+        await HarborTestDefaults.restore()
     }
 
     override func tearDown() async throws {
-        await Harbor.removeAllMocks()
+        Harbor.removeAllMocks()
         await Harbor.clearAllCache()
         await Harbor.setDefaultCacheType(.urlCache())
     }
@@ -78,7 +76,7 @@ final class HarborETagTests: XCTestCase {
         let jsonString = String(data: jsonData, encoding: .utf8)!
 
         let mock = HMock(request: GetUsersWithCustomCacheRequest.self, statusCode: 200, jsonResponse: jsonString)
-        await Harbor.register(mock: mock)
+        Harbor.register(mock: mock)
 
         // When
         let request = GetUsersWithCustomCacheRequest()
@@ -106,7 +104,7 @@ final class HarborETagTests: XCTestCase {
         let jsonString = String(data: jsonData, encoding: .utf8)!
 
         let mock = HMock(request: GetUsersWithCustomCacheRequest.self, statusCode: 200, jsonResponse: jsonString)
-        await Harbor.register(mock: mock)
+        Harbor.register(mock: mock)
 
         let request = GetUsersWithCustomCacheRequest()
         let _ = await request.request()

@@ -48,6 +48,7 @@ final class HarborRealServiceTests: XCTestCase {
     }
 
     override func setUp() async throws {
+        await HarborTestDefaults.restore()
         URLCache.shared.removeAllCachedResponses()
         LocalStubURLProtocol.clearStubs()
 
@@ -258,6 +259,7 @@ final class HarborRealServiceTests: XCTestCase {
 
     /// 1. Verifies that the real service returns an ETag header in the first response.
     func testETagHeaderIsReceivedFromRealService() async throws {
+        try NetworkTestFlag.skipUnlessEnabled()
         let url = URL(string: "https://pokeapi.co/api/v2/pokemon/ditto")!
         var urlRequest = URLRequest(url: url)
         urlRequest.cachePolicy = .reloadIgnoringLocalCacheData
@@ -277,6 +279,7 @@ final class HarborRealServiceTests: XCTestCase {
     /// 2. Verifies that the server answers 304 Not Modified when the received ETag
     ///    is sent back through the If-None-Match header.
     func testETag304NotModifiedWithRealService() async throws {
+        try NetworkTestFlag.skipUnlessEnabled()
         let url = URL(string: "https://pokeapi.co/api/v2/pokemon/ditto")!
 
         // First request: obtain the ETag

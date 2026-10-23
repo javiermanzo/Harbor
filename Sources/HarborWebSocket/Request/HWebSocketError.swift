@@ -14,7 +14,8 @@ import HarborCore
 ///
 /// The cases follow the life of a connection rather than the HTTP request/response model:
 /// the first group can only happen while the connection is being opened, the second one
-/// once it is open (or when using a closed one).
+/// once it is open (or when using a closed one). `messages` only throws `.connectionFailed`,
+/// `.pingTimeout` and `.messageTooBig`.
 public enum HWebSocketError: Sendable {
     // MARK: Opening the connection
 
@@ -105,7 +106,16 @@ extension HWebSocketError {
         guard nsError.domain == NSPOSIXErrorDomain else { return nil }
         let lost: Set<Int32> = [ENOTCONN, ECONNRESET, ECONNABORTED, EPIPE, ETIMEDOUT, ENETDOWN, ENETRESET, ENETUNREACH]
         guard lost.contains(Int32(truncatingIfNeeded: nsError.code)) else { return nil }
-        return URLError(.networkConnectionLost, userInfo: [NSUnderlyingErrorKey: error])
+        return lostConnection(underlying: error)
+    }
+
+    /// A `.networkConnectionLost` wrapping `error`, described by it (e.g. "Connection reset
+    /// by peer") instead of the generic `URLError` text. The underlying error's other
+    /// `userInfo` (such as the failing URL, which may carry a token) stays out of descriptions.
+    /// - Parameter error: The error the connection was lost with.
+    static func lostConnection(underlying error: Error) -> URLError {
+        URLError(.networkConnectionLost, userInfo: [NSUnderlyingErrorKey: error,
+                                                    NSLocalizedDescriptionKey: (error as NSError).localizedDescription])
     }
 
     /// Maps an error reported by Harbor's shared pipeline (authentication, URL building and
@@ -187,7 +197,9 @@ extension HWebSocketError: LocalizedError {
         case .connectionFailed(let error):
             return "The WebSocket connection failed (\(error.code.rawValue)): \(error.localizedDescription)"
         case .unknown(let error):
-            return "Unexpected error: \(String(describing: error))"
+            // Message, domain and code only: an `NSError`'s description includes its `userInfo`,
+            // where `URLSession` puts the failing URL and its query (which may hold a token).
+            return "Unexpected error: \(HRequestError.safeDescription(of: error))"
         }
     }
 }

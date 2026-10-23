@@ -35,9 +35,7 @@ package enum HURLBuilder {
                 guard !value.split(whereSeparator: { $0 == "/" || $0 == "\\" }).contains("..") else {
                     throw HRequestError.malformedRequest(reason: "Path parameter \"\(key)\" contains a \"..\" path segment")
                 }
-                // "/" is encoded (%2F) so a value always stays within a single path segment.
-                let encodedValue = value.addingPercentEncoding(withAllowedCharacters: pathParameterAllowed) ?? value
-                compositeUrl = compositeUrl.replacingOccurrences(of: "{\(key)}", with: encodedValue)
+                compositeUrl = compositeUrl.replacingOccurrences(of: "{\(key)}", with: percentEncodedPathValue(value))
             }
         }
 
@@ -91,9 +89,16 @@ package enum HURLBuilder {
     /// Characters left literal in a query item name or value: RFC 3986 unreserved characters.
     private static let queryComponentAllowed = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~")
 
+    /// Percent-encodes a path parameter value as `compositeURL` substitutes it: `/` is encoded
+    /// (%2F) so a value always stays within a single path segment.
+    /// - Parameter value: The raw value.
+    package static func percentEncodedPathValue(_ value: String) -> String {
+        value.addingPercentEncoding(withAllowedCharacters: pathParameterAllowed) ?? value
+    }
+
     /// Percent-encodes a query item name or value, leaving only unreserved characters literal.
     /// - Parameter value: The raw name or value.
-    package static func percentEncodedQueryComponent(_ value: String) -> String {
+    private static func percentEncodedQueryComponent(_ value: String) -> String {
         value.addingPercentEncoding(withAllowedCharacters: queryComponentAllowed) ?? value
     }
 }

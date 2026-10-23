@@ -29,7 +29,8 @@ public struct HMock: Sendable {
     /// Optional error the attempt fails with instead of producing a response (e.g. `.timeout`).
     /// It goes through the retry policy like the real failure it stands for.
     public let error: HRequestError?
-    /// Optional delay in seconds before returning the response.
+    /// Optional delay in seconds before returning the response, capped at
+    /// `HRetryPolicy.maxDelay` (60 s). Cancelling the request ends it early.
     public let delay: Double?
     /// Optional HTTP response headers (e.g. `Cache-Control`, `ETag`).
     public let headers: [String: String]?
@@ -56,6 +57,8 @@ public struct HMock: Sendable {
         self.headers = headers
     }
 }
+
+// MARK: - Response Body
 
 extension HMock {
     /// The response bytes for this mock. Returns empty data when no JSON body is configured.

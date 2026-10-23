@@ -6,7 +6,6 @@
 //
 
 import Foundation
-import Network
 
 /// The reason a request failed. Returned in `HResponse.error` and `HResponseWithResult.error`
 /// (REST requests never throw) and thrown by `requestStream(source:)`.
@@ -23,7 +22,11 @@ public enum HRequestError: Sendable {
     /// The response body could not be decoded into the model. A request body that cannot be
     /// encoded fails with `.malformedRequest(reason:)` instead.
     case codable(modelName: String, error: Error)
-    /// The device is offline (and no usable cached response was found for a GET request).
+    /// The device is offline (`URLError.notConnectedToInternet`, `.dataNotAllowed`,
+    /// `.internationalRoamingOff`), or the connection dropped while the request was in flight
+    /// (`.networkConnectionLost`: the request may have reached the server, so a POST is not
+    /// retried unless `retryNonIdempotentRequests` is set). For a GET request, no usable
+    /// cached response was found either.
     case noConnection
     /// The request is malformed and cannot be processed. The reason describes what failed.
     case malformedRequest(reason: String? = nil)
@@ -47,6 +50,7 @@ public enum HRequestError: Sendable {
 }
 
 // MARK: - URLError Mapping
+
 extension HRequestError {
     /// Maximum number of characters of a response body included in error descriptions.
     private static let bodyPreviewLimit = 500
@@ -88,7 +92,8 @@ extension HRequestError {
     }
 }
 
-// MARK: - Error Description
+// MARK: - LocalizedError
+
 extension HRequestError: LocalizedError {
     /// A human-readable description of the error. The body preview of `.api` is redacted with
     /// the same policy as debug logs (see `Harbor.setLogSensitiveValues(_:)`).
@@ -109,7 +114,7 @@ extension HRequestError: LocalizedError {
         case .authNeeded:
             return "Authentication is required"
         case .codable(let modelName, let error):
-            return "Failed to encode/decode \(modelName): \(String(describing: error))"
+            return "Failed to decode \(modelName): \(String(describing: error))"
         case .noConnection:
             return "No internet connection available"
         case .malformedRequest(let reason):
@@ -129,12 +134,26 @@ extension HRequestError: LocalizedError {
         case .networkFailure(let error):
             return "Network request failed (\(error.code.rawValue)): \(error.localizedDescription)"
         case .unknown(let error):
-            return "Unexpected error: \(String(describing: error))"
+            return "Unexpected error: \(Self.safeDescription(of: error))"
         }
     }
 }
 
+// MARK: - Safe Descriptions
+
+extension HRequestError {
+    /// A description of an arbitrary error without its `userInfo`, where `URLSession` puts the
+    /// failing URL and its query (which may hold a credential): the message, domain and code.
+    /// Shared by the error types of the other products.
+    /// - Parameter error: The error to describe.
+    package static func safeDescription(of error: Error) -> String {
+        let nsError = error as NSError
+        return "\(nsError.localizedDescription) (\(nsError.domain) \(nsError.code))"
+    }
+}
+
 // MARK: - Equatable
+
 extension HRequestError: Equatable {
     /// Two errors are equal when they are the same case with equal payloads. Wrapped errors
     /// that are not `Equatable` (`codable`, `unknown`) are compared by their type, bridged

@@ -116,6 +116,7 @@ extension HWebSocketManager {
             guard !Task.isCancelled else {
                 task.cancel(with: .goingAway, reason: nil)
                 HRequestManager.releaseURLSession(session)
+                await logContext?.logError(.cancelled)
                 return .finish(.failure(.cancelled))
             }
 
@@ -125,8 +126,9 @@ extension HWebSocketManager {
                                     negotiatedSubprotocol: subprotocol,
                                     pingInterval: request.pingInterval ?? HWebSocketConfig.shared.pingInterval,
                                     logContext: logContext)
-            await socket.start()
+            // Logged before the receive loop starts, so no message is logged before the open.
             await logContext?.logOpen(subprotocol: subprotocol, duration: Date().timeIntervalSince(startTime) * 1000)
+            await socket.start()
             return .finish(.success(socket))
         } catch {
             HRequestManager.releaseURLSession(session)

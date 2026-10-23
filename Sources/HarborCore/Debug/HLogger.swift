@@ -69,8 +69,9 @@ package struct HLogExtraMessage: Sendable {
     }
 }
 
-/// Harbor's logging facade over LogBird. It is the only place that speaks LogBird's types: callers
-/// use `HLogLevel`, `HLogValue` and `HLogExtraMessage`, so the products do not depend on LogBird.
+/// Harbor's logging facade over LogBird. The products log only through it, with `HLogLevel`,
+/// `HLogValue` and `HLogExtraMessage`, so they do not depend on LogBird; inside HarborCore only
+/// the SSL and PKCS#12 diagnostics loggers and the redaction defaults use LogBird directly.
 ///
 /// Centralizes the LogBird instances the framework logs through (debug, security, and the
 /// SSL/PKCS#12 diagnostics loggers it toggles) and the sensitive-key redaction policy, so

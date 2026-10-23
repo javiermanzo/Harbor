@@ -1,13 +1,13 @@
 ---
 name: harbor-migration-v3-to-v4
-description: Use when upgrading a project from Harbor 3.x to 4.0.0, or when fixing compile errors and behavior changes after the upgrade (retries, HmTLS, setSSlPinningSHA256, apiError, HJRPCRequestError, setURL, remove(mock:), bodyType, HJRPC headers). Lists every breaking change with before/after code. Not for writing new Harbor code (use the harbor skill).
+description: Use when upgrading a project from Harbor 3.x to 4.0.0, or when fixing compile errors and behavior changes after the upgrade (retries, HmTLS, setSSlPinningSHA256, apiError, HJRPCRequestError, setURL, remove(mock:), bodyType, printRequest, HJRPC headers). Lists every breaking change with before/after code. Not for writing new Harbor code (use the harbor skill).
 ---
 
 # Harbor v3 to v4 migration
 
 Work through the sections in order, then build. Harbor 4 needs a Swift 6.0 toolchain (Xcode 16+) and iOS 15+ / macOS 14+, is distributed through Swift Package Manager only (the CocoaPods podspec was removed) and builds in Swift 6 language mode only.
 
-Code blocks that start with `// v3` show old code and don't compile against v4. Every other block compiles against v4. For the full API afterwards, see the `harbor` skill (`../harbor/SKILL.md`).
+Code blocks that start with `// v3` show old code and don't compile against v4. Every other block compiles against v4. For the full API afterwards, see the `harbor` (REST, `../harbor/SKILL.md`), `harbor-core` (auth, security, retry, logging, `../harbor-core/SKILL.md`) and `harbor-jrpc` (`../harbor-jrpc/SKILL.md`) skills.
 
 ## 1. Retries: `retries` → `retryPolicy`
 
@@ -37,7 +37,7 @@ struct GetFeedRequest: HGetRequestProtocol {
 
 **Important:** a leftover `var retries` still compiles, but nothing reads it. Search for `retries` and replace every occurrence.
 
-Retry semantics changed too: v4 retries only transient failures (retryable status codes and transient `URLError`s) with exponential backoff and jitter, and POST/PATCH (so every JSON-RPC call) are retried only after pre-connection failures unless `retryNonIdempotentRequests: true`. Details: `../harbor/protocols.md` (`HRetryPolicy`).
+Retry semantics changed too: v4 retries only transient failures (retryable status codes and transient `URLError`s) with exponential backoff and jitter, and POST/PATCH (so every JSON-RPC call) are retried only after pre-connection failures unless `retryNonIdempotentRequests: true`. Details: `../harbor-core/retry.md`.
 
 ## 2. Get-only request properties
 
@@ -78,7 +78,7 @@ If code mutated a request after creating it, pass the values through the initial
 **v3:** `func getAuthorizationHeader() async -> HAuthorizationHeader`
 **v4:** `func getAuthorizationHeader() async -> HAuthorizationHeader?`. Return `nil` to send the request without credentials.
 
-The 401 flow is also stricter: keep the token refresh inside `authFailed()` and make `getAuthorizationHeader()` return the current token only. Harbor calls `authFailed()` at most once per request (see `../harbor/security.md`, Authentication). Cached responses of `needsAuth` requests are namespaced per credential: call `await Harbor.clearAllCache()` on logout.
+The 401 flow is also stricter: keep the token refresh inside `authFailed()` and make `getAuthorizationHeader()` return the current token only. Harbor calls `authFailed()` at most once per request (see `../harbor-core/auth.md`). Cached responses of `needsAuth` requests are namespaced per credential: call `await Harbor.clearAllCache()` on logout.
 
 ## 4. mTLS
 
@@ -99,7 +99,7 @@ The `HmTLS` type and its `init(p12FileUrl:password:)` were removed: rename `HmTL
 ## 5. SSL pinning
 
 **v3:** `Harbor.setSSlPinningSHA256(String?)`, a hash of the raw public key.
-**v4:** `Harbor.setSSLPinningKeys([String]?)` and `setSSLPinningKeys(_:forHosts:)` (note the capital `L`). **Pins must be `base64(SHA256(SPKI))`.** Old pins never match, so regenerate them with `Harbor.computePin(for: SecCertificate)` or OpenSSL (see `../harbor/security.md`).
+**v4:** `Harbor.setSSLPinningKeys([String]?)` and `setSSLPinningKeys(_:forHosts:)` (note the capital `L`). **Pins must be `base64(SHA256(SPKI))`.** Old pins never match, so regenerate them with `Harbor.computePin(for: SecCertificate)` or OpenSSL (see `../harbor-core/security.md`).
 
 ## 6. Custom URLSession
 
@@ -175,6 +175,8 @@ Mocks are now resolved on every attempt, so a sequence drives retries. See `../h
 
 `Harbor.setLoggingEnabled(_:)` (default: on in DEBUG, off in release), `Harbor.setLogSensitiveValues(_:)` and `Harbor.updateLogSensitiveKeys(_:)` are new, and logged values are redacted by default. `HDebugRequestProtocol` now inherits `Sendable`, and `debugType` is get-only with a default of `.requestAndResponse`: drop `{ get set }` conformances and declare it as a `let` (or omit it).
 
+The public `HDebugRequestProtocol` methods `printRequest(urlRequest:)`, `printResponse(httpResponse:data:duration:)` and `printErrorResponse(error:)` were removed. Harbor logs every request that conforms to `HDebugRequestProtocol` by itself; remove the calls (there is no public replacement). See `../harbor-core/logging.md`.
+
 ## 12. JSON-RPC
 
 | v3 | v4 |
@@ -222,7 +224,9 @@ func migrateJRPC() async throws {
 }
 ```
 
-Other changes: 4xx/5xx responses with a JSON-RPC error body surface as `.jrpcError` (`HJRPCError.httpStatusCode` is set). A response `id` that doesn't match the request fails with `.idMismatch`. Big integers decode as `HJSONValue.decimal`, and parameters JSON can't represent (NaN) throw `.codable`; see `../harbor/examples/jrpc.md`.
+`import HarborJRPC` is enough: it re-exports `Harbor` (keeping `import Harbor` is harmless). `HarborJRPC.batch(_:)` returns the results in request order, matched by `id` (two requests with the same `requestID` throw `.malformedRequest`), and `request()` on a request whose `isNotification` is `true` fails with `.invalidRequest`: send notifications with `notify()`.
+
+Other changes: 4xx/5xx responses with a JSON-RPC error body surface as `.jrpcError` (`HJRPCError.httpStatusCode` is set), except a `401`, which ends in `.authNeeded` as before. A response `id` that doesn't match the request fails with `.idMismatch`. Big integers decode as `HJSONValue.decimal`, and parameters JSON can't represent (NaN) throw `.codable`; see `../harbor-jrpc/examples.md`.
 
 ## Checklist
 
@@ -233,6 +237,6 @@ Other changes: 4xx/5xx responses with a JSON-RPC error body surface as `.jrpcErr
 5. Regenerate SSL pins as `base64(SHA256(SPKI))` and call `setSSLPinningKeys`.
 6. Rename the error cases (`HRequestError` and `HJRPCRequestError`) and handle the new ones.
 7. Replace `HarborJRPC.setURL` / `setJRPCVersion` with `HarborJRPC.configure(url:jrpcVersion:)`, rename JSON-RPC `headers` to `headerParameters`, wrap parameters in `HJRPCParams`, make calls `try await` and `try` `HarborJRPC.batch`.
-8. Make `debugType` a get-only `let` (or drop it) in `HDebugRequestProtocol` conformances.
+8. Make `debugType` a get-only `let` (or drop it) in `HDebugRequestProtocol` conformances, and remove calls to `printRequest`, `printResponse` and `printErrorResponse`.
 9. Replace `Harbor.remove(mock:)` with `Harbor.removeMock(for:)` and `setMocksOnlyInDebug(false)` with `setMocksEnabled(true)` (drop `setMocksOnlyInDebug(true)`).
 10. Remove CocoaPods usage in favor of Swift Package Manager, build with Swift 6 and fix the remaining compiler errors, then run the test suite.

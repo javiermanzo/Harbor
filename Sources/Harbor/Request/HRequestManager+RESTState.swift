@@ -63,8 +63,8 @@ extension HRequestManager {
         await authorizationHeader(needsAuth: request.needsAuth)
     }
 
-    /// Resolves the authorization header for cache vary-key computation without failing the
-    /// flow: a missing provider must not turn a cache lookup into an error.
+    /// Resolves the authorization header for cache keys and mocked attempts without failing
+    /// the flow: a missing provider must not turn a cache lookup or a mock into an error.
     /// - Parameter request: The target request.
     /// - Returns: Optional authorization header.
     static func cacheAuthHeader<P: HRequestBaseRequestProtocol>(for request: P) async -> HAuthorizationHeader? {

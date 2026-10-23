@@ -1,4 +1,4 @@
-# Harbor WebSocket Examples
+# HarborWebSocket Examples
 
 `HarborWebSocket` opens WebSocket connections (RFC 6455) through Harbor's pipeline: the handshake gets the connectivity check, the auth provider (with the `401` refresh flow), default headers, the retry policy, SSL pinning, mTLS, the custom session and opt-in logging. The open connection is an actor that streams messages and sends yours.
 
@@ -31,7 +31,7 @@ struct ChatSocket: HWebSocketRequestProtocol {
 | `retryPolicy: HRetryPolicy?` | `nil` (handshake only; treated as idempotent) |
 | `timeoutInterval: TimeInterval?` | `nil`: Harbor's default (handshake only) |
 | `pingInterval: TimeInterval?` | `nil`: `HarborWebSocket.setDefaultPingInterval(_:)`, which defaults to no pings |
-| `maximumMessageSize: Int?` | `nil`: system default (1 MiB) |
+| `maximumMessageSize: Int?` | `nil`: system default (1 MiB); values of 0 or less too |
 
 ## Connecting, reading, sending, closing
 
@@ -94,9 +94,10 @@ Lifecycle rules:
 
 - `messages` **finishes** when the connection closes through a close frame, sent by the server or by `close(code:reason:)`; `state` becomes `.closed(code:reason:)` with that code.
 - `messages` **throws** an `HWebSocketError` when the connection is lost without a close frame (`.connectionFailed`, `.pingTimeout`, `.messageTooBig`); `state` is `.closed(code: .abnormalClosure, reason: nil)`.
-- Messages are read continuously and buffered until iterated, so close frames and pings are handled even while the app is not reading.
+- Messages are read continuously and buffered until iterated, so close frames and pings are handled even while the app is not reading. The buffer has no limit: a connection whose messages are not read (send-only, or a loop left with `break`) keeps them in memory until it is closed. Iterating `messages` from two tasks at once traps.
 - Cancelling the task that iterates `messages` closes the connection with `.goingAway`. Leaving the loop any other way (`break`, `return`, a `throw` of your own such as a failed `decode`) does **not** close it: call `close()`.
-- `send` and `ping()` on a closed connection throw `.notConnected`.
+- `send` and `ping()` on a closed connection throw `.notConnected`, also when the connection closes while they are in flight.
+- `close(code:reason:)` sends the codes reserved for reporting (`.invalid`, `.noStatusReceived`, `.abnormalClosure`, `.tlsHandshakeFailure`) as `.normalClosure`, and cuts a reason longer than 123 bytes at a UTF-8 character boundary; `state` records what was actually sent.
 - A connection stays open (and the `HWebSocket` alive) until it is closed by either side: call `close()` when done, as with a `URLSessionTask`.
 
 ## Keep-alive pings
@@ -112,15 +113,15 @@ struct PricesSocket: HWebSocketRequestProtocol {
 }
 
 func manualPing(_ socket: HWebSocket) async throws {
-    try await socket.ping()                             // waits for the pong (pingInterval, or 10 s without one)
+    try await socket.ping()                             // waits for the pong (the ping interval, or 10 s without one)
 }
 ```
 
-A ping is sent every `pingInterval` seconds, regardless of traffic; when the pong does not arrive within the same interval the connection is closed and `messages` throws `.pingTimeout`. `ping()` applies the same timeout (10 seconds when the request has no `pingInterval`) and throws `.pingTimeout` after closing the connection, so it can be used to probe a half-open link.
+A ping is sent every interval (the request's `pingInterval`, else the default set with `HarborWebSocket.setDefaultPingInterval(_:)`), regardless of traffic; when the pong does not arrive within the same interval the connection is closed and `messages` throws `.pingTimeout`. A `pingInterval` of 0 or a value that is not finite turns the pings off for that socket, even with a default. `ping()` applies the same timeout (10 seconds when the connection has no ping interval) and throws `.pingTimeout` after closing the connection, so it can be used to probe a half-open link. When the server's close frame arrives while a ping is pending, the connection closes for that reason instead and `ping()` throws `.notConnected`. A ping that fails because the link was lost without a close frame throws `.connectionFailed` (and `messages` throws it too). After a `ping()` timeout, `messages` throws `.pingTimeout` and `state` is `.closed(code: .abnormalClosure, reason: nil)`.
 
 ## Authentication
 
-Same provider and flow as REST requests (`security.md`): with `needsAuth`, the handshake carries `getAuthorizationHeader()`. A `401` re-sends the handshake with the provider's current header when it already changed, otherwise calls `authFailed()` once and re-sends once with the refreshed header; a second rejection fails with `.authNeeded`. Without a provider, `.authProviderNeeded`.
+Same provider and flow as REST requests (`../harbor-core/auth.md`): with `needsAuth`, the handshake carries `getAuthorizationHeader()`. A `401` re-sends the handshake with the provider's current header when it already changed, otherwise calls `authFailed()` once and re-sends once with the refreshed header. When the refresh leaves the header unchanged (or returns none), or the re-sent handshake is rejected again, `connect()` throws `.authNeeded`. Without a provider, `.authProviderNeeded`. An open connection is never re-authenticated: connect again after a token change.
 
 ```swift
 struct FeedSocket: HWebSocketRequestProtocol {
@@ -221,6 +222,8 @@ func handle(_ error: HWebSocketError) {
 
 `HWebSocketError` conforms to `Error`, `Sendable`, `LocalizedError` and `Equatable`. `connect()`, `send`, `ping()` and `decode(_:)` use typed throws (`throws(HWebSocketError)`); `messages` throws `any Error` that is always an `HWebSocketError`.
 
+The first group of cases (`.invalidURL` ... `.certificate`) only comes from `connect()`. Once the connection is open, a lost connection is always `.connectionFailed` (also when the session behind it is invalidated) (wrapping the `URLError`, or a `.networkConnectionLost` described by the underlying POSIX error such as "Connection reset by peer"), next to `.pingTimeout` and `.messageTooBig`. Descriptions never include the failing URL.
+
 ## Debug logging
 
 ```swift
@@ -230,7 +233,7 @@ struct DebugChatSocket: HWebSocketRequestProtocol, HDebugRequestProtocol {
 }
 ```
 
-`.request` logs the handshake (URL and headers, redacted) and sent messages; `.response` logs the open event, received messages and the close. Errors are logged for every type. Message payloads are redacted like response bodies and truncated at 16 K characters.
+`.request` logs the handshake (URL and headers, redacted, sensitive path parameter values included) and sent messages; `.response` logs the open event (always before the first received message), received messages and the close. Errors, including a cancellation right after opening, are logged for every type. Message payloads are redacted like response bodies and truncated at 16 K characters.
 
 ## Testing
 

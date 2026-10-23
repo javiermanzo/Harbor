@@ -9,6 +9,7 @@ import Foundation
 import HarborCore
 
 // MARK: - PATCH Request Protocol
+
 /// Protocol for PATCH requests that partially update resources.
 public protocol HPatchRequestProtocol: HRequestWithBodyProtocol {}
 

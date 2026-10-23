@@ -144,10 +144,12 @@ extension HURLBuilder {
 
         // Inject the stored validators as conditional headers for GET requests using the custom
         // cache. A conditional header set by the caller is kept as-is: the caller owns the
-        // revalidation, so neither validator is injected.
+        // revalidation, so neither validator is injected. A request that needs auth but goes
+        // out without a credential has no cache entry of its own to revalidate.
         let hasCallerValidators = urlRequest.value(forHTTPHeaderField: "If-None-Match") != nil
             || urlRequest.value(forHTTPHeaderField: "If-Modified-Since") != nil
-        if request.httpMethod == .get, !hasCallerValidators, let getRequest = request as? any HGetRequestProtocol {
+        let hasCacheNamespace = !request.needsAuth || authHeader != nil
+        if request.httpMethod == .get, !hasCallerValidators, hasCacheNamespace, let getRequest = request as? any HGetRequestProtocol {
             let cacheType: HCache.CacheType
             if let requestCacheType = getRequest.cacheType {
                 cacheType = requestCacheType
@@ -308,6 +310,8 @@ extension HURLBuilder {
         let boundaryDelimiter = Data("--\(boundary)".utf8)
         var carry = Data()
         while true {
+            // A large file is copied before the upload starts: stop as soon as the request is cancelled.
+            guard !Task.isCancelled else { throw HRequestError.cancelled }
             let chunk: Data
             do {
                 guard let read = try fileHandle.read(upToCount: fileChunkSize), !read.isEmpty else { break }
@@ -332,11 +336,11 @@ extension HURLBuilder {
     ///   - boundary: The multipart boundary string.
     /// - Returns: The formatted field string.
     /// - Throws: `HRequestError.malformedRequest` when the name or value contains characters
-    ///   that would break the multipart framing (CR/LF, a double quote in the name, or the
-    ///   boundary string itself in the value).
+    ///   that would break the multipart framing (CR/LF or a double quote in the name, or the
+    ///   boundary string itself in the value). Line breaks in a value are kept: the value is
+    ///   the part's body, not a header (RFC 7578).
     static func convertFormField(named name: String, value: String, using boundary: String) throws -> String {
         try validateFormFieldName(name)
-        try validateHeaderComponent(value, of: "value for field \"\(name)\"")
         guard !value.contains(boundary) else {
             throw HRequestError.malformedRequest(reason: "Multipart value for field \"\(name)\" contains the boundary string")
         }

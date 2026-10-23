@@ -46,21 +46,11 @@ final class HarborJRPCExtraTests: XCTestCase {
         
         let nullResult = try decoder.decode(HJRPCResult<HJSONValue>.self, from: nullJSON)
         XCTAssertTrue(nullResult.resultIsNull)
-        XCTAssertNil(nullResult.id)
+        XCTAssertEqual(nullResult.id, .null)
         XCTAssertNil(nullResult.result)
     }
 
     func testHJSONValue() throws {
-        // Test anyValue init
-        XCTAssertEqual(HJSONValue(anyValue: NSNull()), .null)
-        XCTAssertEqual(HJSONValue(anyValue: "test"), .string("test"))
-        XCTAssertEqual(HJSONValue(anyValue: NSNumber(value: true)), .bool(true))
-        XCTAssertEqual(HJSONValue(anyValue: NSNumber(value: 3.14)), .double(3.14))
-        XCTAssertEqual(HJSONValue(anyValue: NSNumber(value: 42)), .int(42))
-        XCTAssertEqual(HJSONValue(anyValue: [1, 2]), .array([.int(1), .int(2)]))
-        XCTAssertEqual(HJSONValue(anyValue: ["a": "b"]), .object(["a": .string("b")]))
-        XCTAssertNil(HJSONValue(anyValue: Date())) // Invalid type
-        
         // Test anyValue export
         XCTAssertTrue(HJSONValue.null.anyValue is NSNull)
         XCTAssertEqual(HJSONValue.string("test").anyValue as? String, "test")

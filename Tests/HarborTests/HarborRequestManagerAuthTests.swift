@@ -48,6 +48,44 @@ private final class SpyAuthProvider: HAuthProviderProtocol {
     }
 }
 
+/// Auth provider whose `authFailed()` suspends until the test finishes it, returning a
+/// scripted sequence of `Authorization` values.
+private actor GatedAuthProvider: HAuthProviderProtocol {
+    private var headers: [String]
+    private var started = false
+    private var startWaiters: [CheckedContinuation<Void, Never>] = []
+    private var finishWaiter: CheckedContinuation<Void, Never>?
+    private var finished = false
+
+    init(headers: [String]) {
+        self.headers = headers
+    }
+
+    func getAuthorizationHeader() async -> HAuthorizationHeader? {
+        guard !headers.isEmpty else { return nil }
+        return HAuthorizationHeader(key: "Authorization", value: headers.removeFirst())
+    }
+
+    func authFailed() async {
+        started = true
+        startWaiters.forEach { $0.resume() }
+        startWaiters.removeAll()
+        guard !finished else { return }
+        await withCheckedContinuation { finishWaiter = $0 }
+    }
+
+    func waitUntilAuthFailedStarts() async {
+        guard !started else { return }
+        await withCheckedContinuation { startWaiters.append($0) }
+    }
+
+    func finishAuthFailed() {
+        finished = true
+        finishWaiter?.resume()
+        finishWaiter = nil
+    }
+}
+
 /// URLProtocol stub injected through `HConfig.protocolClasses`. It answers with a scripted
 /// sequence of status codes (repeating the last one) and records the Authorization header
 /// of every request it sees. Optionally it sends response headers (e.g. `Vary`, `ETag`),
@@ -346,6 +384,48 @@ final class HarborRequestManagerAuthTests: XCTestCase {
         }
         XCTAssertEqual(provider.headerCallCount, 3)
         XCTAssertEqual(provider.authFailedCount, 1)
+    }
+
+    func testReplacingTheProviderDuringARefreshGivesUpWithoutTheOldProvidersHeader() async throws {
+        // Given a provider whose refresh is still running when the app logs out
+        let provider = GatedAuthProvider(headers: ["Bearer old", "Bearer old", "Bearer refreshed"])
+        Harbor.setAuthProvider(provider)
+        AuthStubProtocol.statusCodes = [401, 200]
+        let request = ClassAuthGetRequest(url: "https://example.com/secure")
+        let task = Task { await request.request() }
+        await provider.waitUntilAuthFailedStarts()
+
+        // When the provider is removed, then the old refresh finishes
+        Harbor.setAuthProvider(nil)
+        await provider.finishAuthFailed()
+        let response = await task.value
+
+        // Then the request gives up instead of retrying with the removed provider's header
+        guard case .error(.authNeeded) = response else {
+            return XCTFail("Expected .authNeeded but got: \(response)")
+        }
+        XCTAssertEqual(AuthStubProtocol.receivedAuthorizations, ["Bearer old"])
+    }
+
+    func testCancellingARequestStopsWaitingForTheRefresh() async throws {
+        // Given a request waiting for a refresh that does not finish (e.g. a login screen)
+        let provider = GatedAuthProvider(headers: ["Bearer old", "Bearer old", "Bearer refreshed"])
+        Harbor.setAuthProvider(provider)
+        AuthStubProtocol.statusCodes = [401, 200]
+        let request = ClassAuthGetRequest(url: "https://example.com/secure")
+        let task = Task { await request.request() }
+        await provider.waitUntilAuthFailedStarts()
+
+        // When its task is cancelled
+        task.cancel()
+        let response = await task.value
+
+        // Then it finishes with .cancelled without waiting for the refresh
+        guard case .error(.cancelled) = response else {
+            return XCTFail("Expected .cancelled but got: \(response)")
+        }
+        XCTAssertEqual(AuthStubProtocol.receivedAuthorizations.count, 1)
+        await provider.finishAuthFailed()
     }
 
     func testRequestWithoutCredentialsGoesOutWithoutAuthHeader() async throws {

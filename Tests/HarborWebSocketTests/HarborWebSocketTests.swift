@@ -166,6 +166,7 @@ final class HarborWebSocketTests: XCTestCase {
         // Then
         let connection = try XCTUnwrap(server.connections.first)
         let frames = await connection.waitForFrames(count: 3)
+        guard frames.count == 3 else { return XCTFail("Expected 3 frames, got \(frames)") }
         XCTAssertEqual(frames[0], .text("hello"))
         XCTAssertEqual(frames[1], .data(Data([0xAA])))
         guard case .text(let json) = frames[2] else { return XCTFail("Expected a text frame") }
@@ -295,14 +296,26 @@ final class HarborWebSocketTests: XCTestCase {
         XCTAssertLessThan(Date().timeIntervalSince(start), 1.5)
         XCTAssertEqual(result.messages, [.text("before")])
         let error = try XCTUnwrap(result.error)
-        switch error {
-        case .connectionFailed, .cannotConnectToHost:
-            break
-        default:
-            XCTFail("Expected a transport error, got \(error)")
+        guard case .connectionFailed = error else {
+            return XCTFail("An open connection that is lost reports .connectionFailed, got \(error)")
         }
         let state = await socket.state
         XCTAssertEqual(state, .closed(code: .abnormalClosure, reason: nil))
+    }
+
+    func testCloseWithAReservedCodeSendsNormalClosureAndCutsALongReason() async throws {
+        // Given
+        let server = try await startServer()
+        let socket = try await TestSocket(url: server.url()).connect()
+
+        // When closing with a code reserved for reporting and a reason too long for a close frame
+        await socket.close(code: .abnormalClosure, reason: Data(String(repeating: "é", count: 100).utf8))
+
+        // Then what was actually sent is recorded: a normal closure with a 123-byte reason
+        guard case .closed(let code, let reason) = await socket.state else { return XCTFail("Expected a closed connection") }
+        XCTAssertEqual(code, .normalClosure)
+        XCTAssertEqual(reason?.count, 122, "61 two-byte characters fit in 123 bytes without splitting one")
+        XCTAssertNotNil(reason.flatMap { String(data: $0, encoding: .utf8) })
     }
 
     func testCancellingTheConsumerClosesTheConnection() async throws {
@@ -527,6 +540,28 @@ final class HarborWebSocketTests: XCTestCase {
         XCTAssertEqual(code, .normalClosure)
     }
 
+    func testPingRacingALocalCloseReportsNotConnected() async throws {
+        // Given a server that never answers pings
+        let server = try await startServer(autoReplyPing: false)
+        let socket = try await TestSocket(url: server.url(), pingInterval: 5).connect()
+        let pinging = Task { () -> HWebSocketError? in
+            do throws(HWebSocketError) {
+                try await socket.ping()
+                return nil
+            } catch {
+                return error
+            }
+        }
+        try await Task.sleep(nanoseconds: 200_000_000)
+
+        // When the app closes the connection while the ping is pending
+        await socket.close()
+
+        // Then the ping reports the closed connection, not a transport failure
+        let error = await pinging.value
+        XCTAssertEqual(error, .notConnected)
+    }
+
     func testSendRacingALocalCloseNeverReportsCancelled() async throws {
         // Given
         let server = try await startServer()
@@ -608,7 +643,7 @@ final class HarborWebSocketTests: XCTestCase {
         let context = try XCTUnwrap(HWebSocketLogContext(request: DebugTestSocket(url: "ws://localhost/socket")))
         let urlRequest = TestSocket(url: "ws://localhost/socket", subprotocols: ["tok-123"])
         let url = try XCTUnwrap(URL(string: "ws://localhost/socket"))
-        let handshake = await HWebSocketManager.handshakeRequest(for: urlRequest, url: url, authHeader: nil)
+        let handshake = HWebSocketManager.handshakeRequest(for: urlRequest, url: url, authHeader: nil)
 
         // When logged with redaction on
         let redacted = HRedactionPolicy(isEnabled: true)
@@ -658,6 +693,18 @@ final class HarborWebSocketTests: XCTestCase {
         XCTAssertEqual(HWebSocketError(otherError: NSError(domain: NSPOSIXErrorDomain, code: Int(ECANCELED))), .cancelled)
         // Any other error is not guessed at.
         guard case .unknown = HWebSocketError(otherError: NSError(domain: NSPOSIXErrorDomain, code: Int(ENOENT))) else { return XCTFail("Expected .unknown") }
+    }
+
+    func testErrorDescriptionsNeverIncludeTheFailingURL() async {
+        // URLSession puts the failing URL, query included, in the userInfo of transport errors
+        let userInfo = [NSURLErrorFailingURLStringErrorKey: "ws://host/feed?token=SECRET"]
+        let unknown = HWebSocketError.unknown(NSError(domain: NSPOSIXErrorDomain, code: Int(EHOSTUNREACH), userInfo: userInfo))
+        XCTAssertFalse(unknown.errorDescription?.contains("SECRET") ?? true, unknown.errorDescription ?? "")
+
+        // A lost connection is described by its underlying error
+        let reset = HWebSocketError(otherError: NSError(domain: NSPOSIXErrorDomain, code: Int(ECONNRESET), userInfo: userInfo))
+        XCTAssertTrue(reset.errorDescription?.contains("reset") ?? false, reset.errorDescription ?? "")
+        XCTAssertFalse(reset.errorDescription?.contains("SECRET") ?? true, reset.errorDescription ?? "")
     }
 
     func testPipelineErrorsMapToWebSocketCases() async {

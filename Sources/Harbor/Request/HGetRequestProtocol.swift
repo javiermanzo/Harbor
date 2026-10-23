@@ -9,6 +9,7 @@ import Foundation
 import HarborCore
 
 // MARK: - GET Request Protocol
+
 /// A GET request: decoded into `Model`, cacheable, and streamable from cache and network.
 ///
 /// ```swift
@@ -50,10 +51,15 @@ public extension HGetRequestProtocol {
     var cacheType: HCache.CacheType? { nil }
     /// Default: `true`.
     func shouldCache(statusCode: Int) -> Bool { true }
+}
 
+// MARK: - Streaming
+
+/// Cache-then-network delivery of GET responses.
+public extension HGetRequestProtocol {
     /// Streams the cached and/or the remote response of this request: at most one element from
-    /// the cache (served under the rules of `cache()`) and one from the network, each tagged
-    /// with its origin. The stream throws the `HRequestError` of a failed remote request, even
+    /// the cache (served under the rules of `cache()`, or a cached copy standing in for the
+    /// network) and one from the network, each tagged with its origin. The stream throws the `HRequestError` of a failed remote request, even
     /// after yielding a cached element. Cancelling the consuming task cancels the request.
     /// - Parameter source: Where to read from. Default: `.cacheAndRemote`.
     /// - Returns: A stream of `(response, origin)` elements.

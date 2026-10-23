@@ -67,7 +67,7 @@ final class HWebSocketTaskDelegate: NSObject, Sendable {
     }
 }
 
-// MARK: - Handshake
+// MARK: - Task Events
 
 extension HWebSocketTaskDelegate {
     /// Waits for the handshake to complete.

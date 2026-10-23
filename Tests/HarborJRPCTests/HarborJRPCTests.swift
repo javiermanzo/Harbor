@@ -6,13 +6,13 @@ import Harbor
 final class HarborJRPCTests: XCTestCase {
 
     override func setUp() async throws {
-        await Harbor.removeAllMocks()
-        await Harbor.setMocksEnabled(true)
-        await HarborJRPC.configure(url: URL(string: "https://api.example.com/rpc")!, jrpcVersion: "2.0")
+        Harbor.removeAllMocks()
+        Harbor.setMocksEnabled(true)
+        HarborJRPC.configure(url: URL(string: "https://api.example.com/rpc")!, jrpcVersion: "2.0")
     }
 
     override func tearDown() async throws {
-        await Harbor.removeAllMocks()
+        Harbor.removeAllMocks()
     }
 
     // MARK: - Body Construction
@@ -112,7 +112,7 @@ final class HarborJRPCTests: XCTestCase {
     func testNotifySucceedsAgainstMock() async throws {
         // Given
         let mock = HMock(request: HJRPCRequestWrapper<HJSONValue>.self, statusCode: 200, jsonResponse: "{}")
-        await Harbor.register(mock: mock)
+        Harbor.register(mock: mock)
 
         // When / Then
         do {
@@ -125,7 +125,7 @@ final class HarborJRPCTests: XCTestCase {
     func testNotifySucceedsWithEmptyResponseBody() async throws {
         // Given: the server MUST NOT respond to a notification, so a 200 with an empty body is valid.
         let mock = HMock(request: HJRPCRequestWrapper<HJSONValue>.self, statusCode: 200)
-        await Harbor.register(mock: mock)
+        Harbor.register(mock: mock)
 
         // When / Then
         do {
@@ -156,7 +156,7 @@ final class HarborJRPCTests: XCTestCase {
         // Given
         let json = #"{"jsonrpc":"2.0","id":"1","result":{"value":"hello"}}"#
         let mock = HMock(request: HJRPCRequestWrapper<TestModel>.self, statusCode: 200, jsonResponse: json)
-        await Harbor.register(mock: mock)
+        Harbor.register(mock: mock)
 
         // When
         let response = await TestRequest(method: "test_method", requestID: .string("1")).requestResult()
@@ -174,7 +174,7 @@ final class HarborJRPCTests: XCTestCase {
         // Given
         let json = #"{"jsonrpc":"2.0","id":42,"result":{"value":"ok"}}"#
         let mock = HMock(request: HJRPCRequestWrapper<TestModel>.self, statusCode: 200, jsonResponse: json)
-        await Harbor.register(mock: mock)
+        Harbor.register(mock: mock)
 
         // When
         let response = await TestRequest(method: "test_method", requestID: .number(42)).requestResult()
@@ -192,7 +192,7 @@ final class HarborJRPCTests: XCTestCase {
         // Given
         let json = #"{"jsonrpc":"2.0","id":"1","error":{"code":-32601,"message":"Method not found","data":{"reason":"unknown method"}}}"#
         let mock = HMock(request: HJRPCRequestWrapper<TestModel>.self, statusCode: 200, jsonResponse: json)
-        await Harbor.register(mock: mock)
+        Harbor.register(mock: mock)
 
         // When
         let response = await TestRequest(method: "test_method", requestID: .string("1")).requestResult()
@@ -222,7 +222,7 @@ final class HarborJRPCTests: XCTestCase {
     func testMalformedResponseReturnsInvalidResponse() async throws {
         // Given
         let mock = HMock(request: HJRPCRequestWrapper<TestModel>.self, statusCode: 200, jsonResponse: #"{"foo":"bar"}"#)
-        await Harbor.register(mock: mock)
+        Harbor.register(mock: mock)
 
         // When
         let response = await TestRequest(method: "test_method", requestID: .string("1")).requestResult()
@@ -236,7 +236,7 @@ final class HarborJRPCTests: XCTestCase {
     func testResponseWithoutResultOrErrorReturnsInvalidResponse() async throws {
         // Given
         let mock = HMock(request: HJRPCRequestWrapper<TestModel>.self, statusCode: 200, jsonResponse: #"{"jsonrpc":"2.0","id":"1"}"#)
-        await Harbor.register(mock: mock)
+        Harbor.register(mock: mock)
 
         // When
         let response = await TestRequest(method: "test_method", requestID: .string("1")).requestResult()
@@ -250,7 +250,7 @@ final class HarborJRPCTests: XCTestCase {
     func testExplicitNullResultDecodesOptionalModel() async throws {
         // Given
         let mock = HMock(request: HJRPCRequestWrapper<Optional<String>>.self, statusCode: 200, jsonResponse: #"{"jsonrpc":"2.0","id":"1","result":null}"#)
-        await Harbor.register(mock: mock)
+        Harbor.register(mock: mock)
 
         // When
         let response = await TestOptionalModelRequest(method: "test_method", requestID: .string("1")).requestResult()
@@ -268,7 +268,7 @@ final class HarborJRPCTests: XCTestCase {
         // Given
         let json = #"{"jsonrpc":"2.0","id":"2","result":{"value":"hello"}}"#
         let mock = HMock(request: HJRPCRequestWrapper<TestModel>.self, statusCode: 200, jsonResponse: json)
-        await Harbor.register(mock: mock)
+        Harbor.register(mock: mock)
 
         // When
         let response = await TestRequest(method: "test_method", requestID: .string("1")).requestResult()
@@ -285,7 +285,7 @@ final class HarborJRPCTests: XCTestCase {
         // Given
         let json = #"{"jsonrpc":"1.0","id":"1","result":{"value":"hello"}}"#
         let mock = HMock(request: HJRPCRequestWrapper<TestModel>.self, statusCode: 200, jsonResponse: json)
-        await Harbor.register(mock: mock)
+        Harbor.register(mock: mock)
 
         // When
         let response = await TestRequest(method: "test_method", requestID: .string("1")).requestResult()
@@ -302,7 +302,7 @@ final class HarborJRPCTests: XCTestCase {
         // Given
         let json = #"{"jsonrpc":"2.0","id":"1","result":{"value":"hello"}}"#
         let mock = HMock(request: HJRPCRequestWrapper<TestModel>.self, statusCode: 200, jsonResponse: json)
-        await Harbor.register(mock: mock)
+        Harbor.register(mock: mock)
 
         // When
         let model = try await TestRequest(method: "test_method", requestID: .string("1")).request()
@@ -315,7 +315,7 @@ final class HarborJRPCTests: XCTestCase {
         // Given
         let json = #"{"jsonrpc":"2.0","id":"1","error":{"code":-32601,"message":"Method not found"}}"#
         let mock = HMock(request: HJRPCRequestWrapper<TestModel>.self, statusCode: 200, jsonResponse: json)
-        await Harbor.register(mock: mock)
+        Harbor.register(mock: mock)
 
         // When / Then
         do {
@@ -335,7 +335,7 @@ final class HarborJRPCTests: XCTestCase {
         // Given
         let json = #"[{"jsonrpc":"2.0","id":"1","result":"0x1"},{"jsonrpc":"2.0","id":"2","result":"0x2"},{"jsonrpc":"2.0","id":"3","error":{"code":-32602,"message":"Invalid params"}}]"#
         let mock = HMock(request: HJRPCBatchWrapper.self, statusCode: 200, jsonResponse: json)
-        await Harbor.register(mock: mock)
+        Harbor.register(mock: mock)
 
         let requests: [any HJRPCRequestProtocol] = [
             TestStringRequest(method: "eth_blockNumber", requestID: .string("1")),
@@ -374,7 +374,7 @@ final class HarborJRPCTests: XCTestCase {
     func testBatchWithOnlyNotificationsReturnsNoResponses() async throws {
         // Given: the server MUST NOT respond to an all-notification batch, so a 200 with an empty body is valid.
         let mock = HMock(request: HJRPCBatchWrapper.self, statusCode: 200)
-        await Harbor.register(mock: mock)
+        Harbor.register(mock: mock)
 
         let requests: [any HJRPCRequestProtocol] = [
             TestNotificationRequest(),
@@ -443,13 +443,13 @@ final class HarborJRPCTests: XCTestCase {
     // MARK: - Configuration
 
     func testConfigureSetsURLAndVersion() async {
-        await HarborJRPC.configure(url: URL(string: "https://api.example.com/v2")!, jrpcVersion: "2.0")
+        HarborJRPC.configure(url: URL(string: "https://api.example.com/v2")!, jrpcVersion: "2.0")
 
-        let config = await HJRPCRequestManager.config
+        let config = HJRPCRequestManager.config
         XCTAssertEqual(config.url, "https://api.example.com/v2")
         XCTAssertEqual(config.jrpcVersion, "2.0")
 
-        await HarborJRPC.configure(url: URL(string: "https://api.example.com/rpc")!)
+        HarborJRPC.configure(url: URL(string: "https://api.example.com/rpc")!)
     }
 
     // MARK: - HJRPCResponse

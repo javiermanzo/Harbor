@@ -72,8 +72,9 @@ public protocol HWebSocketRequestProtocol: Sendable {
     /// (no pings unless configured). Values that are not finite and greater than zero disable the pings.
     var pingInterval: TimeInterval? { get }
 
-    /// Maximum size of a received message in bytes; larger messages fail the connection.
-    /// Default: `nil`, the system default (1 MiB).
+    /// Maximum size of a received message in bytes; a larger message closes the connection
+    /// (`URLSession` sends close code 1009) and `messages` throws `.messageTooBig`.
+    /// Default: `nil`, the system default (1 MiB). Values of 0 or less use the default too.
     var maximumMessageSize: Int? { get }
 
     /// Opens the connection.

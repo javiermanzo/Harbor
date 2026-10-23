@@ -8,33 +8,6 @@
 import Foundation
 import Network
 
-/// Monitors network connectivity, used internally as a pre-check before executing requests.
-///
-/// The monitor starts lazily on the first connectivity check. Until it delivers its
-/// first path update the real status is unknown, so connectivity is assumed instead
-/// of failing requests spuriously. In DEBUG/simulator builds requests are always allowed
-/// unless `HConfig.assumeNetworkAvailableInDebug` is disabled.
-@HRequestManagerActor
-package protocol HRequestManagerMonitorProtocol: Sendable {
-    /// Starts the network monitor if it is not already running.
-    func start()
-
-    /// Stops the network monitor and resets its state.
-    func stop()
-
-    /// Network connectivity check.
-    func isConnectedToNetwork() -> Bool
-}
-
-// MARK: - Default Implementations
-
-extension HRequestManagerMonitorProtocol {
-    /// Default empty implementation for stopping the network monitor.
-    func stop() {}
-}
-
-// MARK: - Default Monitor
-
 /// Default connectivity monitor backed by NWPathMonitor.
 @HRequestManagerActor
 final class HRequestManagerMonitor {
@@ -61,6 +34,8 @@ extension HRequestManagerMonitor: HRequestManagerMonitorProtocol {
         self.monitor = monitor
         monitor.pathUpdateHandler = { _ in
             Task { @HRequestManagerActor in
+                // A late update from a monitor stopped since then must not mark the new one.
+                guard self.monitor === monitor else { return }
                 self.hasReceivedInitialUpdate = true
             }
         }

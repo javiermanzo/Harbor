@@ -7,6 +7,7 @@
 
 import Foundation
 import Harbor
+import HarborCore
 
 // MARK: - HJRPCRequestProtocol
 
@@ -14,8 +15,9 @@ import Harbor
 /// call `request()`.
 ///
 /// Harbor builds the request object (`jsonrpc`, `method`, `params`, a generated `id`), sends it
-/// as an HTTP `POST` through Harbor's pipeline (auth, retries, mocks, logging, pinning, mTLS)
-/// and validates the response envelope (version, matching `id`, `result` or `error`).
+/// as an HTTP `POST` through Harbor's pipeline (auth, retries, logging, pinning, mTLS, custom
+/// session) and validates the response envelope (version, matching `id`, `result` or `error`).
+/// `HMock` does not apply to JSON-RPC calls: stub the transport with a `URLProtocol` instead.
 ///
 /// ```swift
 /// struct BalanceRequest: HJRPCRequestProtocol {
@@ -54,6 +56,11 @@ public protocol HJRPCRequestProtocol: Sendable {
     /// Default: `nil`.
     var headerParameters: [String: String]? { get }
 
+    /// The timeout of the HTTP request, in seconds. Default: `nil`, which uses
+    /// `Harbor.setDefaultTimeoutInterval(_:)`. A batch uses the longest timeout of its requests,
+    /// counting those without one at that default.
+    var timeoutInterval: TimeInterval? { get }
+
     /// Parameters to send with the JSON-RPC request. Default: `nil`.
     var parameters: HJRPCParams? { get }
 
@@ -72,12 +79,14 @@ public protocol HJRPCRequestProtocol: Sendable {
     var endpoint: URL? { get }
 
     /// Sends the request and returns the outcome as a value instead of throwing.
-    /// - Returns: `.success` with the decoded `result`, or `.error` with the reason it failed.
+    /// - Returns: `.success` with the decoded `result`, or `.error` with the reason it failed
+    ///   (`.invalidRequest`, without sending anything, when `isNotification` is `true`: use `notify()`).
     func requestResult() async -> HJRPCResponse<Model>
 
     /// Sends the request and returns the decoded `result`.
     /// - Returns: The decoded model on success.
-    /// - Throws: An `HJRPCRequestError` when the request fails.
+    /// - Throws: An `HJRPCRequestError` when the request fails (`.invalidRequest`, without
+    ///   sending anything, when `isNotification` is `true`: use `notify()`).
     func request() async throws -> Model
 
     /// Sends the JSON-RPC request as a notification. The request must have `isNotification` set to `true`.
@@ -95,6 +104,8 @@ public extension HJRPCRequestProtocol {
     var retryPolicy: HRetryPolicy? { nil }
     /// Default: `nil`, no additional HTTP headers.
     var headerParameters: [String: String]? { nil }
+    /// Default: `nil`, Harbor's default timeout is used.
+    var timeoutInterval: TimeInterval? { nil }
     /// Default: `nil`, the request carries no `params` member.
     var parameters: HJRPCParams? { nil }
     /// Default: `false`, the request carries an `id` and expects a response.
@@ -104,6 +115,8 @@ public extension HJRPCRequestProtocol {
     /// Default: `nil`, the globally configured JSON-RPC URL is used.
     var endpoint: URL? { nil }
 }
+
+// MARK: - Sending
 
 /// Default request method implementations.
 public extension HJRPCRequestProtocol {
@@ -191,114 +204,6 @@ extension HJRPCRequestProtocol {
             throw .codable(modelName: "HJRPCRequest", error: error)
         }
 
-        return HJRPCRequestWrapper<RawModel>(requestedDebugType: requestedDebugType, jsonBody: jsonBody, rawBody: rawBody, jrpcID: jrpcID, url: url, needsAuth: needsAuth, retryPolicy: retryPolicy, headerParameters: headerParameters)
-    }
-}
-
-// MARK: - Internal Transport Requests
-
-/// Shape shared by the internal single and batch wrappers that carry JSON-RPC payloads
-/// through Harbor.
-protocol HJRPCTransportRequest: HPostRequestProtocol, HRequestWithResultProtocol {
-    /// The debug type to log with, or `nil` when no wrapped request opted into logging
-    /// by conforming to `HDebugRequestProtocol`.
-    var requestedDebugType: HDebugRequestType? { get }
-}
-
-extension HJRPCTransportRequest {
-    /// Sends the request through Harbor. Requests that opted into logging are sent through
-    /// `HJRPCDebugRequest`, which conforms to `HDebugRequestProtocol`, so Harbor logs them
-    /// with the requested debug type; the others are sent as-is and never logged, matching
-    /// Harbor's opt-in logging for REST requests.
-    func send() async -> HResponseWithResult<Model> {
-        if let requestedDebugType {
-            return await HJRPCDebugRequest(base: self, debugType: requestedDebugType).request()
-        }
-        return await request()
-    }
-}
-
-/// Internal wrapper that adapts JSON-RPC requests to Harbor's request protocol.
-struct HJRPCRequestWrapper<RawModel: HModel> {
-    /// The debug type to log with, or `nil` when the request did not opt into logging.
-    let requestedDebugType: HDebugRequestType?
-    /// The request object (`jsonrpc`, `method`, `id`, `params`).
-    let jsonBody: [String: HJSONValue]
-    /// The encoded body that is sent. `JSONEncoder` keeps big integers (`HJSONValue.decimal`) exact.
-    let rawBody: Data?
-    /// The id sent with the request, or `nil` for a notification.
-    let jrpcID: HJRPCId?
-    /// The endpoint the request is sent to.
-    let url: String
-    /// Whether the request needs auth.
-    let needsAuth: Bool
-    /// The retry policy of the JSON-RPC request.
-    let retryPolicy: HRetryPolicy?
-    /// The headers of the JSON-RPC request.
-    let headerParameters: [String: String]?
-}
-
-// MARK: - HJRPCTransportRequest
-
-extension HJRPCRequestWrapper: HJRPCTransportRequest {
-    /// The JSON-RPC response envelope wrapping the request's model.
-    typealias Model = HJRPCResult<RawModel>
-
-    /// The body as a dictionary, used by debug logs. The request itself is sent from `rawBody`.
-    var bodyParameters: [String: Any]? {
-        jsonBody.mapValues { $0.anyValue }
-    }
-
-    /// Decodes the response envelope. A notification answered with an empty (or whitespace-only)
-    /// body decodes as an empty envelope, since the server MUST NOT reply to notifications
-    /// (JSON-RPC 2.0, section 4.1); any other body must be a valid JSON-RPC response.
-    func parseData<T: Codable>(data: Data, model: T.Type) throws -> T {
-        if jrpcID == nil, data.isBlankJSONBody, let empty = HJRPCResult<RawModel>() as? T {
-            return empty
-        }
-        return try JSONDecoder().decode(T.self, from: data)
-    }
-}
-
-/// Internal wrapper that sends a JSON-RPC transport request with debug logging enabled.
-struct HJRPCDebugRequest<Base: HJRPCTransportRequest> {
-    /// The wrapped transport request.
-    let base: Base
-    /// The debug type requested by the JSON-RPC request(s).
-    let debugType: HDebugRequestType
-}
-
-// MARK: - HPostRequestProtocol, HRequestWithResultProtocol, HDebugRequestProtocol
-
-extension HJRPCDebugRequest: HPostRequestProtocol, HRequestWithResultProtocol, HDebugRequestProtocol {
-    /// The model of the wrapped request.
-    typealias Model = Base.Model
-
-    /// Forwarded from `base`.
-    var url: String { base.url }
-    /// Forwarded from `base`.
-    var needsAuth: Bool { base.needsAuth }
-    /// Forwarded from `base`.
-    var retryPolicy: HRetryPolicy? { base.retryPolicy }
-    /// Forwarded from `base`.
-    var headerParameters: [String: String]? { base.headerParameters }
-    /// Forwarded from `base`.
-    var bodyParameters: [String: Any]? { base.bodyParameters }
-    /// Forwarded from `base`.
-    var rawBody: Data? { base.rawBody }
-
-    /// Forwarded from `base`.
-    func parseData<T: Codable>(data: Data, model: T.Type) throws -> T {
-        try base.parseData(data: data, model: model)
-    }
-}
-
-// MARK: - Response Body Helpers
-
-/// Body inspection helpers for JSON-RPC responses.
-extension Data {
-    /// Whether the body is empty or contains only JSON whitespace.
-    var isBlankJSONBody: Bool {
-        allSatisfy { $0 == 0x20 || $0 == 0x09 || $0 == 0x0A || $0 == 0x0D }
+        return HJRPCRequestWrapper<RawModel>(requestedDebugType: requestedDebugType, jsonBody: jsonBody, rawBody: rawBody, jrpcID: jrpcID, url: url, needsAuth: needsAuth, retryPolicy: retryPolicy, headerParameters: headerParameters, timeoutInterval: timeoutInterval, logName: "\(String(describing: Swift.type(of: self))) (\(method))")
     }
 }

@@ -84,7 +84,7 @@ final class HarborConnectivityTests: XCTestCase {
         HRequestManager.connectivityMonitor = HRequestManagerMonitor()
         HRequestManager.connectivityMonitor.start()
 
-        await Harbor.stopNetworkMonitor()
+        Harbor.stopNetworkMonitor()
 
         XCTAssertTrue(HRequestManager.connectivityMonitor.isConnectedToNetwork())
     }
@@ -95,7 +95,7 @@ final class HarborConnectivityTests: XCTestCase {
         HRequestManager.connectivityMonitor = FakeConnectivityMonitor(connected: false)
         defer { HRequestManager.connectivityMonitor = HRequestManagerMonitor() }
 
-        await Harbor.removeAllMocks()
+        Harbor.removeAllMocks()
         let response = await MockGetRequest<MockModel>(url: "https://example.com/users").request()
 
         guard case .error(let error) = response, case .noConnection = error else {
@@ -119,9 +119,7 @@ final class HarborOfflineCacheFallbackTests: XCTestCase {
 
     override func tearDown() async throws {
         HRequestManager.connectivityMonitor = HRequestManagerMonitor()
-        Harbor.setProtocolClasses(nil)
-        HConfig.shared.customURLSession = nil
-        await Harbor.clearAllCache()
+        await HarborTestDefaults.restore()
     }
 
     func testFreshCustomCacheEntryIsServedWhenMonitorReportsOffline() async throws {
@@ -202,7 +200,7 @@ final class HarborOfflineCacheFallbackTests: XCTestCase {
         Harbor.removeAllMocks()
 
         // Then the stored copy is still the good one
-        let stored = await request.offlineCache(authHeader: nil, resolvingAuthHeader: false) as? MockModel
+        let stored = await request.offlineCache(authHeader: nil, resolvingAuthHeader: false)
         XCTAssertEqual(stored?.quote, "good")
     }
 

@@ -9,6 +9,7 @@ import Foundation
 import HarborCore
 
 // MARK: - Request With Result
+
 extension HRequestManager {
     /// Executes a request that expects a typed model response.
     /// - Parameters:
@@ -17,15 +18,22 @@ extension HRequestManager {
     /// - Returns: `HResponseWithResult<Model>` containing parsed result or error.
     static func request<Model: HModel, Request: HRequestWithResultProtocol>(model: Model.Type, request: Request) async -> HResponseWithResult<Model> {
         let retryPolicy = request.retryPolicy
+        // Captured before anything is awaited (including the auth header lookup), so a
+        // `clearAllCache()` or `setAuthProvider(_:)` that runs at any point while the request is
+        // in flight keeps its response out of the cache.
+        let generation = cacheGeneration
 
         if HRESTConfig.shared.mocksEnabled, HMocker.isRegistered(type(of: request)) {
+            // Mocks skip the connectivity check and never fail with `.authProviderNeeded`, but
+            // carry the provider's header so the 401 flow and the cache behave as for a real response.
+            let authHeader = await cacheAuthHeader(for: request)
             return await runAttempts(
                 request: request,
                 retryPolicy: retryPolicy,
-                authHeader: nil,
+                authHeader: authHeader,
                 errorResponse: { .error($0) }
-            ) { currentRequest, _, canRetry in
-                return await executeMockAttempt(model: model, request: currentRequest, canRetry: canRetry)
+            ) { currentRequest, currentAuthHeader, canRetry in
+                return await executeMockAttempt(model: model, request: currentRequest, authHeader: currentAuthHeader, canRetry: canRetry, generation: generation)
             }
         }
 
@@ -66,7 +74,7 @@ extension HRequestManager {
                 authHeader: authHeader,
                 errorResponse: { .error($0) }
             ) { currentRequest, currentAuthHeader, canRetry in
-                return await executeOnce(model: model, request: currentRequest, authHeader: currentAuthHeader, canRetry: canRetry)
+                return await executeOnce(model: model, request: currentRequest, authHeader: currentAuthHeader, canRetry: canRetry, generation: generation)
             }
         }
     }
@@ -76,10 +84,11 @@ extension HRequestManager {
     /// - Parameters:
     ///   - model: The expected model type to decode.
     ///   - request: The request conforming to `HRequestWithResultProtocol`.
+    ///   - authHeader: The provider's header for the attempt (`nil` without auth).
     ///   - canRetry: Whether further retry attempts are available.
+    ///   - generation: The `cacheGeneration` when the request started.
     /// - Returns: `HAttemptOutcome` carrying the response or next loop action.
-    private static func executeMockAttempt<Model: HModel, Request: HRequestWithResultProtocol>(model: Model.Type, request: Request, canRetry: Bool) async -> HAttemptOutcome<HResponseWithResult<Model>> {
-        let generation = cacheGeneration
+    private static func executeMockAttempt<Model: HModel, Request: HRequestWithResultProtocol>(model: Model.Type, request: Request, authHeader: HAuthorizationHeader?, canRetry: Bool, generation: Int) async -> HAttemptOutcome<HResponseWithResult<Model>> {
         let mock: HMock
         switch await resolveMock(for: request) {
         case .failure(let hError):
@@ -89,7 +98,8 @@ extension HRequestManager {
         }
 
         if mock.jsonResponse == nil, (200 ... 299).contains(mock.statusCode) {
-            HLogger.log("Mock for \(request) returned status \(mock.statusCode) with no body; decoding will fail for model-returning requests", level: .warning)
+            // The type, not the value: the request's properties may hold credentials.
+            HLogger.log("Mock for \(type(of: request)) returned status \(mock.statusCode) with no body; decoding will fail for model-returning requests", level: .warning)
         }
 
         let mockResponse = HTTPURLResponse(url: mockURL(for: request), statusCode: mock.statusCode, httpVersion: nil, headerFields: mock.headers)
@@ -100,6 +110,8 @@ extension HRequestManager {
                                      data: mock.responseBody,
                                      httpResponse: mockResponse,
                                      canRetry: canRetry,
+                                     authHeader: authHeader,
+                                     servesCachedBodyOn304: true,
                                      generation: generation) ?? .finish(.error(.api(statusCode: mock.statusCode, data: mock.responseBody)))
     }
 
@@ -116,9 +128,9 @@ extension HRequestManager {
     ///   - request: The request conforming to `HRequestWithResultProtocol`.
     ///   - authHeader: Optional authorization header to apply.
     ///   - canRetry: Whether further retry attempts are available.
+    ///   - generation: The `cacheGeneration` when the request started.
     /// - Returns: `HAttemptOutcome` carrying the response or next loop action.
-    private static func executeOnce<Model: HModel, Request: HRequestWithResultProtocol>(model: Model.Type, request: Request, authHeader: HAuthorizationHeader?, canRetry: Bool) async -> HAttemptOutcome<HResponseWithResult<Model>> {
-        let generation = cacheGeneration
+    private static func executeOnce<Model: HModel, Request: HRequestWithResultProtocol>(model: Model.Type, request: Request, authHeader: HAuthorizationHeader?, canRetry: Bool, generation: Int) async -> HAttemptOutcome<HResponseWithResult<Model>> {
         let prepared: HURLBuilder.HPreparedRequest
         do {
             prepared = try await HURLBuilder.prepareRequest(request: request, authHeader: authHeader)
@@ -173,6 +185,8 @@ extension HRequestManager {
                                                     httpResponse: httpResponse,
                                                     canRetry: canRetry,
                                                     authHeader: authHeader,
+                                                    sentHeaders: urlRequest.allHTTPHeaderFields,
+                                                    servesCachedBodyOn304: prepared.injectedConditionalValidators && hasConditionalValidators(urlRequest),
                                                     canRefetchUnconditionally: prepared.injectedConditionalValidators && hasConditionalValidators(urlRequest),
                                                     generation: generation)
                 guard let outcome else {
@@ -193,16 +207,15 @@ extension HRequestManager {
                 }
                 // Cached content is only a fallback once retries are exhausted or the error is
                 // not retryable. Without connectivity a fresh entry (or the URLCache response)
-                // is served too, under the credential the attempt used or, when it was sent
-                // without one, the credential the request last succeeded with; any other
-                // error only falls back to stale-if-error content.
+                // is served too, under the credentials the attempt was sent with (a `needsAuth`
+                // request the provider had no header for, e.g. after logout, gets nothing);
+                // any other error only falls back to stale-if-error content.
                 if let getRequest = request as? any HGetRequestProtocol {
                     let fallback: Any?
                     if hError == .noConnection {
-                        let offlineHeader = authHeader ?? rememberedAuthHeader(for: getRequest)
-                        fallback = await getRequest.offlineCache(authHeader: offlineHeader, resolvingAuthHeader: false)
+                        fallback = await getRequest.offlineCache(authHeader: authHeader, resolvingAuthHeader: false, sentHeaders: urlRequest.allHTTPHeaderFields)
                     } else {
-                        fallback = await getRequest.staleCacheOnError(authHeader: authHeader)
+                        fallback = await getRequest.staleCacheOnError(authHeader: authHeader, sentHeaders: urlRequest.allHTTPHeaderFields)
                     }
                     if let cached = fallback as? Model {
                         HCacheFallbackProbe.markServedFromCache()
@@ -220,7 +233,8 @@ extension HRequestManager {
     }
 
     /// Processes the raw response for a model-returning request, decoding the payload or handling errors/revalidation.
-    /// `authHeader` keys the custom-cache reads and writes so `Vary: Authorization` entries are per-credential.
+    /// `authHeader` and `sentHeaders` key the custom-cache reads and writes, so entries are
+    /// namespaced by the credentials the request was sent with.
     /// - Parameters:
     ///   - model: The expected model type to decode.
     ///   - request: The request conforming to `HRequestWithResultProtocol`.
@@ -228,14 +242,19 @@ extension HRequestManager {
     ///   - data: Raw response payload.
     ///   - httpResponse: Optional HTTPURLResponse object.
     ///   - canRetry: Whether further retries remain.
-    ///   - authHeader: Optional authorization header used for vary keying.
-    ///   - canRefetchUnconditionally: Whether a `304` without a cached body may be answered by
-    ///     re-issuing the request without conditional validators (only when Harbor injected them).
-    ///   - generation: The `cacheGeneration` when the attempt started. The response is only
+    ///   - authHeader: Optional authorization header the request was sent with.
+    ///   - sentHeaders: The headers the request was sent with, or `nil` for a mock.
+    ///   - servesCachedBodyOn304: Whether a `304` answers validators Harbor injected from its
+    ///     cache (or a mock), so the cached body is served. A `304` answering validators the
+    ///     caller set is returned as `.api(statusCode: 304, data:)`.
+    ///   - canRefetchUnconditionally: Whether a `304` without a cached body to serve may be
+    ///     answered by re-issuing the request without the validators Harbor injected (never
+    ///     for a mock).
+    ///   - generation: The `cacheGeneration` when the request started. The response is only
     ///     cached when it is still current.
     /// - Returns: `HAttemptOutcome` carrying the response or next loop action, or `nil` when the
-    ///   request must be re-issued without conditional validators (`canRefetchUnconditionally`).
-    private static func processResponse<Model: HModel, Request: HRequestWithResultProtocol>(model: Model.Type, request: Request, statusCode: Int, data: Data, httpResponse: HTTPURLResponse? = nil, canRetry: Bool = false, authHeader: HAuthorizationHeader? = nil, canRefetchUnconditionally: Bool = false, generation: Int) async -> HAttemptOutcome<HResponseWithResult<Model>>? {
+    ///   request must be re-issued without conditional validators.
+    private static func processResponse<Model: HModel, Request: HRequestWithResultProtocol>(model: Model.Type, request: Request, statusCode: Int, data: Data, httpResponse: HTTPURLResponse? = nil, canRetry: Bool = false, authHeader: HAuthorizationHeader? = nil, sentHeaders: [String: String]? = nil, servesCachedBodyOn304: Bool = false, canRefetchUnconditionally: Bool = false, generation: Int) async -> HAttemptOutcome<HResponseWithResult<Model>>? {
         switch statusCode {
         case 200 ... 299:
             do {
@@ -244,7 +263,9 @@ extension HRequestManager {
 
                 if let request = request as? any HGetRequestProtocol, generation == cacheGeneration,
                    request.shouldCache(statusCode: statusCode) {
-                    await request.saveCache(data, response: httpResponse, authHeader: authHeader)
+                    await request.saveCache(data, response: httpResponse, authHeader: authHeader, sentHeaders: sentHeaders) {
+                        generation == cacheGeneration
+                    }
                     if generation == cacheGeneration {
                         rememberAuthHeader(authHeader, for: request)
                     }
@@ -257,18 +278,20 @@ extension HRequestManager {
                 return .finish(.error(hError))
             }
         case 304:
-            // Not Modified — serve the cached body and refresh the stored entry.
-            // (URLCache revalidates transparently at URLSession level; this branch handles the custom cache.)
-            if let getRequest = request as? any HGetRequestProtocol,
-               let cachedAny = await getRequest.revalidatedCache(response: httpResponse, authHeader: authHeader),
+            // Not Modified for the validators Harbor injected: serve the cached body and refresh
+            // the stored entry. (`URLCache` revalidates transparently inside `URLSession`; a `304`
+            // reaches this point for the custom cache, for mocks, or for validators the caller set.)
+            if servesCachedBodyOn304,
+               let getRequest = request as? any HGetRequestProtocol,
+               let cachedAny = await getRequest.revalidatedCache(response: httpResponse, authHeader: authHeader, sentHeaders: sentHeaders),
                let cachedModel = cachedAny as? Model {
                 if generation == cacheGeneration {
                     rememberAuthHeader(authHeader, for: getRequest)
                 }
                 return .finish(.success(cachedModel))
             }
-            // The validators matched but the body is gone (evicted, or another vary variant):
-            // ask the caller to fetch the full representation instead of failing.
+            // The validators matched but the body is gone (evicted, replaced, or another vary
+            // variant): ask the caller to fetch the full representation instead of failing.
             if canRefetchUnconditionally {
                 return nil
             }
@@ -285,7 +308,7 @@ extension HRequestManager {
             }
             if statusCode >= 500,
                let getRequest = request as? any HGetRequestProtocol,
-               let stale = await getRequest.staleCacheOnError(authHeader: authHeader) as? Model {
+               let stale = await getRequest.staleCacheOnError(authHeader: authHeader, sentHeaders: sentHeaders) as? Model {
                 HCacheFallbackProbe.markServedFromCache()
                 return .finish(.success(stale))
             }
@@ -310,6 +333,7 @@ extension HRequestManager {
 }
 
 // MARK: - Request Without Result
+
 extension HRequestManager {
     /// Executes a request that expects an empty response.
     /// - Parameter request: The request conforming to `HRequestWithEmptyResponseProtocol`.
@@ -318,10 +342,12 @@ extension HRequestManager {
         let retryPolicy = request.retryPolicy
 
         if HRESTConfig.shared.mocksEnabled, HMocker.isRegistered(type(of: request)) {
+            // See the model-returning variant: mocks carry the provider's header.
+            let authHeader = await cacheAuthHeader(for: request)
             return await runAttempts(
                 request: request,
                 retryPolicy: retryPolicy,
-                authHeader: nil,
+                authHeader: authHeader,
                 errorResponse: { .error($0) }
             ) { currentRequest, _, canRetry in
                 return await executeMockAttempt(request: currentRequest, canRetry: canRetry)
@@ -447,7 +473,7 @@ extension HRequestManager {
         case 200 ... 299:
             return .finish(.success)
         case 304:
-            // Not Modified — the cached representation is still valid; there is no body to serve.
+            // Not Modified: the caller's conditional request succeeded; there is no body to decode.
             return .finish(.success)
         case 401:
             return .unauthorized
@@ -463,7 +489,8 @@ extension HRequestManager {
     }
 }
 
-// MARK: - Request Builder Functions
+// MARK: - Attempt Helpers
+
 extension HRequestManager {
     /// Runs the retry loop, delegating each attempt to `executeAttempt`. Connectivity checks
     /// and the initial auth header fetch are evaluated once by the caller, not per attempt.

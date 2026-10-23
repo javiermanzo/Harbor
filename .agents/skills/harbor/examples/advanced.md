@@ -69,7 +69,7 @@ func upload(fileURL: URL) async {
 
 ## Streaming (cache + remote)
 
-`requestStream(source:)` yields at most two elements: the cached value (`.cache`, when `cache()` has one) and then the remote value (`.remote`). Cancelling the consuming task cancels the underlying request.
+`requestStream(source:)` yields at most two elements: the cached value (`.cache`, when `cache()` has one) and then the remote value (`.remote`). When the network leg is answered by a cached copy instead (offline, or `stale-if-error`), that copy is tagged `.cache` and yielded only once. Cancelling the consuming task cancels the underlying request.
 
 ```swift
 struct TimelineRequest: HGetRequestProtocol {
@@ -206,7 +206,7 @@ func configureSession() async {
 }
 ```
 
-A custom session without Harbor's delegate bypasses SSL pinning, mTLS and cross-origin credential stripping, and Harbor logs a warning. To use your own delegate, forward to an `HURLSessionDelegate` (see `../security.md`). Default timeouts still apply per request. `setDefaultResourceTimeoutInterval` doesn't apply to custom sessions.
+A custom session without Harbor's delegate bypasses SSL pinning, mTLS and cross-origin credential stripping, and Harbor logs a warning. To use your own delegate, forward to an `HURLSessionDelegate` (see `../../harbor-core/security.md`). Default timeouts still apply per request. `setDefaultResourceTimeoutInterval` doesn't apply to custom sessions.
 
 ## Error recovery
 
@@ -359,5 +359,5 @@ Logged values (headers, query, body, cURL, response body, `.api` error previews)
 
 ## Related files
 
-- `basic.md`, `jrpc.md`.
-- `../cache.md`, `../security.md`, `../testing.md`.
+- `basic.md`; `../../harbor-jrpc/SKILL.md`.
+- `../cache.md`, `../testing.md`; `../../harbor-core/auth.md`, `../../harbor-core/security.md`, `../../harbor-core/logging.md`.

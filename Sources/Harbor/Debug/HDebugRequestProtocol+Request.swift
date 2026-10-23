@@ -10,12 +10,23 @@ import HarborCore
 
 // MARK: - Logging Helpers
 
-/// Debug logging helpers. These methods are intentionally not actor-isolated so
-/// adopters can call them from any context; access to Harbor's actor-isolated
-/// configuration and logger is awaited where needed.
+/// Debug logging of REST requests, used by `HRequestManager`. The methods are not
+/// actor-isolated, so redacting and formatting a payload does not block the actor; Harbor's
+/// actor-isolated configuration and logger are awaited where needed.
 extension HDebugRequestProtocol {
 
-    /// Maximum number of characters of a logged body kept before truncation.
+    /// The name logs show for the request: its `HLogNamedRequest.logName`, or its type name.
+    var logName: String {
+        (self as? HLogNamedRequest)?.logName ?? String(describing: type(of: self))
+    }
+
+    /// The URL to print: redacted, including the values of sensitive path parameters.
+    /// - Parameters:
+    ///   - url: The URL that was sent or answered.
+    ///   - policy: The redaction policy.
+    func printableURL(_ url: URL, policy: HRedactionPolicy) -> String {
+        policy.redactedURLString(url, pathParameters: (self as? HRequestBaseRequestProtocol)?.pathParameters)
+    }
 
     /// Prints detailed request information to the console.
     ///
@@ -31,9 +42,9 @@ extension HDebugRequestProtocol {
            self.debugType == .request || self.debugType == .requestAndResponse {
             let policy = HRedactionPolicy.current
             var additionalInfo: [String: HLogValue] = [:]
-            additionalInfo["request"] = .string(String(describing: type(of: self)))
+            additionalInfo["request"] = .string(logName)
             if let url = urlRequest.url {
-                additionalInfo["url"] = .string(policy.redactedURLString(url))
+                additionalInfo["url"] = .string(printableURL(url, policy: policy))
             }
             additionalInfo["httpMethod"] = .string(request.httpMethod.rawValue)
 
@@ -60,7 +71,7 @@ extension HDebugRequestProtocol {
             let curl = await self.generateCurl(urlRequest: urlRequest)
             let extraMessages: [HLogExtraMessage] = [HLogExtraMessage(key: "cURL", value: curl)]
 
-            await HLogger.log("Request \(String(describing: type(of: request)))", extraMessages: extraMessages, additionalInfo: additionalInfo, level: .debug)
+            await HLogger.log("Request \(logName)", extraMessages: extraMessages, additionalInfo: additionalInfo, level: .debug)
         }
     }
 
@@ -77,7 +88,7 @@ extension HDebugRequestProtocol {
         if self.debugType == .response || self.debugType == .requestAndResponse {
             let policy = HRedactionPolicy.current
             var extraMessages: [HLogExtraMessage] = []
-            if let value = await redactedResponseBody(data: data, httpResponse: httpResponse) {
+            if let value = redactedResponseBody(data: data) {
                 extraMessages.append(HLogExtraMessage(key: "Response Value", value: value))
             }
 
@@ -86,15 +97,15 @@ extension HDebugRequestProtocol {
             }
 
             var additionalInfo: [String: HLogValue] = [:]
-            additionalInfo["request"] = .string(String(describing: type(of: self)))
+            additionalInfo["request"] = .string(logName)
             additionalInfo["statusCode"] = .int(httpResponse.statusCode)
             if let url = httpResponse.url {
-                additionalInfo["url"] = .string(policy.redactedURLString(url))
+                additionalInfo["url"] = .string(printableURL(url, policy: policy))
             }
             additionalInfo["size"] = .string(data.debugDescription)
             additionalInfo["duration"] = .string("\(String(format: "%.2f", duration))ms")
 
-            await HLogger.log("Response \(String(describing: type(of: self)))", extraMessages: extraMessages, additionalInfo: additionalInfo, level: .debug)
+            await HLogger.log("Response \(logName)", extraMessages: extraMessages, additionalInfo: additionalInfo, level: .debug)
         }
     }
 
@@ -112,9 +123,9 @@ extension HDebugRequestProtocol {
         extraMessages.append(HLogExtraMessage(key: "Error Type", value: error.errorDescription ?? String(describing: type(of: error))))
 
         var additionalInfo: [String: HLogValue] = [:]
-        additionalInfo["request"] = .string(String(describing: type(of: self)))
+        additionalInfo["request"] = .string(logName)
 
-        await HLogger.log("Response Error \(String(describing: type(of: self)))", extraMessages: extraMessages, additionalInfo: additionalInfo, level: .error)
+        await HLogger.log("Response Error \(logName)", extraMessages: extraMessages, additionalInfo: additionalInfo, level: .error)
     }
 
     /// Converts a dictionary to a JSON string representation with sorted keys,
@@ -189,7 +200,9 @@ extension HDebugRequestProtocol {
         }
         let policy = HRedactionPolicy.current
 
-        if let cookies = cookieStorage?.cookies(for: url), !cookies.isEmpty {
+        let storedCookies = cookieStorage?.cookies(for: url) ?? []
+        if !storedCookies.isEmpty {
+            let cookies = storedCookies
             if !policy.isEnabled {
                 let string = cookies.reduce("") { $0 + "\($1.name)=\($1.value);" }
                 let cookieString = Self.shellEscapeDoubleQuoted(String(string.dropLast()))
@@ -199,13 +212,16 @@ extension HDebugRequestProtocol {
             }
         }
 
+        // A `Cookie` header is replaced by the stored cookies when the session sends them
+        // (`-b` above); otherwise it is printed like any other header.
+        let isReplacedCookieHeader: (String) -> Bool = { !storedCookies.isEmpty && $0.lowercased() == "cookie" }
         var headers: [AnyHashable: Any] = [:]
 
-        customConfiguration?.httpAdditionalHeaders?.filter {  $0.0 != AnyHashable("Cookie") }
-            .forEach { headers[$0.0] = $0.1 }
+        customConfiguration?.httpAdditionalHeaders?.filter { !isReplacedCookieHeader(String(describing: $0.key)) }
+            .forEach { headers[$0.key] = $0.value }
 
-        urlRequest.allHTTPHeaderFields?.filter { $0.0 != "Cookie" }
-            .forEach { headers[$0.0] = $0.1 }
+        urlRequest.allHTTPHeaderFields?.filter { !isReplacedCookieHeader($0.key) }
+            .forEach { headers[$0.key] = $0.value }
 
         for header in headers {
             let name = String(describing: header.key)
@@ -218,7 +234,7 @@ extension HDebugRequestProtocol {
             components.append("-d \(Self.shellEscapeSingleQuoted(httpBody))")
         }
 
-        components.append("\"\(Self.shellEscapeDoubleQuoted(policy.redactedURLString(url)))\"")
+        components.append("\"\(Self.shellEscapeDoubleQuoted(printableURL(url, policy: policy)))\"")
 
         return components.joined(separator: " \\\n\t")
     }
@@ -237,16 +253,6 @@ extension HDebugRequestProtocol {
             return "<multipart body: \(data.count) bytes omitted>"
         }
         return policy.redactedBody(body) ?? "<\(data.count) bytes of unparseable JSON omitted>"
-    }
-
-    /// Returns the value to print for a header in debug output, redacting sensitive ones
-    /// (see `HRedactionPolicy`) unless `Harbor.setLogSensitiveValues(true)` is set.
-    /// - Parameters:
-    ///   - name: The header name.
-    ///   - value: The header value.
-    /// - Returns: The value, or `<redacted>` when the header is sensitive.
-    internal func redactedHeaderValue(name: String, value: String) async -> String {
-        HRedactionPolicy.current.redactedHeaderValue(name: name, value: value)
     }
 
     /// Returns a copy of the headers dictionary with sensitive values redacted,
@@ -276,11 +282,9 @@ extension HDebugRequestProtocol {
     /// with `<redacted>` at any nesting depth in JSON bodies and in form-encoded bodies, unless
     /// `Harbor.setLogSensitiveValues(true)` is set; a JSON body that cannot be parsed is omitted.
     /// Bodies longer than 16 K characters are truncated.
-    /// - Parameters:
-    ///   - data: The raw response body.
-    ///   - httpResponse: The response the body belongs to.
+    /// - Parameter data: The raw response body.
     /// - Returns: The printable, redacted body.
-    internal func redactedResponseBody(data: Data, httpResponse: HTTPURLResponse) async -> String? {
+    internal func redactedResponseBody(data: Data) -> String? {
         HRedactionPolicy.current.printableBody(data)
     }
 

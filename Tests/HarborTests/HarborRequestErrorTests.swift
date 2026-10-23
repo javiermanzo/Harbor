@@ -142,6 +142,16 @@ final class HarborRequestErrorTests: XCTestCase {
         XCTAssertTrue(description.contains("\(CocoaError.Code.fileNoSuchFile.rawValue)"))
     }
 
+    func testUnknownDescriptionNeverIncludesTheUserInfo() {
+        // URLSession puts the failing URL, query included, in the userInfo of its errors
+        let underlying = NSError(domain: NSPOSIXErrorDomain, code: Int(EHOSTUNREACH), userInfo: [NSURLErrorFailingURLStringErrorKey: "https://api.example.com/x?token=SECRET"])
+
+        let description = HRequestError.unknown(underlying).errorDescription ?? ""
+
+        XCTAssertFalse(description.contains("SECRET"), description)
+        XCTAssertTrue(description.contains("\(EHOSTUNREACH)"), description)
+    }
+
     // MARK: - Equatable
 
     func testEquatableComparesCasesAndPayloads() {

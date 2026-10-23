@@ -389,6 +389,24 @@ final class HURLSessionDelegateTests: XCTestCase {
         }
     }
 
+    func testCrossOriginRedirectStripsHeadersNamedAfterASensitiveKey() {
+        // Given custom credential headers that are not in a fixed list
+        var proposed = URLRequest(url: URL(string: "https://bucket.example.net/file")!)
+        proposed.setValue("t-1", forHTTPHeaderField: "X-Access-Token")
+        proposed.setValue("k-1", forHTTPHeaderField: "Api-Key")
+        proposed.setValue("s-1", forHTTPHeaderField: "X-Client-Secret")
+        proposed.setValue("application/json", forHTTPHeaderField: "Accept")
+
+        // When the redirect leaves the origin
+        let followed = HURLSessionDelegate.redirectRequest(proposed, originURL: URL(string: "https://api.example.com/file"), authHeaderKey: nil)
+
+        // Then every header named after a sensitive key is stripped, the others are kept
+        XCTAssertNil(followed.value(forHTTPHeaderField: "X-Access-Token"))
+        XCTAssertNil(followed.value(forHTTPHeaderField: "Api-Key"))
+        XCTAssertNil(followed.value(forHTTPHeaderField: "X-Client-Secret"))
+        XCTAssertEqual(followed.value(forHTTPHeaderField: "Accept"), "application/json")
+    }
+
     func testCrossOriginRedirectStripsTheWebSocketSubprotocolButSameOriginKeepsIt() {
         // Given a handshake that authenticates by offering a token as the subprotocol
         let origin = URL(string: "wss://api.example.com/socket")

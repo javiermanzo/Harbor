@@ -34,13 +34,19 @@ private struct SlowDecodingRequest: HGetRequestProtocol {
     }
 }
 
-/// Auth provider that always issues the same header and counts `authFailed()` calls.
+/// Auth provider that counts `authFailed()` calls and, when `rotates` is set, issues a new
+/// header after each of them (a successful token refresh).
 @HRequestManagerActor
 private final class CountingAuthProvider: HAuthProviderProtocol {
     private(set) var authFailedCount = 0
+    private let rotates: Bool
+
+    init(rotates: Bool = true) {
+        self.rotates = rotates
+    }
 
     func getAuthorizationHeader() async -> HAuthorizationHeader? {
-        HAuthorizationHeader(key: "Authorization", value: "Bearer token")
+        HAuthorizationHeader(key: "Authorization", value: "Bearer token-\(rotates ? authFailedCount : 0)")
     }
 
     func authFailed() async {
@@ -59,8 +65,7 @@ private struct RetryingMockPostRequest: HPostRequestProtocol, @unchecked Sendabl
 final class HarborMockTests: XCTestCase {
 
     override func setUp() async throws {
-        Harbor.removeAllMocks()
-        Harbor.setMocksEnabled(true)
+        await HarborTestDefaults.restore()
     }
 
     override func tearDown() async throws {
@@ -179,17 +184,29 @@ final class HarborMockTests: XCTestCase {
     // MARK: - Mocks enabled override
 
     func testMocksEnabledOverrideForcesMocksOff() async throws {
+        // Given a registered mock and a network stub answering something else
+        let url = try XCTUnwrap(URL(string: "https://stream.example.com/mocks-off"))
+        LocalStubURLProtocol.registerStub(for: url, data: Data(#"{"quote":"from-network"}"#.utf8),
+                                          response: try XCTUnwrap(HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)))
+        Harbor.setProtocolClasses([LocalStubURLProtocol.self])
+        defer {
+            Harbor.setProtocolClasses(nil)
+            LocalStubURLProtocol.clearStubs()
+        }
         Harbor.register(mock: HMock(request: MockGetRequest<MockModel>.self, statusCode: 200, jsonResponse: """
             {"quote":"ignored"}
             """))
         Harbor.setMocksEnabled(false)
+        defer { Harbor.setMocksEnabled(true) }
 
-        // With mocks forced off, a registered mock is not served: the request reaches the
-        // connectivity pre-check and, with no network stub, surfaces a deterministic error.
-        let response = await MockGetRequest<MockModel>(url: "https://example.com").request()
-        if case .success = response {
-            XCTFail("Expected the mock to be ignored while mocks are disabled but got success")
+        // When
+        let response = await MockGetRequest<MockModel>(url: url.absoluteString).request()
+
+        // Then the mock is ignored and the (stubbed) network answers
+        guard case .success(let model) = response else {
+            return XCTFail("Expected the network response but got: \(response)")
         }
+        XCTAssertEqual(model.quote, "from-network")
     }
 
     // MARK: - Per-attempt resolution
@@ -236,6 +253,26 @@ final class HarborMockTests: XCTestCase {
         XCTAssertEqual(model.quote, "after-auth")
         XCTAssertEqual(provider.authFailedCount, 1)
         XCTAssertEqual(Harbor.mockCallCount(for: MockGetRequest<MockModel>.self), 2)
+    }
+
+    func testMocked401WithAnUnchangedHeaderGivesUpLikeARealOne() async throws {
+        // Given a provider whose refresh does not change its header
+        let provider = CountingAuthProvider(rotates: false)
+        Harbor.setAuthProvider(provider)
+        Harbor.register(mockSequence: HMockSequence(request: MockGetRequest<MockModel>.self, responses: [
+            .init(statusCode: 401),
+            .init(statusCode: 200, jsonResponse: #"{"quote":"never"}"#)
+        ]))
+
+        // When
+        let response = await MockGetRequest<MockModel>(needsAuth: true, url: "https://example.com").request()
+
+        // Then the request gives up after authFailed(), as against a real server
+        guard case .error(.authNeeded) = response else {
+            return XCTFail("Expected .authNeeded but got: \(response)")
+        }
+        XCTAssertEqual(provider.authFailedCount, 1)
+        XCTAssertEqual(Harbor.mockCallCount(for: MockGetRequest<MockModel>.self), 1)
     }
 
     func testMockedTransportErrorIsRetried() async throws {

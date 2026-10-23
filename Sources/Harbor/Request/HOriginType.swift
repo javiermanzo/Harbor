@@ -9,6 +9,7 @@ import Foundation
 import HarborCore
 
 // MARK: - Origin Type
+
 /// Where an element yielded by `requestStream(source:)` came from.
 public enum HOriginType: Sendable {
     /// Data came from local cache: a cached element yielded before the network answered, or a cached copy

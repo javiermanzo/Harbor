@@ -9,6 +9,7 @@ import Foundation
 import HarborCore
 
 // MARK: - Request with Body Protocol
+
 /// Protocol for requests that include a body (POST, PUT, PATCH).
 ///
 /// The body is built from the first non-nil of `rawBody`, `multipartBody` and

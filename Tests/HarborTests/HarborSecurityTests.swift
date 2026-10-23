@@ -167,6 +167,32 @@ final class HarborSecurityTests: XCTestCase {
         }
     }
 
+    func testSetMTLSSupersededByClearMTLSChangesNothing() async throws {
+        // Given an import waiting for its password (e.g. a biometric prompt)
+        let unwrappedP12URL = try XCTUnwrap(testP12URL, "certificate.p12 not found")
+        let gate = PasswordGate()
+        let password = testPassword
+        let mTLS = HMTLS(p12FileUrl: unwrappedP12URL) {
+            await gate.wait()
+            return password
+        }
+        let setTask = Task { try await Harbor.setMTLS(mTLS) }
+        await gate.waitUntilRequested()
+
+        // When mTLS is cleared meanwhile and the import then finishes
+        Harbor.clearMTLS()
+        await gate.open()
+
+        // Then the late import does not install its identity
+        do {
+            try await setTask.value
+            XCTFail("Expected the superseded setMTLS to throw")
+        } catch {
+            XCTAssertTrue(error is CancellationError, "Expected CancellationError, got \(error)")
+        }
+        XCTAssertNil(HConfig.shared.mTLSIdentity)
+    }
+
     func testSetMTLSThrowsAndLeavesIdentityUnsetOnFailure() async throws {
         // Given
         let mTLS = makeMTLS(url: URL(fileURLWithPath: "/tmp/harbor-definitely-missing.p12"), password: testPassword)
@@ -631,3 +657,29 @@ private final class SendableCounter: @unchecked Sendable {
 
 // MARK: - Test Request Implementations
 
+/// Holds a password provider until the test opens it, and reports when it was asked.
+private actor PasswordGate {
+    private var isOpen = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+    private var requested = false
+    private var requestWaiters: [CheckedContinuation<Void, Never>] = []
+
+    func wait() async {
+        requested = true
+        requestWaiters.forEach { $0.resume() }
+        requestWaiters.removeAll()
+        guard !isOpen else { return }
+        await withCheckedContinuation { waiters.append($0) }
+    }
+
+    func waitUntilRequested() async {
+        guard !requested else { return }
+        await withCheckedContinuation { requestWaiters.append($0) }
+    }
+
+    func open() {
+        isOpen = true
+        waiters.forEach { $0.resume() }
+        waiters.removeAll()
+    }
+}

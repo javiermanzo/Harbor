@@ -16,8 +16,9 @@ import Security
 /// - **Mutual TLS**: client-certificate challenges are answered with the configured identity,
 ///   only for the hosts the identity is scoped to.
 /// - **Redirects**: credentials (the auth provider's header, `Authorization`, `Cookie`,
-///   `Proxy-Authorization` and the other sensitive headers) are stripped when a redirect
-///   leaves the original origin (scheme, host or port).
+///   `Proxy-Authorization`, `Sec-WebSocket-Protocol` and every header whose name contains a
+///   built-in sensitive key such as `token`, `secret` or `api-key`) are stripped when a
+///   redirect leaves the original origin (scheme, host or port).
 ///
 /// Harbor attaches it to the sessions it builds. When you provide your own session through
 /// `Harbor.setCustomURLSession(_:)`, create one with `Harbor.makeURLSessionDelegate()` and
@@ -41,27 +42,27 @@ public final class HURLSessionDelegate: NSObject, Sendable {
     /// Logger instance for SSL/TLS related events. Toggled by `Harbor.setLoggingEnabled(_:)`.
     static let logger = LogBird(subsystem: "com.harbor", category: "ssl")
 
-    /// Header names (lowercased) always removed from a redirect that leaves the original origin,
-    /// on top of `HConfig.sensitiveHeaders` and the auth provider's header key.
-    /// `sec-websocket-protocol` is included because WebSocket clients commonly offer a token as the subprotocol.
-    private static let crossOriginStrippedHeaders: Set<String> = ["authorization", "cookie", "proxy-authorization", "sec-websocket-protocol"]
-
     /// Client identity configuration for mutual TLS.
     private let mTLSIdentity: HMTLSIdentity?
     /// Global SSL pinning keys.
     private let sslPinningKeys: [String]?
     /// Host-scoped SSL pinning keys.
     private let sslPinningKeysByHost: [String: [String]]?
+    /// `HConfig.securityGeneration` when the delegate was created, used to detect a custom
+    /// session holding an outdated configuration.
+    let securityGeneration: Int
 
     /// Creates a session delegate with optional mTLS identity and SSL pinning keys.
     /// - Parameters:
     ///   - mTLSIdentity: Client identity for mTLS.
     ///   - sslPinningKeys: Global SSL pinning keys.
     ///   - sslPinningKeysByHost: Scoped SSL pinning keys mapped by host name.
-    init(mTLSIdentity: HMTLSIdentity?, sslPinningKeys: [String]?, sslPinningKeysByHost: [String: [String]]? = nil) {
+    ///   - securityGeneration: The security configuration generation the values come from.
+    init(mTLSIdentity: HMTLSIdentity?, sslPinningKeys: [String]?, sslPinningKeysByHost: [String: [String]]? = nil, securityGeneration: Int = 0) {
         self.mTLSIdentity = mTLSIdentity
         self.sslPinningKeys = sslPinningKeys
         self.sslPinningKeysByHost = sslPinningKeysByHost
+        self.securityGeneration = securityGeneration
     }
 }
 
@@ -112,6 +113,8 @@ extension HURLSessionDelegate {
     ///   - challenge: The authentication challenge to respond to.
     ///   - task: The task the challenge belongs to, when known. A rejection is reported to
     ///     the Harbor request that started it so it fails with `HRequestError.certificate`.
+    ///     With `nil` (a session-level handler) the request cannot be told, and a rejected
+    ///     handshake surfaces as `.cancelled`.
     ///   - completionHandler: Completion closure called with disposition and credential.
     public func handleChallenge(_ challenge: URLAuthenticationChallenge, task: URLSessionTask?, completionHandler: @escaping @Sendable (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
         let taskContext = task?.delegate as? any HTaskDelegateContext
@@ -178,8 +181,10 @@ extension HURLSessionDelegate {
 
     /// Returns the request to follow for a redirect. When the redirect target has a different
     /// origin (scheme, host or port) than `originURL`, credentials are removed: the auth
-    /// provider's header key, `Authorization`, `Cookie`, `Proxy-Authorization`,
-    /// `Sec-WebSocket-Protocol` and every header in `HConfig.sensitiveHeaders`. Same-origin redirects are followed unchanged.
+    /// provider's header key and every header whose name contains a built-in sensitive key
+    /// (`HRedactionPolicy.defaultSensitiveKeys`: `Authorization`, `Proxy-Authorization`,
+    /// `Cookie`, `Set-Cookie`, `X-API-Key`, `Sec-WebSocket-Protocol`, any `…-Token`, ...).
+    /// Same-origin redirects are followed unchanged.
     /// - Parameters:
     ///   - request: The request `URLSession` proposes for the new location.
     ///   - originURL: The URL the credentials were intended for.
@@ -190,13 +195,11 @@ extension HURLSessionDelegate {
             return request
         }
 
-        var strippedHeaders = crossOriginStrippedHeaders.union(HConfig.sensitiveHeaders)
-        if let authHeaderKey {
-            strippedHeaders.insert(authHeaderKey.lowercased())
-        }
-
+        let authHeaderKey = authHeaderKey?.lowercased()
         var redirected = request
-        for (header, _) in request.allHTTPHeaderFields ?? [:] where strippedHeaders.contains(header.lowercased()) {
+        for (header, _) in request.allHTTPHeaderFields ?? [:]
+        where header.lowercased() == authHeaderKey
+            || HJSONRedactor.isSensitiveKey(header, needles: HRedactionPolicy.defaultSensitiveKeys) {
             redirected.setValue(nil, forHTTPHeaderField: header)
         }
         return redirected
@@ -350,42 +353,3 @@ extension HURLSessionDelegate {
         return (disposition: .cancelAuthenticationChallenge, credential: nil)
     }
 }
-
-// MARK: - Task Context
-
-/// Per-task state Harbor attaches to every task it starts, as the task-specific delegate
-/// (`URLSession.data(for:delegate:)` and `upload(for:fromFile:delegate:)`). It implements no delegate methods, so it never
-/// changes how a session's own delegate handles the task; `HURLSessionDelegate` reads it
-/// through `URLSessionTask.delegate` to learn the auth header key to strip on cross-origin
-/// redirects and to report a rejected TLS handshake back to the request.
-package final class HTaskContext: NSObject, Sendable {
-    /// The header key the auth provider set on the request, if any.
-    package let authHeaderKey: String?
-
-    /// Backing storage for `trustEvaluationFailed`; challenge answers arrive on arbitrary queues.
-    private let didFailTrustEvaluation = HLockedState(false)
-
-    /// Creates the context for one task.
-    /// - Parameter authHeaderKey: The header key the auth provider set on the request, if any.
-    package init(authHeaderKey: String?) {
-        self.authHeaderKey = authHeaderKey
-    }
-
-    /// Whether Harbor's delegate rejected a server-trust or client-certificate challenge for the task.
-    package var trustEvaluationFailed: Bool {
-        didFailTrustEvaluation.withLock { $0 }
-    }
-}
-
-// MARK: - HTaskDelegateContext
-
-extension HTaskContext: HTaskDelegateContext {
-    /// Records that a TLS challenge for the task was rejected.
-    package func recordTrustFailure() {
-        didFailTrustEvaluation.withLock { $0 = true }
-    }
-}
-
-// MARK: - URLSessionTaskDelegate
-
-extension HTaskContext: URLSessionTaskDelegate {}

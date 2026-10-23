@@ -184,6 +184,8 @@ package struct HRedactionPolicy: Sendable {
     /// - Returns: The redacted string, or `nil` when `string` is not form-encoded or nothing
     ///   needed redaction.
     func redactedFormEncoded(_ string: String) -> String? {
+        // A trailing newline (common in form bodies) does not make it free text.
+        let string = string.trimmingCharacters(in: .whitespacesAndNewlines)
         guard isEnabled, string.contains("="), !string.contains(where: { $0.isWhitespace }) else { return nil }
         var redactedAny = false
         let pairs = string.split(separator: "&", omittingEmptySubsequences: false).map { pair -> String in
@@ -199,20 +201,28 @@ package struct HRedactionPolicy: Sendable {
 
     // MARK: - URLs
 
-    /// Returns the URL string with the values of sensitive query items redacted.
-    /// - Parameter url: The URL whose query string is inspected.
+    /// Returns the URL string with its user info (`user:password@`, a credential by definition)
+    /// replaced by `redacted` and the values of sensitive query and fragment items redacted
+    /// (OAuth implicit flows return `#access_token=...`).
+    /// - Parameter url: The URL to print.
     package func redactedURLString(_ url: URL) -> String {
-        guard isEnabled,
-              var components = URLComponents(url: url, resolvingAgainstBaseURL: false),
-              let query = components.percentEncodedQuery,
-              let redactedQuery = redactedFormEncoded(query) else {
+        guard isEnabled, var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
             return url.absoluteString
         }
-        let fragment = components.percentEncodedFragment
+        if components.percentEncodedUser != nil {
+            components.percentEncodedUser = "redacted"
+        }
+        if components.percentEncodedPassword != nil {
+            components.percentEncodedPassword = "redacted"
+        }
+        // The placeholder is not valid percent-encoding, so query and fragment are appended
+        // as text instead of being set on the components.
+        let query = components.percentEncodedQuery.map { redactedFormEncoded($0) ?? $0 }
+        let fragment = components.percentEncodedFragment.map { redactedFormEncoded($0) ?? $0 }
         components.percentEncodedQuery = nil
         components.percentEncodedFragment = nil
         guard let base = components.string else { return url.absoluteString }
-        return base + "?" + redactedQuery + (fragment.map { "#\($0)" } ?? "")
+        return base + (query.map { "?\($0)" } ?? "") + (fragment.map { "#\($0)" } ?? "")
     }
 
     // MARK: - Error Previews

@@ -93,7 +93,7 @@ package enum HURLBuilder {
 
     /// Percent-encodes a query item name or value, leaving only unreserved characters literal.
     /// - Parameter value: The raw name or value.
-    package static func percentEncodedQueryComponent(_ value: String) -> String {
+    private static func percentEncodedQueryComponent(_ value: String) -> String {
         value.addingPercentEncoding(withAllowedCharacters: queryComponentAllowed) ?? value
     }
 }

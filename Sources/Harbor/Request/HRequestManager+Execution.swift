@@ -9,6 +9,7 @@ import Foundation
 import HarborCore
 
 // MARK: - Request With Result
+
 extension HRequestManager {
     /// Executes a request that expects a typed model response.
     /// - Parameters:
@@ -310,6 +311,7 @@ extension HRequestManager {
 }
 
 // MARK: - Request Without Result
+
 extension HRequestManager {
     /// Executes a request that expects an empty response.
     /// - Parameter request: The request conforming to `HRequestWithEmptyResponseProtocol`.
@@ -464,6 +466,7 @@ extension HRequestManager {
 }
 
 // MARK: - Request Builder Functions
+
 extension HRequestManager {
     /// Runs the retry loop, delegating each attempt to `executeAttempt`. Connectivity checks
     /// and the initial auth header fetch are evaluated once by the caller, not per attempt.

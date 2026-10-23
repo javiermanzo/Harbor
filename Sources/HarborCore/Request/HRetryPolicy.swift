@@ -82,12 +82,19 @@ public struct HRetryPolicy: Sendable {
     /// - Parameter retry: The 1-based index of the retry about to be made.
     public func delay(forRetry retry: Int) -> TimeInterval {
         let exponential = baseDelay * pow(multiplier, Double(max(0, retry - 1)))
-        let delay = exponential + TimeInterval.random(in: jitter)
+        // `jitter` is a public `var`: an inverted, infinite or NaN range set after `init` would
+        // trap in `random(in:)`, so such a range adds no jitter.
+        let randomJitter = jitter.lowerBound <= jitter.upperBound && (jitter.upperBound - jitter.lowerBound).isFinite
+            ? TimeInterval.random(in: jitter)
+            : 0
+        let delay = exponential + randomJitter
+        guard !delay.isNaN else { return Self.maxDelay }
         return min(max(delay, 0), Self.maxDelay)
     }
 }
 
 // MARK: - Retry Classification
+
 extension HRetryPolicy {
     /// Network errors raised before the request reached the server. Retrying them cannot
     /// duplicate side effects, so they are retried for any HTTP method.

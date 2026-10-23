@@ -9,6 +9,7 @@ import Foundation
 import HarborCore
 
 // MARK: - Request Source
+
 /// Where `requestStream(source:)` reads from.
 public enum HRequestSource: Sendable {
     /// Only the network: yields the remote response.

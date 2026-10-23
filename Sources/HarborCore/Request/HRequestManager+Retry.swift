@@ -8,6 +8,7 @@
 import Foundation
 
 // MARK: - Errors, Retry-After and Backoff
+
 extension HRequestManager {
     /// Maps a `URLError` thrown while performing a request. A TLS challenge rejected by
     /// Harbor's session delegate (SSL pinning mismatch, untrusted chain) surfaces from
@@ -58,6 +59,10 @@ extension HRequestManager {
         if let deltaSeconds = Int(value) {
             guard deltaSeconds >= 0 else { return nil }
             return TimeInterval(deltaSeconds)
+        }
+        if !value.isEmpty, value.allSatisfy(\.isASCIIDigit) {
+            // Delta-seconds too large for `Int`: longer than any delay Harbor waits for.
+            return .infinity
         }
         if let date = HHTTPDate.parse(value) {
             return max(0, date.timeIntervalSince(now))
@@ -116,3 +121,12 @@ package enum HStatusRetry {
 // MARK: - Equatable
 
 extension HStatusRetry: Equatable {}
+
+// MARK: - ASCII Digits
+
+private extension Character {
+    /// Whether the character is one of `0`...`9`.
+    var isASCIIDigit: Bool {
+        ("0"..."9").contains(self)
+    }
+}

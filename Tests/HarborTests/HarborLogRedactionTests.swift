@@ -170,6 +170,27 @@ final class HarborLogRedactionTests: XCTestCase {
         XCTAssertEqual(redacted, "https://api.example.com/x?token=<redacted>&q=swift#top")
     }
 
+    func testRedactedURLStringHidesUserInfoAndSensitiveFragmentItems() {
+        let policy = HRedactionPolicy(isEnabled: true)
+
+        // User info is a credential, with or without a query
+        XCTAssertEqual(policy.redactedURLString(URL(string: "https://bob:hunter2@api.example.com/v1/me")!),
+                       "https://redacted:redacted@api.example.com/v1/me")
+        XCTAssertEqual(policy.redactedURLString(URL(string: "https://TOKEN123@api.example.com/x?token=abc")!),
+                       "https://redacted@api.example.com/x?token=<redacted>")
+        // OAuth implicit-flow fragments are redacted like a query
+        XCTAssertEqual(policy.redactedURLString(URL(string: "https://app.example.com/cb#access_token=abc&state=1")!),
+                       "https://app.example.com/cb#access_token=<redacted>&state=1")
+        // Disabled redaction prints the URL as-is
+        XCTAssertEqual(HRedactionPolicy(isEnabled: false).redactedURLString(URL(string: "https://bob:hunter2@api.example.com")!),
+                       "https://bob:hunter2@api.example.com")
+    }
+
+    func testFormBodyWithATrailingNewlineIsStillRedacted() {
+        let redacted = HRedactionPolicy(isEnabled: true).redactedBody("user=bob&password=hunter2\n")
+        XCTAssertEqual(redacted, "user=bob&password=<redacted>")
+    }
+
     // MARK: - Response Headers
 
     func testLogResponseRedactsSetCookieHeader() async throws {

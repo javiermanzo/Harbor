@@ -8,9 +8,10 @@
 import Foundation
 import Security
 
-/// Harbor - Protocol-oriented networking framework for Swift.
-///
-/// Features: Caching, Authentication, SSL/TLS Security, Mocking, Async/Await, Retry Logic
+/// Harbor's global configuration, shared by every product (REST, JSON-RPC, WebSocket):
+/// authentication, SSL pinning, mTLS, the custom session, timeouts, cookies and logging.
+/// Product-specific settings are added by `Harbor` (cache, mocks) and live on `HarborJRPC`
+/// and `HarborWebSocket`.
 @HRequestManagerActor
 public enum Harbor {}
 
@@ -23,10 +24,11 @@ public extension Harbor {
     /// Cached responses of requests that need auth are namespaced by a SHA-256 digest of the
     /// authorization header they were fetched with, so a new provider (or a new credential)
     /// never reads entries stored for another one. Replacing the provider does not delete
-    /// those entries: call `Harbor.clearAllCache()` on logout to remove a previous user's
-    /// data from memory and disk. It does forget the credentials remembered for offline cache
-    /// lookups, so the new provider is consulted again. Already open `HWebSocket` connections
-    /// are not affected: close them on logout.
+    /// those entries: with the REST product, call `Harbor.clearAllCache()` on logout to remove
+    /// a previous user's data from memory and disk. It does forget the credentials remembered
+    /// for offline cache lookups, so the new provider is consulted again, and a `401` refresh
+    /// in flight stops using the old provider. Already open `HWebSocket` connections are not
+    /// affected: close them on logout.
     /// - Note: This is a method rather than a `get set` property to allow cross-actor mutation, as Swift forbids mutating actor-isolated static properties from outside the actor's context.
     /// - Parameter authProvider: The provider supplying authorization headers, or `nil` to remove it.
     static func setAuthProvider(_ authProvider: HAuthProviderProtocol?) {
@@ -51,30 +53,51 @@ public extension Harbor {
     /// macOS it is memory-only from macOS 15; on macOS 14 and earlier `SecPKCS12Import` has
     /// no in-memory option and persists the imported private key and certificates to the
     /// default (login) keychain.
+    /// The latest call wins: when `setMTLS(_:)` or `clearMTLS()` is called again while the
+    /// import is running (e.g. waiting for a biometric prompt), this call changes nothing
+    /// when it finishes and throws `CancellationError`.
     /// - Parameter mTLS: The mTLS configuration.
     /// - Throws: `HMTLSError` when the identity could not be extracted from the P12
-    ///   (file missing, wrong password, malformed, no identity). mTLS stays disabled in that case.
+    ///   (file missing, wrong password, malformed, no identity); mTLS is disabled in that case.
+    ///   `CancellationError` when a later call superseded this one.
     static func setMTLS(_ mTLS: HMTLS) async throws {
+        HConfig.shared.mTLSGeneration &+= 1
+        let generation = HConfig.shared.mTLSGeneration
 
+        let result: Result<HMTLSIdentity, Error>
         do {
-            let identity = try await Task.detached {
+            result = .success(try await Task.detached {
                 try await mTLS.extractIdentity()
-            }.value
+            }.value)
+        } catch {
+            result = .failure(error)
+        }
+
+        guard generation == HConfig.shared.mTLSGeneration else {
+            throw CancellationError()
+        }
+
+        switch result {
+        case .success(let identity):
             HConfig.shared.mTLSIdentity = identity
             HRequestManager.invalidateURLSession()
-            warnIfCustomURLSessionBypassesSecurity(afterSecurityChange: true)
-        } catch {
+            warnIfCustomURLSessionBypassesSecurity()
+        case .failure(let error):
             HConfig.shared.mTLSIdentity = nil
             HRequestManager.invalidateURLSession()
+            warnIfCustomURLSessionBypassesSecurity()
             HLogger.log("mTLS identity could not be configured", error: error, level: .error)
             throw error
         }
     }
 
-    /// Disables mutual TLS by clearing any configured client identity.
+    /// Disables mutual TLS by clearing any configured client identity. A `setMTLS(_:)` call
+    /// still importing its identity is superseded and changes nothing.
     static func clearMTLS() {
+        HConfig.shared.mTLSGeneration &+= 1
         HConfig.shared.mTLSIdentity = nil
         HRequestManager.invalidateURLSession()
+        warnIfCustomURLSessionBypassesSecurity()
     }
 
     /// Enables SSL pinning with SHA256 hashes of the certificate's SubjectPublicKeyInfo (SPKI),
@@ -85,15 +108,18 @@ public extension Harbor {
     static func setSSLPinningKeys(_ sslPinningKeys: [String]?) {
         HConfig.shared.sslPinningKeys = sslPinningKeys
         HRequestManager.invalidateURLSession()
-        warnIfCustomURLSessionBypassesSecurity(afterSecurityChange: true)
+        warnIfCustomURLSessionBypassesSecurity()
     }
 
     /// Enables SSL pinning scoped to specific hosts. Challenges from these hosts are
     /// validated against the given pins; hosts not configured here fall back to the
     /// global pins set with `setSSLPinningKeys(_:)` or, when none are set, to default handling.
     /// Passing `nil` removes the pins for the given hosts.
-    /// Host names are normalized (lowercased, without a trailing root-label dot) before
-    /// being stored and matched against `URLProtectionSpace.host`.
+    /// Host names are normalized (surrounding whitespace removed, lowercased, without a
+    /// trailing root-label dot) before being stored and matched against
+    /// `URLProtectionSpace.host`. They must be bare host names (`api.example.com`, punycode
+    /// for internationalized names): a value with a scheme, a path or non-ASCII characters
+    /// can never match, so it logs a security warning and is skipped.
     /// - Parameters:
     ///   - sslPinningKeys: The pins for the hosts, or `nil` to stop pinning them.
     ///   - hosts: The hosts the pins apply to (matched against `URLProtectionSpace.host`).
@@ -101,9 +127,13 @@ public extension Harbor {
         if let sslPinningKeys {
             var keysByHost = HConfig.shared.sslPinningKeysByHost ?? [:]
             for host in hosts {
-                let normalizedHost = HURLSessionDelegate.normalizedHost(host)
-                guard !normalizedHost.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                    HLogger.log("SSL pinning host keys must not be empty", level: .warning)
+                let normalizedHost = HURLSessionDelegate.normalizedHost(host.trimmingCharacters(in: .whitespacesAndNewlines))
+                guard !normalizedHost.isEmpty else {
+                    HLogger.securityWarning("SSL pinning host names must not be empty.")
+                    continue
+                }
+                guard isPinnableHost(normalizedHost) else {
+                    HLogger.securityWarning("SSL pinning host \"\(host)\" is not a bare host name (no scheme, path, spaces or non-ASCII characters; use punycode) and can never match: it is ignored.")
                     continue
                 }
                 keysByHost[normalizedHost] = sslPinningKeys
@@ -112,12 +142,12 @@ public extension Harbor {
         } else {
             guard var keysByHost = HConfig.shared.sslPinningKeysByHost else { return }
             for host in hosts {
-                keysByHost.removeValue(forKey: HURLSessionDelegate.normalizedHost(host))
+                keysByHost.removeValue(forKey: HURLSessionDelegate.normalizedHost(host.trimmingCharacters(in: .whitespacesAndNewlines)))
             }
             HConfig.shared.sslPinningKeysByHost = keysByHost.isEmpty ? nil : keysByHost
         }
         HRequestManager.invalidateURLSession()
-        warnIfCustomURLSessionBypassesSecurity(afterSecurityChange: true)
+        warnIfCustomURLSessionBypassesSecurity()
     }
 
     /// Computes the SSL pin for a certificate: `base64(SHA256(SPKI))`.
@@ -138,7 +168,8 @@ public extension Harbor {
     ///   `Harbor.makeURLSessionDelegate()`, or your own delegate forwards to it. Create that
     ///   delegate after configuring pins and mTLS: it captures the configuration at creation.
     ///   A warning is logged (even with debug logging disabled) when pins or mTLS are
-    ///   configured and the custom session does not use Harbor's delegate.
+    ///   configured and the custom session's delegate is not an `HURLSessionDelegate`, and
+    ///   when its `HURLSessionDelegate` was created before the last pin or mTLS change.
     ///
     /// ```swift
     /// let delegate = await Harbor.makeURLSessionDelegate()
@@ -152,7 +183,7 @@ public extension Harbor {
     /// - Parameter customURLSession: The session to send every request through, or `nil` to go back to Harbor's own sessions.
     static func setCustomURLSession(_ customURLSession: URLSession?) {
         HConfig.shared.customURLSession = customURLSession
-        warnIfCustomURLSessionBypassesSecurity(afterSecurityChange: false)
+        warnIfCustomURLSessionBypassesSecurity()
     }
 
     /// Returns a `URLSession` delegate applying Harbor's current SSL pinning and mTLS
@@ -167,7 +198,8 @@ public extension Harbor {
     static func makeURLSessionDelegate() -> HURLSessionDelegate {
         HURLSessionDelegate(mTLSIdentity: HConfig.shared.mTLSIdentity,
                             sslPinningKeys: HConfig.shared.sslPinningKeys,
-                            sslPinningKeysByHost: HConfig.shared.sslPinningKeysByHost)
+                            sslPinningKeysByHost: HConfig.shared.sslPinningKeysByHost,
+                            securityGeneration: HConfig.shared.securityGeneration)
     }
 
     /// Sets default timeout interval for requests.
@@ -268,33 +300,36 @@ public extension Harbor {
 // MARK: - Custom Session Security Warnings
 
 extension Harbor {
-    /// Logs a warning when a custom session is configured together with SSL pinning or mTLS,
-    /// since those are enforced by Harbor's session delegate. Logged regardless of debug
+    /// Logs a warning when a custom session does not enforce the current SSL pinning and mTLS
+    /// configuration, which Harbor's session delegate implements. Logged regardless of debug
     /// logging, as the misconfiguration silently disables security checks.
-    /// - Parameter afterSecurityChange: Whether pins or mTLS just changed. A custom session
-    ///   using Harbor's delegate then holds a stale snapshot and must be rebuilt.
-    static func warnIfCustomURLSessionBypassesSecurity(afterSecurityChange: Bool) {
-        guard let warning = customURLSessionSecurityWarning(afterSecurityChange: afterSecurityChange) else { return }
+    static func warnIfCustomURLSessionBypassesSecurity() {
+        guard let warning = customURLSessionSecurityWarning() else { return }
         HLogger.securityWarning(warning)
     }
 
     /// The warning that applies to the current custom session and security configuration.
-    /// - Parameter afterSecurityChange: Whether pins or mTLS just changed (see
-    ///   `warnIfCustomURLSessionBypassesSecurity(afterSecurityChange:)`).
     /// - Returns: The warning text, or `nil` when none is needed.
-    static func customURLSessionSecurityWarning(afterSecurityChange: Bool) -> String? {
+    static func customURLSessionSecurityWarning() -> String? {
         guard let customURLSession = HConfig.shared.customURLSession else { return nil }
         let hasTransportSecurity = HConfig.shared.mTLSIdentity != nil
             || HConfig.shared.sslPinningKeys != nil
             || HConfig.shared.sslPinningKeysByHost != nil
 
-        if customURLSession.delegate is HURLSessionDelegate {
-            guard afterSecurityChange else { return nil }
-            return "SSL pinning / mTLS configuration changed while a custom URLSession is set. Its HURLSessionDelegate keeps the previous configuration; create a new one with Harbor.makeURLSessionDelegate() and set a new session."
+        if let delegate = customURLSession.delegate as? HURLSessionDelegate {
+            guard delegate.securityGeneration != HConfig.shared.securityGeneration else { return nil }
+            return "The custom URLSession's HURLSessionDelegate was created before the last SSL pinning / mTLS change and keeps the previous configuration; create a new one with Harbor.makeURLSessionDelegate() and set a new session."
         } else if hasTransportSecurity {
-            return "SSL pinning / mTLS are configured but the custom URLSession does not use Harbor's delegate, so they are NOT enforced for its requests. Create the session with Harbor.makeURLSessionDelegate() or forward its delegate callbacks to one."
+            return "SSL pinning / mTLS are configured but the custom URLSession's delegate is not an HURLSessionDelegate, so they are NOT enforced for its requests unless that delegate forwards its challenge and redirect callbacks to one (then ignore this warning). Create the session with Harbor.makeURLSessionDelegate()."
         }
         return nil
+    }
+
+    /// Whether `host` can match a `URLProtectionSpace.host`: an ASCII host name or IP
+    /// address without a scheme, path or whitespace.
+    /// - Parameter host: The normalized host.
+    static func isPinnableHost(_ host: String) -> Bool {
+        !host.contains("/") && !host.contains(where: \.isWhitespace) && host.allSatisfy(\.isASCII)
     }
 }
 

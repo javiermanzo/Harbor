@@ -9,6 +9,7 @@ import Foundation
 import HarborCore
 
 // MARK: - Mocks
+
 extension HRequestManager {
     /// Resolves the registered mock for one attempt, applying its delay and configured error.
     /// Failures are not logged here: `mockFailureOutcome` logs them once the attempt finishes.

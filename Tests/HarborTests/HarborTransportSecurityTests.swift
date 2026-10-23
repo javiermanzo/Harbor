@@ -147,7 +147,7 @@ final class HarborTransportSecurityTests: XCTestCase {
         HConfig.shared.customURLSession = URLSession(configuration: .ephemeral)
 
         // Then a warning is produced
-        let warning = Harbor.customURLSessionSecurityWarning(afterSecurityChange: false)
+        let warning = Harbor.customURLSessionSecurityWarning()
         XCTAssertNotNil(warning)
         XCTAssertTrue(warning?.contains("NOT enforced") == true)
     }
@@ -155,11 +155,11 @@ final class HarborTransportSecurityTests: XCTestCase {
     func testPinningConfiguredAfterCustomSessionWarns() async {
         // Given a custom session without Harbor's delegate and no pins: nothing to warn about
         Harbor.setCustomURLSession(URLSession(configuration: .ephemeral))
-        XCTAssertNil(Harbor.customURLSessionSecurityWarning(afterSecurityChange: false))
+        XCTAssertNil(Harbor.customURLSessionSecurityWarning())
 
         // When pins are configured afterwards, the bypass is reported
         Harbor.setSSLPinningKeys([wrongPin])
-        XCTAssertNotNil(Harbor.customURLSessionSecurityWarning(afterSecurityChange: true))
+        XCTAssertNotNil(Harbor.customURLSessionSecurityWarning())
     }
 
     func testCustomSessionWithHarborDelegateWarnsOnlyWhenConfigurationChanges() async {
@@ -170,13 +170,49 @@ final class HarborTransportSecurityTests: XCTestCase {
         HConfig.shared.customURLSession = session
 
         // Then setting it is fine, but a later pin change makes its snapshot stale
-        XCTAssertNil(Harbor.customURLSessionSecurityWarning(afterSecurityChange: false))
-        XCTAssertNotNil(Harbor.customURLSessionSecurityWarning(afterSecurityChange: true))
+        XCTAssertNil(Harbor.customURLSessionSecurityWarning())
+        Harbor.setSSLPinningKeys([wrongPin, wrongPin])
+        XCTAssertNotNil(Harbor.customURLSessionSecurityWarning())
+    }
+
+    func testDelegateCreatedBeforeAPinChangeWarnsWhenTheSessionIsSet() async {
+        // Given a delegate created before the pins were configured
+        let delegate = Harbor.makeURLSessionDelegate()
+        Harbor.setSSLPinningKeys([wrongPin])
+        let session = URLSession(configuration: .ephemeral, delegate: delegate, delegateQueue: nil)
+        defer { session.invalidateAndCancel() }
+
+        // When the session is set
+        HConfig.shared.customURLSession = session
+
+        // Then the outdated delegate is reported
+        XCTAssertTrue(Harbor.customURLSessionSecurityWarning()?.contains("before the last") == true)
+    }
+
+    func testClearingMTLSMakesAHarborDelegateOutdated() async {
+        // Given a session built with Harbor's delegate
+        let session = URLSession(configuration: .ephemeral, delegate: Harbor.makeURLSessionDelegate(), delegateQueue: nil)
+        defer { session.invalidateAndCancel() }
+        HConfig.shared.customURLSession = session
+        XCTAssertNil(Harbor.customURLSessionSecurityWarning())
+
+        // When an identity is set and cleared, the delegate keeps the old configuration
+        HConfig.shared.mTLSIdentity = nil
+        XCTAssertNotNil(Harbor.customURLSessionSecurityWarning())
     }
 
     func testNoWarningWithoutCustomSession() async {
         Harbor.setSSLPinningKeys([wrongPin])
-        XCTAssertNil(Harbor.customURLSessionSecurityWarning(afterSecurityChange: true))
+        XCTAssertNil(Harbor.customURLSessionSecurityWarning())
+    }
+
+    func testPinsForAHostWithASchemeOrSpacesAreTrimmedOrIgnored() async {
+        // Given hosts with surrounding spaces, a scheme and non-ASCII characters
+        HConfig.shared.sslPinningKeysByHost = nil
+        Harbor.setSSLPinningKeys([wrongPin], forHosts: ["  API.example.com  ", "https://api.example.com", "bücher.de"])
+
+        // Then only the bare host is stored, normalized
+        XCTAssertEqual(HConfig.shared.sslPinningKeysByHost.map { Set($0.keys) }, ["api.example.com"])
     }
 
     // MARK: - Redirects (F5)

@@ -639,6 +639,22 @@ final class HarborRequestRetryTests: XCTestCase {
 
     // MARK: - Retry-After
 
+    func testRetryAfterTooLargeForIntIsNotWaitedFor() async {
+        let url = URL(string: "https://example.com")!
+        let response = HTTPURLResponse(url: url, statusCode: 429, httpVersion: nil, headerFields: ["Retry-After": "99999999999999999999"])
+
+        XCTAssertEqual(HRequestManager.retryAfterDelay(statusCode: 429, httpResponse: response), .infinity)
+        XCTAssertEqual(HRequestManager.statusRetry(statusCode: 429, httpResponse: response), .giveUp)
+    }
+
+    func testDelayWithAnInfiniteOrInvertedJitterDoesNotTrap() async {
+        var policy = HRetryPolicy(maxRetries: 1, baseDelay: 1, multiplier: 1, jitter: 0...0)
+        policy.jitter = 0...TimeInterval.infinity
+        XCTAssertEqual(policy.delay(forRetry: 1), 1)
+        policy.jitter = -TimeInterval.infinity...0
+        XCTAssertEqual(policy.delay(forRetry: 1), 1)
+    }
+
     func testRetryAfterDeltaSecondsIsHonored() async throws {
         // Given a 429 asking to wait one second, and a policy with a negligible backoff
         HRequestStubProtocol.mode = .outcomes([.status(429, headers: ["Retry-After": "1"]), .status(200)])

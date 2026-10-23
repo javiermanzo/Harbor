@@ -7,10 +7,9 @@
 
 import Foundation
 
-/// Internal configuration state for Harbor.
-///
-/// This struct holds all the global configuration options used by the library.
-/// Access is serialized via `@HRequestManagerActor` to ensure thread safety.
+/// Configuration shared by every Harbor product (auth, security, timeouts, logging, the
+/// custom session). REST-only settings live in `HRESTConfig` and WebSocket ones in
+/// `HWebSocketConfig`. Access is serialized via `@HRequestManagerActor` to ensure thread safety.
 @HRequestManagerActor
 package struct HConfig: Sendable {
     /// Shared singleton instance of the configuration.
@@ -21,11 +20,20 @@ package struct HConfig: Sendable {
     /// Default headers applied to all requests.
     package var defaultHeaderParameters: [String: String]?
     /// mTLS identity for client certificate authentication.
-    var mTLSIdentity: HMTLSIdentity?
+    var mTLSIdentity: HMTLSIdentity? {
+        didSet { securityGeneration &+= 1 }
+    }
+    /// Incremented by every `Harbor.setMTLS(_:)` and `Harbor.clearMTLS()` call, so an import
+    /// that finishes after a later call does not overwrite it (the latest call wins).
+    var mTLSGeneration = 0
+    /// Incremented whenever pins or the mTLS identity change. `HURLSessionDelegate` records it
+    /// at creation, so a custom session holding an outdated delegate can be detected.
+    var securityGeneration = 0
     /// SSL pinning public key hashes for certificate validation.
     /// Malformed pins (not base64 SHA-256 hashes) log a warning when set and are ignored during validation.
     var sslPinningKeys: [String]? {
         didSet {
+            securityGeneration &+= 1
             if let sslPinningKeys {
                 Self.validatePins(sslPinningKeys)
             }
@@ -39,6 +47,7 @@ package struct HConfig: Sendable {
     /// SHA-256 hashes) log a warning when set and are ignored during validation.
     var sslPinningKeysByHost: [String: [String]]? {
         didSet {
+            securityGeneration &+= 1
             if let sslPinningKeysByHost {
                 for keys in sslPinningKeysByHost.values {
                     Self.validatePins(keys)
@@ -60,10 +69,6 @@ package struct HConfig: Sendable {
         get { HRedactionPolicy.logsSensitiveValues }
         set { HRedactionPolicy.logsSensitiveValues = newValue }
     }
-    /// Header names (lowercased) stripped from a request when a redirect leaves the original
-    /// origin (see `HURLSessionDelegate.redirectRequest`). Debug output redaction is governed
-    /// by `HRedactionPolicy`, which covers these names and more.
-    nonisolated static let sensitiveHeaders: Set<String> = ["authorization", "cookie", "set-cookie", "x-api-key", "proxy-authorization"]
     /// Default timeout interval for requests. Default is 15 seconds. Applied to every
     /// `URLRequest` (`timeoutInterval`) unless the request overrides it, so it also holds
     /// for custom sessions. It bounds the idle time between packets, not the whole transfer.
@@ -80,9 +85,13 @@ package struct HConfig: Sendable {
     /// to be stubbed per session instead of registering protocols globally.
     var protocolClasses: [AnyClass]?
 
-    /// Logs a security warning (visible even with debug logging disabled) for every pin that
-    /// is not a valid base64 SHA-256 hash.
+    /// Logs a security warning (visible even with debug logging disabled) for an empty pin
+    /// list, which rejects every connection it applies to, and for every pin that is not a
+    /// valid base64 SHA-256 hash.
     private static func validatePins(_ keys: [String]) {
+        if keys.isEmpty {
+            HLogger.securityWarning("An empty SSL pinning key list rejects every TLS connection it applies to. Pass nil to disable pinning.")
+        }
         for key in keys where !HSPKI.isValidPin(key) {
             HLogger.securityWarning("SSL pinning key \"\(key)\" is not a valid base64 SHA-256 hash and will never match. Pins must be base64(SHA256(SPKI)).")
         }

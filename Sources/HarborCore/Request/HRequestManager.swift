@@ -7,26 +7,6 @@
 
 import Foundation
 
-/// Global actor to manage shared mutable state in a thread-safe way.
-/// This actor ensures that Harbor's internal state is accessed safely across concurrent contexts.
-@globalActor public actor HRequestManagerActor {
-    /// The shared instance of the actor.
-    public static let shared = HRequestManagerActor()
-}
-
-// MARK: - Isolated Reads
-
-extension HRequestManagerActor {
-    /// Runs `body` on `HRequestManagerActor` and returns its result, the equivalent of
-    /// `MainActor.run`. Code outside the actor (e.g. another module's non-isolated helpers) uses
-    /// it to read Harbor's configuration, whose types are isolated to the actor.
-    /// - Parameter body: The closure to run on the actor.
-    /// - Returns: The closure's result.
-    package static func run<Result: Sendable>(_ body: @HRequestManagerActor @Sendable () -> Result) async -> Result {
-        await body()
-    }
-}
-
 /// The infrastructure shared by every product's request pipeline: connectivity pre-check,
 /// authentication with its `401` refresh flow, the retry loop, error mapping, and the pool
 /// of internally built `URLSession`s. REST-only parts (mocks, caching, decoding) extend it in `Harbor`.
@@ -47,13 +27,19 @@ package enum HRequestManager {
     /// instead of triggering one refresh each.
     static var inFlightAuthFailures: [HAuthorizationHeader?: Task<Void, Never>] = [:]
 
+    /// Number of completed `authFailed()` notifications per rejected authorization header, so
+    /// a request that checked for a rotated header while a notification finished does not
+    /// start another one.
+    static var completedAuthFailures: [HAuthorizationHeader?: Int] = [:]
+
     /// Incremented by `Harbor.setAuthProvider(_:)`. The REST layer derives from it when its
     /// remembered credentials and in-flight cache writes stop being valid (see
     /// `HRequestManager+RESTState.swift`), so shared code never has to know about them.
     package static var authGeneration = 0
 
-    /// Called by `Harbor.setAuthProvider(_:)` right after `authGeneration` changes. A product
-    /// that remembers credentials installs it so they are dropped at once, not when next read.
+    /// Called by `Harbor.setAuthProvider(_:)` right after `authGeneration` changes. A single
+    /// slot, owned by the REST product (`installAuthProviderObserver`), which remembers
+    /// credentials for offline lookups and drops them at once instead of when next read.
     package static var authProviderDidChange: (@HRequestManagerActor () -> Void)?
 }
 

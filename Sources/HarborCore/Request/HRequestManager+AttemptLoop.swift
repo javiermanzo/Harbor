@@ -63,7 +63,7 @@ extension HRequestManager {
                     authRetriesRemaining -= 1
                     providerNotified = providerNotified || notified
                 case .giveUp:
-                    return await failWith(.authNeeded)
+                    return await failWith(Task.isCancelled ? .cancelled : .authNeeded)
                 }
             }
         }

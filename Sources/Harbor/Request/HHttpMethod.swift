@@ -23,6 +23,7 @@ public enum HHttpMethod: String, Sendable {
 }
 
 // MARK: - Idempotency
+
 extension HHttpMethod {
     /// Whether repeating the request has the same effect as sending it once (RFC 9110 §9.2.2).
     var isIdempotent: Bool {
@@ -36,6 +37,7 @@ extension HHttpMethod {
 }
 
 // MARK: - Retry decisions by method
+
 extension HRetryPolicy {
     /// Whether a mocked attempt that failed with the given error should be retried. The error
     /// is classified like the real failure it stands for: `.api` by its status code,

@@ -9,6 +9,7 @@ import Foundation
 import HarborCore
 
 // MARK: - Base Protocol
+
 /// The requirements shared by every REST request. Conform to one of the method protocols
 /// instead (`HGetRequestProtocol`, `HPostRequestProtocol`, `HPutRequestProtocol`,
 /// `HPatchRequestProtocol`, `HDeleteRequestProtocol`); only `url` (plus `Model` for GET and

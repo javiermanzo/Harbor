@@ -9,6 +9,7 @@ import Foundation
 import HarborCore
 
 // MARK: - Request with Empty Result Protocol
+
 /// A request whose response body is not decoded: it reports success or an `HRequestError`.
 public protocol HRequestWithEmptyResponseProtocol: HRequestBaseRequestProtocol {
     /// Sends the request. Never throws: failures are returned as `.error`. Cancelling the

@@ -13,16 +13,6 @@ import Foundation
 /// debug logs.
 package enum HJSONRedactor {
     /// Returns `body` with the values of sensitive keys replaced by `<redacted>` at any
-    /// nesting depth when it parses as JSON; otherwise returns `body` unchanged.
-    /// - Parameters:
-    ///   - body: The raw JSON string body.
-    ///   - needles: Set of sensitive key needles to match against.
-    /// - Returns: Redacted JSON string, or original string if not valid JSON.
-    static func redactedBody(_ body: String, needles: Set<String>) -> String {
-        redactedJSON(body, needles: needles) ?? body
-    }
-
-    /// Returns `body` with the values of sensitive keys replaced by `<redacted>` at any
     /// nesting depth, or `nil` when it does not parse as JSON. A body without sensitive keys
     /// is returned unchanged (byte for byte); otherwise it is re-serialized with sorted keys.
     /// - Parameters:

@@ -218,16 +218,16 @@ private extension HResponseWithResult {
 final class HarborRequestRetryTests: XCTestCase {
 
     override func setUp() async throws {
-        await Harbor.removeAllMocks()
-        await Harbor.setAuthProvider(nil)
+        Harbor.removeAllMocks()
+        Harbor.setAuthProvider(nil)
         HConfig.shared.customURLSession = nil
         Harbor.setProtocolClasses([HRequestStubProtocol.self])
         HRequestStubProtocol.reset()
     }
 
     override func tearDown() async throws {
-        await Harbor.removeAllMocks()
-        await Harbor.setAuthProvider(nil)
+        Harbor.removeAllMocks()
+        Harbor.setAuthProvider(nil)
         HConfig.shared.customURLSession = nil
         Harbor.setProtocolClasses(nil)
         Harbor.setDefaultCacheType(.urlCache())
@@ -417,7 +417,7 @@ final class HarborRequestRetryTests: XCTestCase {
     func testAuthRetryIsBoundedAndFetchesHeaderOncePerAttempt() async throws {
         // Given a provider that issues a different header on every call and a stub that always answers 401
         let provider = SpyAuthProvider()
-        await Harbor.setAuthProvider(provider)
+        Harbor.setAuthProvider(provider)
         HRequestStubProtocol.mode = .status(401)
 
         let request = StubbedGetRequest(url: "https://example.com/secure", needsAuth: true)
@@ -463,7 +463,7 @@ final class HarborRequestRetryTests: XCTestCase {
     func testAuthFlowWorksWhenRequestDoesNotPersistHeaders() async throws {
         // Given a valid provider and a request whose headerParameters are not persisted
         let provider = SpyAuthProvider()
-        await Harbor.setAuthProvider(provider)
+        Harbor.setAuthProvider(provider)
         HRequestStubProtocol.mode = .status(401)
 
         let request = HeaderlessAuthGetRequest()
@@ -1057,7 +1057,7 @@ final class HarborRequestRetryTests: XCTestCase {
     func testCustomSessionIsNeverReplacedByTheCache() async {
         // Given a user-provided session
         let providedSession = URLSession(configuration: .default)
-        await Harbor.setCustomURLSession(providedSession)
+        Harbor.setCustomURLSession(providedSession)
 
         // When a session-affecting setting changes
         HConfig.shared.timeoutInterval = 45

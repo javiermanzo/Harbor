@@ -608,7 +608,7 @@ final class HarborWebSocketTests: XCTestCase {
         let context = try XCTUnwrap(HWebSocketLogContext(request: DebugTestSocket(url: "ws://localhost/socket")))
         let urlRequest = TestSocket(url: "ws://localhost/socket", subprotocols: ["tok-123"])
         let url = try XCTUnwrap(URL(string: "ws://localhost/socket"))
-        let handshake = await HWebSocketManager.handshakeRequest(for: urlRequest, url: url, authHeader: nil)
+        let handshake = HWebSocketManager.handshakeRequest(for: urlRequest, url: url, authHeader: nil)
 
         // When logged with redaction on
         let redacted = HRedactionPolicy(isEnabled: true)

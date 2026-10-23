@@ -421,16 +421,17 @@ private final class DelayedResponseStubProtocol: URLProtocol {
         Self.lock.unlock()
 
         // Respond asynchronously so `stopLoading` can run while the request is in flight.
-        DispatchQueue.global().asyncAfter(deadline: .now() + 0.5) { [weak self] in
-            guard let self = self else { return }
-            guard let url = self.request.url,
+        // URLProtocol is not Sendable; URLSession owns the instance and its client for the load.
+        nonisolated(unsafe) let stub = self
+        DispatchQueue.global().asyncAfter(deadline: .now() + 0.5) {
+            guard let url = stub.request.url,
                   let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil) else {
-                self.client?.urlProtocol(self, didFailWithError: URLError(.badURL))
+                stub.client?.urlProtocol(stub, didFailWithError: URLError(.badURL))
                 return
             }
-            self.client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-            self.client?.urlProtocol(self, didLoad: Data("delayed response".utf8))
-            self.client?.urlProtocolDidFinishLoading(self)
+            stub.client?.urlProtocol(stub, didReceive: response, cacheStoragePolicy: .notAllowed)
+            stub.client?.urlProtocol(stub, didLoad: Data("delayed response".utf8))
+            stub.client?.urlProtocolDidFinishLoading(stub)
         }
     }
 

@@ -50,7 +50,7 @@ final class HarborSecurityTests: XCTestCase {
         Harbor.setSSLPinningKeys([testSHA256])
 
         // Then
-        let keys = await HConfig.shared.sslPinningKeys
+        let keys = HConfig.shared.sslPinningKeys
         XCTAssertEqual(keys, [testSHA256])
     }
 
@@ -63,7 +63,7 @@ final class HarborSecurityTests: XCTestCase {
         Harbor.setSSLPinningKeys(nil)
 
         // Then
-        let keys = await HConfig.shared.sslPinningKeys
+        let keys = HConfig.shared.sslPinningKeys
         XCTAssertNil(keys)
     }
 
@@ -135,7 +135,7 @@ final class HarborSecurityTests: XCTestCase {
             _ = try await mTLS.extractIdentity()
             XCTFail("Expected extractIdentity to throw")
         } catch {
-            XCTAssertEqual(error as? HMTLSError, .fileNotFound)
+            XCTAssertEqual(error, .fileNotFound)
         }
     }
 
@@ -149,7 +149,7 @@ final class HarborSecurityTests: XCTestCase {
             _ = try await mTLS.extractIdentity()
             XCTFail("Expected extractIdentity to throw")
         } catch {
-            XCTAssertEqual(error as? HMTLSError, .invalidPassword)
+            XCTAssertEqual(error, .invalidPassword)
         }
     }
 
@@ -163,7 +163,7 @@ final class HarborSecurityTests: XCTestCase {
             _ = try await mTLS.extractIdentity()
             XCTFail("Expected extractIdentity to throw")
         } catch {
-            XCTAssertEqual(error as? HMTLSError, .passwordProviderFailed)
+            XCTAssertEqual(error, .passwordProviderFailed)
         }
     }
 

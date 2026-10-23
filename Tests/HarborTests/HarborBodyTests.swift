@@ -86,7 +86,7 @@ final class HarborBodyTests: XCTestCase {
     }
 
     func testMultipartContentTypeKeepsItsBoundaryDespiteDefaultAndRequestContentTypeHeaders() async throws {
-        await Harbor.setDefaultHeaderParameters(["Content-Type": "application/json", "X-Default": "1"])
+        Harbor.setDefaultHeaderParameters(["Content-Type": "application/json", "X-Default": "1"])
         defer { Harbor.setDefaultHeaderParameters(nil) }
         let service = MockPostBodyRequest(headerParameters: ["content-type": "text/plain"], url: "https://example.com", multipartBody: ["foo": .text("bar")])
 

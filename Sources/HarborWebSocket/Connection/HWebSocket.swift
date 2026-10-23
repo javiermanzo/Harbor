@@ -41,7 +41,10 @@ import HarborCore
 ///   Leaving the loop any other way (`break`, `return`, a `throw` of your own) does not:
 ///   call `close(code:reason:)`.
 /// - Messages are read continuously and buffered until iterated, so close frames and pings
-///   are handled even while the app is not reading. Iterate `messages` from one place.
+///   are handled even while the app is not reading. The buffer has no limit: a connection
+///   whose messages are not read (send-only, or a loop left with `break`) keeps them in
+///   memory until it is closed. Iterate `messages` from one place: iterating it from two
+///   tasks at once traps.
 /// - A connection that is no longer needed must be closed with `close(code:reason:)`: like a
 ///   `URLSessionTask`, it stays open (and the `HWebSocket` alive) until then.
 public actor HWebSocket {
@@ -136,14 +139,19 @@ public extension HWebSocket {
         }
         try await send(message: .text(text))
     }
+}
 
-    /// Sends a ping frame and waits for the server's pong, for at most the request's
-    /// `pingInterval` (10 seconds when none is set). A pong that does
-    /// not arrive in time means the connection is dead: it is closed, `messages` throws
-    /// `.pingTimeout` and so does this call.
-    /// - Throws: `.notConnected` when the connection is closed, `.pingTimeout` when the pong
-    ///   did not arrive in time, `.cancelled` when the calling task was cancelled (the
-    ///   connection stays open), or the transport error.
+// MARK: - Keep-Alive
+
+public extension HWebSocket {
+    /// Sends a ping frame and waits for the server's pong, for at most the connection's ping
+    /// interval (the request's `pingInterval`, else `HarborWebSocket.setDefaultPingInterval(_:)`;
+    /// 10 seconds when neither sets one). A pong that does not arrive in time means the
+    /// connection is dead: it is closed, `messages` throws `.pingTimeout` and so does this call.
+    /// - Throws: `.notConnected` when the connection is closed (also when it closes while the
+    ///   ping is pending), `.pingTimeout` when the pong did not arrive in time, `.cancelled`
+    ///   when the calling task was cancelled (the connection stays open), or
+    ///   `.connectionFailed` when the connection was lost.
     func ping() async throws(HWebSocketError) {
         guard case .open = state else { throw .notConnected }
         let outcome = await Self.ping(task, timeout: pingInterval ?? Self.defaultPingTimeout)
@@ -154,27 +162,73 @@ public extension HWebSocket {
         case .pong:
             return
         case .failed(let error):
+            // A ping racing a close (local or the server's) fails because the connection closed.
+            if case .closed = state { throw .notConnected }
             throw mapped(error)
         case .timedOut:
             // The server may have closed the connection while the ping was pending: it is closed
             // for the reason the close frame says, not because of a missing pong.
-            guard case .open = state else { throw .notConnected }
-            await pingTimedOut()
+            guard case .open = state, await pingTimedOut() else { throw .notConnected }
             throw .pingTimeout
         }
     }
+}
 
+// MARK: - Closing
+
+public extension HWebSocket {
     /// Closes the connection: sends a close frame with the given code and reason, finishes
     /// `messages` and sets `state`. Calling it on a closed connection does nothing.
+    ///
+    /// Codes that must not be sent in a close frame (`.invalid`, `.noStatusReceived`,
+    /// `.abnormalClosure`, `.tlsHandshakeFailure`) are sent as `.normalClosure`, and a reason
+    /// longer than the 123 bytes a close frame allows is cut (at a UTF-8 character boundary);
+    /// `state` records what was sent.
     /// - Parameters:
     ///   - code: The close code to send. Default: `.normalClosure`.
-    ///   - reason: An optional reason sent with the close frame.
+    ///   - reason: An optional reason sent with the close frame, UTF-8 text by convention.
     func close(code: URLSessionWebSocketTask.CloseCode = .normalClosure, reason: Data? = nil) async {
         guard case .open = state else { return }
+        let code = Self.sendableCloseCode(code)
+        let reason = reason.map(Self.closeFrameReason)
         task.cancel(with: code, reason: reason)
         await finish(code: code, reason: reason, error: nil, initiatedLocally: true)
     }
+}
 
+// MARK: - Close Frames
+
+extension HWebSocket {
+    /// Longest close reason a close frame can carry (RFC 6455, section 5.5: 125 bytes of
+    /// payload, 2 of them for the code).
+    static let maxCloseReasonLength = 123
+
+    /// The code actually sent for `code`: codes reserved for reporting (RFC 6455, section
+    /// 7.4.1) are sent as `.normalClosure`.
+    /// - Parameter code: The requested close code.
+    static func sendableCloseCode(_ code: URLSessionWebSocketTask.CloseCode) -> URLSessionWebSocketTask.CloseCode {
+        switch code {
+        case .invalid, .noStatusReceived, .abnormalClosure, .tlsHandshakeFailure:
+            return .normalClosure
+        default:
+            return code
+        }
+    }
+
+    /// `reason` cut to `maxCloseReasonLength` bytes, at a character boundary when it is UTF-8.
+    /// - Parameter reason: The requested close reason.
+    static func closeFrameReason(_ reason: Data) -> Data {
+        guard reason.count > maxCloseReasonLength else { return reason }
+        guard let text = String(data: reason, encoding: .utf8) else {
+            return reason.prefix(maxCloseReasonLength)
+        }
+        var cut = ""
+        for character in text {
+            guard cut.utf8.count + String(character).utf8.count <= maxCloseReasonLength else { break }
+            cut.append(character)
+        }
+        return Data(cut.utf8)
+    }
 }
 
 // MARK: - Lifecycle
@@ -191,9 +245,8 @@ extension HWebSocket {
         receiveTask = Task { [task, continuation] in
             while !Task.isCancelled {
                 do {
-                    guard let message = HWebSocketMessage(try await task.receive()) else {
-                        throw URLError(.cannotParseResponse)
-                    }
+                    // A message kind a later SDK may add is skipped: the connection stays usable.
+                    guard let message = HWebSocketMessage(try await task.receive()) else { continue }
                     await self.logContext?.logReceived(message)
                     continuation.yield(message)
                 } catch {
@@ -230,20 +283,39 @@ extension HWebSocket {
         }
         guard case .open = state else { return }
 
-        if task.closeCode != .invalid {
-            await finish(code: task.closeCode, reason: task.closeReason, error: nil, initiatedLocally: false)
-        } else if let closeFrame = delegate.closeFrame {
-            await finish(code: closeFrame.code, reason: closeFrame.reason, error: nil, initiatedLocally: false)
-        } else {
-            await finish(code: .abnormalClosure, reason: nil, error: mapped(error), initiatedLocally: false)
-        }
+        if await finishWithReceivedCloseFrame() { return }
+        // Lost without a close frame: make sure the socket is torn down on the wire too (a
+        // no-op when the task already completed).
+        task.cancel()
+        await finish(code: .abnormalClosure, reason: nil, error: mapped(error), initiatedLocally: false)
     }
 
-    /// Closes a connection whose ping was not answered in time.
-    private func pingTimedOut() async {
-        guard case .open = state else { return }
+    /// Finishes the connection normally when a close frame was received: the task's close code,
+    /// or the one the delegate recorded.
+    /// - Returns: Whether a close frame was found.
+    private func finishWithReceivedCloseFrame() async -> Bool {
+        if task.closeCode != .invalid {
+            await finish(code: task.closeCode, reason: task.closeReason, error: nil, initiatedLocally: false)
+            return true
+        }
+        if let closeFrame = delegate.closeFrame {
+            await finish(code: closeFrame.code, reason: closeFrame.reason, error: nil, initiatedLocally: false)
+            return true
+        }
+        return false
+    }
+
+    /// Closes a connection whose ping was not answered in time, unless the server's close frame
+    /// arrived meanwhile (the receive loop may still be waiting for the task to complete): the
+    /// connection then closed for the reason the frame says.
+    /// - Returns: Whether the connection was closed because of the missing pong.
+    @discardableResult
+    private func pingTimedOut() async -> Bool {
+        guard case .open = state else { return false }
+        if await finishWithReceivedCloseFrame() { return false }
         task.cancel()
         await finish(code: .abnormalClosure, reason: nil, error: .pingTimeout, initiatedLocally: true)
+        return true
     }
 
     /// Transitions to `.closed`, stops the loops, finishes the stream and releases the session.
@@ -269,38 +341,51 @@ extension HWebSocket {
         await HRequestManager.releaseURLSession(session)
     }
 
+}
+
+// MARK: - Transport
+
+extension HWebSocket {
     /// Sends a message through the task.
     /// - Parameter message: The message.
-    /// - Throws: `.notConnected` when the connection is closed, or the transport error.
+    /// - Throws: `.notConnected` when the connection is closed (also when it closes while the
+    ///   message is being sent), or the transport error.
     private func send(message: HWebSocketMessage) async throws(HWebSocketError) {
         guard case .open = state else { throw .notConnected }
         do {
             try await task.send(message.taskMessage)
         } catch {
-            let failure = mapped(error)
-            // A send racing a local `close()` is cancelled by the task, but the caller was not.
-            if failure == .cancelled, !Task.isCancelled, case .closed = state { throw .notConnected }
-            throw failure
+            // A send racing a close (local or the server's) fails because the connection
+            // closed, whatever error the task reports; the caller was not cancelled.
+            if !Task.isCancelled, case .closed = state { throw .notConnected }
+            throw mapped(error)
         }
         await logContext?.logSent(message)
     }
 
-    /// Maps an error thrown by the task to an `HWebSocketError`. A message above
-    /// `maximumMessageSize` surfaces from `URLSession` as the POSIX error `EMSGSIZE`.
+    /// Maps an error thrown by the task of an open connection. Besides cancellation, a rejected
+    /// certificate and a message above `maximumMessageSize` (the POSIX error `EMSGSIZE`), every
+    /// failure means the connection is gone: `.connectionFailed`, wrapping the `URLError` (or a
+    /// `.networkConnectionLost` with the original error underneath). The opening-only cases
+    /// (`.timeout`, `.noConnection`, ...) are never reported for an open connection.
     /// - Parameter error: The thrown error.
     private func mapped(_ error: Error) -> HWebSocketError {
-        if let urlError = error as? URLError {
-            return HWebSocketError(urlError: urlError, trustEvaluationFailed: delegate.trustEvaluationFailed)
-        }
         let nsError = error as NSError
         if nsError.domain == NSPOSIXErrorDomain, nsError.code == Int(EMSGSIZE) {
             return .messageTooBig
         }
-        return HWebSocketError(otherError: error)
+        let failure = (error as? URLError).map { HWebSocketError(urlError: $0, trustEvaluationFailed: delegate.trustEvaluationFailed) }
+            ?? HWebSocketError(otherError: error)
+        switch failure {
+        case .cancelled, .certificate, .messageTooBig, .connectionFailed:
+            return failure
+        default:
+            return .connectionFailed((error as? URLError) ?? HWebSocketError.lostConnection(underlying: error))
+        }
     }
 }
 
-// MARK: - Pings
+// MARK: - Timeouts and Pings
 
 extension HWebSocket {
     /// How a ping ended.

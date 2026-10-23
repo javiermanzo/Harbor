@@ -21,6 +21,8 @@ struct HWebSocketLogContext: Sendable {
     let requestName: String
     /// What the request asked to log.
     let debugType: HDebugRequestType
+    /// The request's path parameters, whose sensitive values are redacted from the logged URL.
+    let pathParameters: [String: String]?
 
     /// Creates the context for a request, or `nil` when it did not opt into logging.
     /// - Parameter request: The endpoint description.
@@ -28,6 +30,7 @@ struct HWebSocketLogContext: Sendable {
         guard let debugRequest = request as? HDebugRequestProtocol else { return nil }
         requestName = String(describing: type(of: request))
         debugType = debugRequest.debugType
+        pathParameters = request.pathParameters
     }
 
     /// Whether handshake and sent messages are logged.
@@ -59,7 +62,7 @@ extension HWebSocketLogContext {
     func handshakeInfo(urlRequest: URLRequest, subprotocols: [String], policy: HRedactionPolicy) -> [String: HLogValue] {
         var additionalInfo: [String: HLogValue] = ["request": .string(requestName)]
         if let url = urlRequest.url {
-            additionalInfo["url"] = .string(policy.redactedURLString(url))
+            additionalInfo["url"] = .string(policy.redactedURLString(url, pathParameters: pathParameters))
         }
         if let headers = policy.redactedHeaders(urlRequest.allHTTPHeaderFields), !headers.isEmpty {
             additionalInfo["headerParameters"] = .string(Self.jsonString(headers))

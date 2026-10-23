@@ -78,6 +78,6 @@ extension HWebSocketMessage {
     }
 }
 
-// MARK: - Equatable, Hashable
+// MARK: - Hashable
 
-extension HWebSocketMessage: Equatable, Hashable {}
+extension HWebSocketMessage: Hashable {}

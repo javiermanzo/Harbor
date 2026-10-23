@@ -83,7 +83,7 @@ func configureMTLS() async {
 - The password provider is called once, during import, and the password isn't retained. `HMTLS(p12FileUrl:hosts:passwordProvider:)` is the only initializer.
 - The latest call wins: when `setMTLS(_:)` or `clearMTLS()` is called again while an import is running (e.g. a biometric prompt), the earlier `setMTLS(_:)` changes nothing when it finishes and throws `CancellationError`, so a slow import can never reinstall an identity after logout.
 - The P12 is read and imported off the actor. The identity is imported into memory only (`kSecImportToMemoryOnly`) on iOS and on macOS 15 and later. On macOS 14, `SecPKCS12Import` has no in-memory option and persists the key and certificates to the default (login) keychain.
-- The identity and its certificate chain are presented only to the `hosts` you list (case-insensitive). With `hosts: nil` they go to every host that asks for a client certificate, so scoping is recommended. Other hosts get default handling.
+- The identity and its certificate chain are presented only to the `hosts` you list (normalized like pin hosts: trimmed, case-insensitive, trailing dot ignored). With `hosts: nil` they go to every host that asks for a client certificate, so scoping is recommended. Other hosts get default handling.
 - On failure, mTLS stays disabled and the error is thrown.
 
 ## Redirects

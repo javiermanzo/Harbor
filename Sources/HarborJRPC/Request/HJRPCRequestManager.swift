@@ -129,7 +129,8 @@ extension HJRPCRequestManager {
     /// - Logging: the batch is logged when any request conforms to `HDebugRequestProtocol`, with
     ///   the most verbose debug type requested (request and response logging are combined).
     ///
-    /// - Timeout: the longest `timeoutInterval` of the requests, or Harbor's default when none sets one.
+    /// - Timeout: the longest timeout of the requests (a request without `timeoutInterval` counts
+    ///   with Harbor's default), or Harbor's default when none sets one.
     ///
     /// - Parameter requests: The list of JSON-RPC requests to include in the batch.
     /// - Returns: The responses in the order of `requests`: one element per request that is not a
@@ -197,7 +198,7 @@ extension HJRPCRequestManager {
                                               needsAuth: requests.contains { $0.needsAuth },
                                               retryPolicy: batchRetryPolicy(for: requests),
                                               headerParameters: batchHeaders(for: requests),
-                                              timeoutInterval: requests.compactMap(\.timeoutInterval).max(),
+                                              timeoutInterval: batchTimeout(for: requests),
                                               logName: "JSON-RPC batch (\(requests.count) requests)")
         let response: HResponseWithResult = await harborRequest.send()
 
@@ -278,6 +279,15 @@ extension HJRPCRequestManager {
         }
         policy.retryNonIdempotentRequests = requests.allSatisfy { $0.retryPolicy?.retryNonIdempotentRequests == true }
         return policy
+    }
+
+    /// The longest timeout of the requests, counting those without one at Harbor's default, or
+    /// `nil` (Harbor's default) when none sets one.
+    /// - Parameter requests: The requests of the batch.
+    static func batchTimeout(for requests: [any HJRPCRequestProtocol]) -> TimeInterval? {
+        guard requests.contains(where: { $0.timeoutInterval != nil }) else { return nil }
+        let defaultTimeout = HConfig.shared.timeoutInterval
+        return requests.map { $0.timeoutInterval ?? defaultTimeout }.max()
     }
 
     /// The most verbose debug type requested by the requests that opt into logging, or `nil`

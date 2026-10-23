@@ -146,12 +146,13 @@ extension HURLSessionDelegate {
         return completion(.performDefaultHandling, nil)
     }
 
-    /// Normalizes a host name for pin storage and lookup: DNS names are case-insensitive
-    /// and may carry a trailing root-label dot, so both spellings must match the same pins.
+    /// Normalizes a host name for pin and mTLS storage and lookup: DNS names are
+    /// case-insensitive and may carry a trailing root-label dot, so both spellings must match
+    /// the same pins; surrounding whitespace (a configuration typo) is removed too.
     /// - Parameter host: The raw host name string.
-    /// - Returns: Normalized lowercase host name without trailing dot.
+    /// - Returns: Normalized lowercase host name without surrounding whitespace or trailing dot.
     static func normalizedHost(_ host: String) -> String {
-        var normalized = host.lowercased()
+        var normalized = host.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         if normalized.hasSuffix(".") {
             normalized.removeLast()
         }

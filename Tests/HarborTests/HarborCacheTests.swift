@@ -431,17 +431,18 @@ final class HarborCacheTests: XCTestCase {
         Harbor.setDefaultCacheType(.disabled)
     }
 
-    func testURLCacheFreshnessDoesNotCountTheUpstreamAgeTwice() async {
-        // A CDN kept the origin `Date` and added `Age: 300`; the response arrived 300 s after `Date`
+    func testURLCacheFreshnessNeverUnderestimatesTheAge() async {
+        // A CDN rewrote `Date` at delivery and reports `Age: 3000` for a `max-age=3600` response:
+        // 700 s after receipt it is stale, even though `Date` alone says 700 s
         let now = Date()
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.timeZone = TimeZone(identifier: "GMT")
         formatter.dateFormat = "EEE, dd MMM yyyy HH:mm:ss 'GMT'"
         let response = HTTPURLResponse(url: URL(string: "https://test.com")!, statusCode: 200, httpVersion: nil,
-                                       headerFields: ["Date": formatter.string(from: now.addingTimeInterval(-300)), "Age": "300", "Cache-Control": "max-age=600"])!
+                                       headerFields: ["Date": formatter.string(from: now.addingTimeInterval(-700)), "Age": "3000", "Cache-Control": "max-age=3600"])!
 
-        XCTAssertTrue(HCache.Manager.isFresh(urlCacheResponse: response, now: now))
+        XCTAssertFalse(HCache.Manager.isFresh(urlCacheResponse: response, now: now))
     }
 
     func testParseExpiresHeader() async {

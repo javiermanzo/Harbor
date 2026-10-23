@@ -285,9 +285,21 @@ extension HWebSocket {
 
         if await finishWithReceivedCloseFrame() { return }
         // Lost without a close frame: make sure the socket is torn down on the wire too (a
-        // no-op when the task already completed).
+        // no-op when the task already completed). The connection was not closed by the app
+        // (`close()` sets the state first), so a cancellation (e.g. the session was
+        // invalidated) is a lost connection as well: the stream only throws `.connectionFailed`,
+        // `.messageTooBig` and, from the ping loop, `.pingTimeout`.
         task.cancel()
-        await finish(code: .abnormalClosure, reason: nil, error: mapped(error), initiatedLocally: false)
+        let failure: HWebSocketError
+        switch mapped(error) {
+        case .messageTooBig:
+            failure = .messageTooBig
+        case .connectionFailed(let urlError):
+            failure = .connectionFailed(urlError)
+        default:
+            failure = .connectionFailed((error as? URLError) ?? HWebSocketError.lostConnection(underlying: error))
+        }
+        await finish(code: .abnormalClosure, reason: nil, error: failure, initiatedLocally: false)
     }
 
     /// Finishes the connection normally when a close frame was received: the task's close code,

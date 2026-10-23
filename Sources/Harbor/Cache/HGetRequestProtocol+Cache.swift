@@ -150,8 +150,9 @@ extension HGetRequestProtocol {
     /// When `parseData(data:model:)` cannot decode the cached body, `nil` is returned (the
     /// entry is kept, as another request type may share the URL), so the caller can fetch the
     /// full representation.
-    /// A `304` carrying an `ETag` only validates an entry stored with that `ETag` (weak
-    /// comparison): an entry replaced meanwhile by another representation is not served.
+    /// A `304` only validates an entry stored with the `ETag` it carries, or else the one the
+    /// request sent in `If-None-Match` (weak comparison): an entry replaced meanwhile by
+    /// another representation is neither served nor refreshed.
     /// - Parameters:
     ///   - response: The 304 response whose headers refresh the stored entry (new validators,
     ///     `Cache-Control`, `Expires`). Headers it omits keep the stored values.
@@ -161,12 +162,15 @@ extension HGetRequestProtocol {
     func revalidatedCache(response: HTTPURLResponse?, authHeader: HAuthorizationHeader?, sentHeaders: [String: String]? = nil) async -> Model? {
         switch await effectiveCacheType() {
         case .custom(let config):
+            let validatedETag = response?.value(forHTTPHeaderField: "ETag")
+                ?? sentHeaders?.first { $0.key.caseInsensitiveCompare("If-None-Match") == .orderedSame }?.value
             guard let lookup = await cacheLookup(authHeader: authHeader, resolvingAuthHeader: false, sentHeaders: sentHeaders),
                   let model = await HCache.Manager.shared.getRevalidatableCachedData(forKey: lookup.key,
                                                                                     requestHeaders: lookup.requestHeaders,
-                                                                                    validatedETag: response?.value(forHTTPHeaderField: "ETag"),
+                                                                                    validatedETag: validatedETag,
                                                                                     decode: cacheDecoder()) else { return nil }
-            await HCache.Manager.shared.refreshEntry(forKey: lookup.key, response: response, config: config)
+            await HCache.Manager.shared.refreshEntry(forKey: lookup.key, response: response, config: config,
+                                                     requestHeaders: lookup.requestHeaders, validatedETag: validatedETag)
             return model
 
         case .urlCache(let urlCache, _):

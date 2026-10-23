@@ -34,6 +34,7 @@ public extension Harbor {
     static func setAuthProvider(_ authProvider: HAuthProviderProtocol?) {
         HConfig.shared.authProvider = authProvider
         HRequestManager.authGeneration &+= 1
+        HRequestManager.completedAuthFailures.removeAll()
         HRequestManager.authProviderDidChange?()
     }
 
@@ -128,7 +129,7 @@ public extension Harbor {
         if let sslPinningKeys {
             var keysByHost = HConfig.shared.sslPinningKeysByHost ?? [:]
             for host in hosts {
-                let normalizedHost = HURLSessionDelegate.normalizedHost(host.trimmingCharacters(in: .whitespacesAndNewlines))
+                let normalizedHost = HURLSessionDelegate.normalizedHost(host)
                 guard !normalizedHost.isEmpty else {
                     HLogger.securityWarning("SSL pinning host names must not be empty.")
                     continue
@@ -143,7 +144,7 @@ public extension Harbor {
         } else {
             guard var keysByHost = HConfig.shared.sslPinningKeysByHost else { return }
             for host in hosts {
-                keysByHost.removeValue(forKey: HURLSessionDelegate.normalizedHost(host.trimmingCharacters(in: .whitespacesAndNewlines)))
+                keysByHost.removeValue(forKey: HURLSessionDelegate.normalizedHost(host))
             }
             HConfig.shared.sslPinningKeysByHost = keysByHost.isEmpty ? nil : keysByHost
         }

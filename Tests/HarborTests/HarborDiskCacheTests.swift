@@ -208,6 +208,36 @@ final class HarborDiskCacheTests: XCTestCase {
         }
     }
 
+    func testADiskReadSuspendedWhileTheKeyIsRewrittenDoesNotOverwriteTheNewerEntry() async throws {
+        // Given an entry on disk only
+        let key = "https://disk.test/read-vs-write"
+        let config = HCache.Configuration()
+        let fresh = HTTPURLResponse(url: URL(string: key)!, statusCode: 200, httpVersion: nil, headerFields: ["Cache-Control": "max-age=600"])
+        await HCache.Manager.shared.storeData(try JSONEncoder().encode("old"), forKey: key, config: config, response: fresh)
+        HCache.Manager.shared.simulateRelaunch()
+
+        // When a read is decoding the old body (off the actor) while a newer response is stored
+        let started = HLockedState(false)
+        let release = DispatchSemaphore(value: 0)
+        let read = Task { () -> String? in
+            await HCache.Manager.shared.getCachedData(forKey: key, config: config) { data in
+                started.withLock { $0 = true }
+                release.wait()
+                return try JSONDecoder().decode(String.self, from: data)
+            }
+        }
+        while !started.withLock({ $0 }) {
+            try await Task.sleep(nanoseconds: 5_000_000)
+        }
+        await HCache.Manager.shared.storeData(try JSONEncoder().encode("new"), forKey: key, config: config, response: fresh)
+        release.signal()
+        _ = await read.value
+
+        // Then the newer entry is the one served
+        let served: String? = await HCache.Manager.shared.getCachedData(forKey: key, type: String.self, config: config)
+        XCTAssertEqual(served, "new")
+    }
+
     func testStartupCleanupKeepsAFileRewrittenAfterTheScan() async throws {
         // Given an expired entry without validators, picked by the startup scan
         let key = "https://disk.test/rewritten"

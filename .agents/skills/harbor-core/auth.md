@@ -43,7 +43,8 @@ func authFlow() async {
     await Harbor.setAuthProvider(OAuthProvider(store: store))
     _ = await AccountRequest().request()
 
-    // Logout
+    // Logout: replace the provider and clear the cache (a provider that only starts returning
+    // nil still lets offline lookups use the credential remembered for a URL)
     await store.update(nil)
     await Harbor.setAuthProvider(nil)
     await Harbor.clearAllCache()   // REST cache entries are per credential but are not deleted automatically

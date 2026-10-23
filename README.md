@@ -531,7 +531,7 @@ Other details:
 - Parameters are `.named([String: any Encodable & Sendable])` or `.positioned([any Encodable & Sendable])`. A value JSON cannot represent (e.g. `Double.nan`) fails with `HJRPCRequestError.codable` instead of being sent as `null`.
 - Set `endpoint: URL?` on a request to call another endpoint than the configured one.
 - Notifications set `isNotification = true` and are sent with `notify()`; `request()` on one fails with `.invalidRequest` without sending it.
-- `timeoutInterval` overrides Harbor's default for a call (a batch uses the longest of its requests).
+- `timeoutInterval` overrides Harbor's default for a call (a batch uses the longest of its requests, counting those without one at the default).
 - `HJRPCRequestError` is `Equatable`, and debug logs name your request type and method.
 - Integers beyond `Int` decode as `HJSONValue.decimal`. Their digits are exact on iOS 18 / macOS 15 and later (swift-foundation `JSONDecoder`); on earlier OS versions they may be rounded through `Double`. The same applies to big integers passed in `HJRPCParams`.
 

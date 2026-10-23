@@ -57,7 +57,8 @@ public protocol HJRPCRequestProtocol: Sendable {
     var headerParameters: [String: String]? { get }
 
     /// The timeout of the HTTP request, in seconds. Default: `nil`, which uses
-    /// `Harbor.setDefaultTimeoutInterval(_:)`. A batch uses the longest timeout of its requests.
+    /// `Harbor.setDefaultTimeoutInterval(_:)`. A batch uses the longest timeout of its requests,
+    /// counting those without one at that default.
     var timeoutInterval: TimeInterval? { get }
 
     /// Parameters to send with the JSON-RPC request. Default: `nil`.

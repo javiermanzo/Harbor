@@ -199,6 +199,20 @@ final class HarborLogRedactionTests: XCTestCase {
         XCTAssertEqual(request.printableURL(url, policy: HRedactionPolicy(isEnabled: false)), "https://api.example.com/reset/s3cr%2Ft/42")
     }
 
+    func testPathRedactionReplacesWholeSegmentsAndLongerValuesFirst() async {
+        let policy = HRedactionPolicy(isEnabled: true)
+
+        // A short value only replaces the segment it fills, not other segments containing it
+        XCTAssertEqual(policy.redactedURLString(URL(string: "https://api.example.com/v1/users/1")!, pathParameters: ["token": "1"]),
+                       "https://api.example.com/v1/users/redacted")
+        // A value containing another one is never partly left in clear
+        XCTAssertEqual(policy.redactedURLString(URL(string: "https://api.example.com/v/abcd/ab")!, pathParameters: ["token": "ab", "secret": "abcd"]),
+                       "https://api.example.com/v/redacted/redacted")
+        // A value inside a segment (a template such as /{token}.json) is replaced there
+        XCTAssertEqual(policy.redactedURLString(URL(string: "https://api.example.com/files/s3cr3t.json")!, pathParameters: ["token": "s3cr3t"]),
+                       "https://api.example.com/files/redacted.json")
+    }
+
     func testCurlKeepsACookieHeaderTheSessionDoesNotReplace() async {
         // Given cookie handling off, so the session does not add stored cookies
         await Harbor.setHTTPShouldHandleCookies(false)

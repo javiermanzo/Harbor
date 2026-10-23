@@ -222,7 +222,7 @@ func handle(_ error: HWebSocketError) {
 
 `HWebSocketError` conforms to `Error`, `Sendable`, `LocalizedError` and `Equatable`. `connect()`, `send`, `ping()` and `decode(_:)` use typed throws (`throws(HWebSocketError)`); `messages` throws `any Error` that is always an `HWebSocketError`.
 
-The first group of cases (`.invalidURL` ... `.certificate`) only comes from `connect()`. Once the connection is open, a lost connection is always `.connectionFailed` (wrapping the `URLError`, or a `.networkConnectionLost` described by the underlying POSIX error such as "Connection reset by peer"), next to `.pingTimeout` and `.messageTooBig`. Descriptions never include the failing URL.
+The first group of cases (`.invalidURL` ... `.certificate`) only comes from `connect()`. Once the connection is open, a lost connection is always `.connectionFailed` (also when the session behind it is invalidated) (wrapping the `URLError`, or a `.networkConnectionLost` described by the underlying POSIX error such as "Connection reset by peer"), next to `.pingTimeout` and `.messageTooBig`. Descriptions never include the failing URL.
 
 ## Debug logging
 

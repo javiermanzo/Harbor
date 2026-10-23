@@ -707,7 +707,11 @@ final class HarborJRPCHardeningTests: XCTestCase {
         let requests: [any HJRPCRequestProtocol] = [TimeoutRequest(method: "a", requestID: .string("1"), timeoutInterval: 5),
                                                     TimeoutRequest(method: "b", requestID: .string("2"), timeoutInterval: 40),
                                                     StringRequest(method: "c", requestID: .string("3"))]
-        XCTAssertEqual(requests.compactMap(\.timeoutInterval).max(), 40)
+        XCTAssertEqual(HJRPCRequestManager.batchTimeout(for: requests), 40)
+        // A request without a timeout counts with Harbor's default (15 s)
+        XCTAssertEqual(HJRPCRequestManager.batchTimeout(for: [TimeoutRequest(method: "a", requestID: .string("1"), timeoutInterval: 5),
+                                                               StringRequest(method: "b", requestID: .string("2"))]), 15)
+        XCTAssertNil(HJRPCRequestManager.batchTimeout(for: [StringRequest(method: "b", requestID: .string("2"))]))
 
         let wrapper = try TimeoutRequest(method: "a", requestID: .string("1"), timeoutInterval: 5).wrapRequest(type: String.self)
         XCTAssertEqual(wrapper.timeoutInterval, 5)

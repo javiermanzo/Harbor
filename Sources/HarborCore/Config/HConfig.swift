@@ -21,7 +21,12 @@ package struct HConfig: Sendable {
     package var defaultHeaderParameters: [String: String]?
     /// mTLS identity for client certificate authentication.
     var mTLSIdentity: HMTLSIdentity? {
-        didSet { securityGeneration &+= 1 }
+        didSet {
+            // Clearing an identity that was never set changes nothing.
+            if oldValue != nil || mTLSIdentity != nil {
+                securityGeneration &+= 1
+            }
+        }
     }
     /// Incremented by every `Harbor.setMTLS(_:)` and `Harbor.clearMTLS()` call, so an import
     /// that finishes after a later call does not overwrite it (the latest call wins).
@@ -33,7 +38,9 @@ package struct HConfig: Sendable {
     /// Malformed pins (not base64 SHA-256 hashes) log a warning when set and are ignored during validation.
     var sslPinningKeys: [String]? {
         didSet {
-            securityGeneration &+= 1
+            if oldValue != sslPinningKeys {
+                securityGeneration &+= 1
+            }
             if let sslPinningKeys {
                 Self.validatePins(sslPinningKeys)
             }
@@ -47,7 +54,9 @@ package struct HConfig: Sendable {
     /// SHA-256 hashes) log a warning when set and are ignored during validation.
     var sslPinningKeysByHost: [String: [String]]? {
         didSet {
-            securityGeneration &+= 1
+            if oldValue != sslPinningKeysByHost {
+                securityGeneration &+= 1
+            }
             if let sslPinningKeysByHost {
                 for keys in sslPinningKeysByHost.values {
                     Self.validatePins(keys)

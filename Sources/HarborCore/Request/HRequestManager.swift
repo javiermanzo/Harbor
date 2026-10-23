@@ -29,8 +29,15 @@ package enum HRequestManager {
 
     /// Number of completed `authFailed()` notifications per rejected authorization header, so
     /// a request that checked for a rotated header while a notification finished does not
-    /// start another one.
-    static var completedAuthFailures: [HAuthorizationHeader?: Int] = [:]
+    /// start another one. Keyed by a SHA-256 digest (see `authFailureKey(for:)`), so rejected
+    /// credentials are not kept in memory; emptied when the provider changes and bounded by
+    /// `maxCompletedAuthFailures`.
+    static var completedAuthFailures: [String: Int] = [:]
+
+    /// Bound of `completedAuthFailures`; past it the records are dropped. A request racing that
+    /// reset may skip its own `authFailed()` call, only for a header the provider was already
+    /// notified about.
+    static let maxCompletedAuthFailures = 64
 
     /// Incremented by `Harbor.setAuthProvider(_:)`. The REST layer derives from it when its
     /// remembered credentials and in-flight cache writes stop being valid (see

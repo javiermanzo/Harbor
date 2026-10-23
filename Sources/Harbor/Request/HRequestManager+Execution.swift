@@ -187,6 +187,7 @@ extension HRequestManager {
                                                     authHeader: authHeader,
                                                     sentHeaders: urlRequest.allHTTPHeaderFields,
                                                     servesCachedBodyOn304: prepared.injectedConditionalValidators && hasConditionalValidators(urlRequest),
+                                                    canRefetchUnconditionally: prepared.injectedConditionalValidators && hasConditionalValidators(urlRequest),
                                                     generation: generation)
                 guard let outcome else {
                     // A `304` without a cached body to serve: ask again without validators.
@@ -244,14 +245,16 @@ extension HRequestManager {
     ///   - authHeader: Optional authorization header the request was sent with.
     ///   - sentHeaders: The headers the request was sent with, or `nil` for a mock.
     ///   - servesCachedBodyOn304: Whether a `304` answers validators Harbor injected from its
-    ///     cache (or a mock): the cached body is served, and when none can be served the
-    ///     request is re-issued without the validators. A `304` answering validators the
+    ///     cache (or a mock), so the cached body is served. A `304` answering validators the
     ///     caller set is returned as `.api(statusCode: 304, data:)`.
+    ///   - canRefetchUnconditionally: Whether a `304` without a cached body to serve may be
+    ///     answered by re-issuing the request without the validators Harbor injected (never
+    ///     for a mock).
     ///   - generation: The `cacheGeneration` when the request started. The response is only
     ///     cached when it is still current.
     /// - Returns: `HAttemptOutcome` carrying the response or next loop action, or `nil` when the
     ///   request must be re-issued without conditional validators.
-    private static func processResponse<Model: HModel, Request: HRequestWithResultProtocol>(model: Model.Type, request: Request, statusCode: Int, data: Data, httpResponse: HTTPURLResponse? = nil, canRetry: Bool = false, authHeader: HAuthorizationHeader? = nil, sentHeaders: [String: String]? = nil, servesCachedBodyOn304: Bool = false, generation: Int) async -> HAttemptOutcome<HResponseWithResult<Model>>? {
+    private static func processResponse<Model: HModel, Request: HRequestWithResultProtocol>(model: Model.Type, request: Request, statusCode: Int, data: Data, httpResponse: HTTPURLResponse? = nil, canRetry: Bool = false, authHeader: HAuthorizationHeader? = nil, sentHeaders: [String: String]? = nil, servesCachedBodyOn304: Bool = false, canRefetchUnconditionally: Bool = false, generation: Int) async -> HAttemptOutcome<HResponseWithResult<Model>>? {
         switch statusCode {
         case 200 ... 299:
             do {
@@ -289,7 +292,7 @@ extension HRequestManager {
             }
             // The validators matched but the body is gone (evicted, replaced, or another vary
             // variant): ask the caller to fetch the full representation instead of failing.
-            if servesCachedBodyOn304, sentHeaders != nil {
+            if canRefetchUnconditionally {
                 return nil
             }
             let hError: HRequestError = .api(statusCode: statusCode, data: data)

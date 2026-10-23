@@ -189,16 +189,38 @@ final class HarborTransportSecurityTests: XCTestCase {
         XCTAssertTrue(Harbor.customURLSessionSecurityWarning()?.contains("before the last") == true)
     }
 
-    func testClearingMTLSMakesAHarborDelegateOutdated() async {
-        // Given a session built with Harbor's delegate
+    func testClearingMTLSMakesAHarborDelegateOutdated() async throws {
+        // Given an identity and a session built with Harbor's delegate
+        HConfig.shared.mTLSIdentity = try await loadTestIdentity()
         let session = URLSession(configuration: .ephemeral, delegate: Harbor.makeURLSessionDelegate(), delegateQueue: nil)
         defer { session.invalidateAndCancel() }
         HConfig.shared.customURLSession = session
         XCTAssertNil(Harbor.customURLSessionSecurityWarning())
 
-        // When an identity is set and cleared, the delegate keeps the old configuration
-        HConfig.shared.mTLSIdentity = nil
+        // When the identity is cleared, the delegate keeps presenting the old one
+        Harbor.clearMTLS()
         XCTAssertNotNil(Harbor.customURLSessionSecurityWarning())
+    }
+
+    func testClearingSettingsThatWereNotSetKeepsAHarborDelegateCurrent() async {
+        // Given a session built with Harbor's delegate and no pins or identity
+        let session = URLSession(configuration: .ephemeral, delegate: Harbor.makeURLSessionDelegate(), delegateQueue: nil)
+        defer { session.invalidateAndCancel() }
+        HConfig.shared.customURLSession = session
+
+        // When a logout flow clears them anyway
+        Harbor.clearMTLS()
+        Harbor.setSSLPinningKeys(nil)
+
+        // Then nothing changed, so there is nothing to warn about
+        XCTAssertNil(Harbor.customURLSessionSecurityWarning())
+    }
+
+    func testMTLSHostsAreTrimmedLikePinHosts() async throws {
+        let identity = try await loadTestIdentity()
+        let scoped = HMTLSIdentity(identity: identity.identity, hosts: [" API.example.com "])
+        XCTAssertTrue(scoped.applies(toHost: "api.example.com"))
+        XCTAssertFalse(scoped.applies(toHost: "other.example.com"))
     }
 
     func testNoWarningWithoutCustomSession() async {

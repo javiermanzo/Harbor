@@ -113,7 +113,7 @@ package struct HRedactionPolicy: Sendable {
 
     /// Whether `key` is sensitive under this policy. Always `false` when redaction is disabled.
     /// - Parameter key: A header name, query item name or body field name.
-    package func isSensitive(_ key: String) -> Bool {
+    func isSensitive(_ key: String) -> Bool {
         isEnabled && HJSONRedactor.isSensitiveKey(key, needles: needles)
     }
 
@@ -226,7 +226,10 @@ package struct HRedactionPolicy: Sendable {
     }
 
     /// `redactedURLString(_:)` for a URL built from path parameters: the values of sensitive
-    /// parameters, already substituted into the path, are replaced by `redacted` too.
+    /// parameters, already substituted into the path, are replaced by `redacted` too. A value is
+    /// replaced where it is a whole path segment; one that is part of a segment (a template
+    /// such as `/{id}.json`) is replaced inside the segments that contain it. Longer values go
+    /// first, so a value that contains another one is never partly left in clear.
     /// - Parameters:
     ///   - url: The URL to print.
     ///   - pathParameters: The path parameters substituted into `url`, or `nil` for none.
@@ -237,11 +240,15 @@ package struct HRedactionPolicy: Sendable {
               var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
             return redactedURLString(url)
         }
-        var path = components.percentEncodedPath
-        for value in sensitiveValues {
-            path = path.replacingOccurrences(of: HURLBuilder.percentEncodedPathValue(value), with: "redacted")
+        var segments = components.percentEncodedPath.components(separatedBy: "/")
+        for value in sensitiveValues.map(HURLBuilder.percentEncodedPathValue).sorted(by: { $0.count > $1.count }) {
+            if segments.contains(value) {
+                segments = segments.map { $0 == value ? "redacted" : $0 }
+            } else {
+                segments = segments.map { $0.replacingOccurrences(of: value, with: "redacted") }
+            }
         }
-        components.percentEncodedPath = path
+        components.percentEncodedPath = segments.joined(separator: "/")
         return redactedURLString(components.url ?? url)
     }
 

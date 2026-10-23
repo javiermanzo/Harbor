@@ -78,7 +78,7 @@ extension HRequestManager {
 
         // A late 401 for a header the provider has already rotated: retry with the current
         // header instead of asking for another refresh.
-        let completedNotifications = completedAuthFailures[usedHeader, default: 0]
+        let completedNotifications = completedAuthFailures[authFailureKey(for: usedHeader), default: 0]
         if usedHeader != nil, inFlightAuthFailures[usedHeader] == nil {
             let currentHeader = await authProvider.getAuthorizationHeader()
             guard isCurrent else { return .giveUp }
@@ -90,7 +90,7 @@ extension HRequestManager {
         // Notify the provider of the failure so it can trigger its refresh mechanism, unless a
         // notification for this header completed while the rotated header was checked, then
         // fetch the header it issues afterwards.
-        if completedAuthFailures[usedHeader, default: 0] == completedNotifications {
+        if completedAuthFailures[authFailureKey(for: usedHeader), default: 0] == completedNotifications {
             await notifyAuthFailed(provider: authProvider, rejectedHeader: usedHeader)
             guard isCurrent else { return .giveUp }
         }
@@ -124,12 +124,21 @@ extension HRequestManager {
         inFlightAuthFailures[rejectedHeader] = notification
         Task {
             await notification.value
-            completedAuthFailures[rejectedHeader, default: 0] &+= 1
+            if completedAuthFailures.count >= maxCompletedAuthFailures {
+                completedAuthFailures.removeAll()
+            }
+            completedAuthFailures[authFailureKey(for: rejectedHeader), default: 0] &+= 1
             if inFlightAuthFailures[rejectedHeader] == notification {
                 inFlightAuthFailures[rejectedHeader] = nil
             }
         }
         await waitUnlessCancelled(for: notification)
+    }
+
+    /// The key of a rejected header in `completedAuthFailures`: a digest, never the credential.
+    /// - Parameter header: The rejected authorization header, or `nil`.
+    static func authFailureKey(for header: HAuthorizationHeader?) -> String {
+        header.map { "\($0.key):\($0.value)".sha256Hex } ?? ""
     }
 
     /// Waits for `task` to finish, or returns as soon as the calling task is cancelled.

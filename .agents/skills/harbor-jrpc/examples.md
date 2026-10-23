@@ -41,7 +41,7 @@ struct GetBalanceRequest: HJRPCRequestProtocol {
 | `needsAuth: Bool` | `false` |
 | `retryPolicy: HRetryPolicy?` | `nil` |
 | `headerParameters: [String: String]?` | `nil` |
-| `timeoutInterval: TimeInterval?` | `nil`: Harbor's default (a batch uses the longest of its requests) |
+| `timeoutInterval: TimeInterval?` | `nil`: Harbor's default (a batch uses the longest of its requests, counting those without one at the default) |
 | `isNotification: Bool` | `false` |
 | `requestID: HJRPCId?` | `nil`: a UUID string id is generated |
 | `endpoint: URL?` | `nil`: the configured URL |
@@ -233,7 +233,7 @@ func batch() async throws {
 
 - `HarborJRPC.batch(_:)` is `async throws`. It throws when the batch as a whole fails: no endpoint (`.urlNeeded`), mixed endpoints or two requests sharing an `id` (`.malformedRequest`), encoding, transport or HTTP errors, a body that isn't a batch response, or a single error object rejecting the batch (`.jrpcError`).
 - The result has one element per request that is not a notification, **in request order**: Harbor matches the server's answers to the requests by `id` (servers may reorder them), so `responses[i]` answers the i-th non-notification request even with generated ids. An element carrying a JSON-RPC error object is `.error(id:, error: .jrpcError(error:))`; a request the server did not answer is `.error(id: <its id>, error: .invalidResponse)`. An element's `id` is `nil` only when the server's element has none (a malformed element whose id cannot be read). Elements whose `id` matches no request (e.g. an error with a `null` id) come after them. `HJRPCBatchResponse.id` reads an element's id.
-- Merge rules: all requests must resolve to the same endpoint. Headers are merged (the first request setting a header wins). The batch is authenticated if any request has `needsAuth`. It is logged if any request conforms to `HDebugRequestProtocol`. The longest `timeoutInterval` applies. The first non-nil `retryPolicy` is used, but its `retryNonIdempotentRequests` is kept only if **every** request opts in.
+- Merge rules: all requests must resolve to the same endpoint. Headers are merged (the first request setting a header wins). The batch is authenticated if any request has `needsAuth`. It is logged if any request conforms to `HDebugRequestProtocol`. The longest timeout applies (a request without `timeoutInterval` counts with Harbor's default). The first non-nil `retryPolicy` is used, but its `retryNonIdempotentRequests` is kept only if **every** request opts in.
 
 ## Errors
 

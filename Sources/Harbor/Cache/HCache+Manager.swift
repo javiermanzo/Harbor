@@ -50,10 +50,11 @@ extension HCache {
         /// Token to track cache clearance cycles, preventing L1/L2 sync races.
         private var cacheClearToken = 0
 
-        /// Number of removals of each key (keyed by file name) since the last `clearAllCache`.
-        /// A read or write that was suspended while its key was removed does not bring the
-        /// entry back into memory or the disk index.
-        private var removalEpochs: [String: Int] = [:]
+        /// Writes and removals of the keys that have an operation in flight, keyed by file name
+        /// (see `beginKeyOperation(_:)`). A read, refresh or write suspended while its key was
+        /// written or removed by someone else does not put stale data back into memory, the disk
+        /// index or the disk. Only keys with an operation in flight have a record.
+        private var keyActivity: [String: KeyActivity] = [:]
 
         /// Size and last access of every file on disk. `nil` until first needed; built from a
         /// single directory listing instead of listing the directory on every write.
@@ -204,7 +205,9 @@ extension HCache {
 
             // L2: Disk Cache
             let token = cacheClearToken
-            let epoch = removalEpoch(forKey: key)
+            let name = FileStorage.fileName(for: key)
+            let version = beginKeyOperation(name)
+            defer { endKeyOperation(name) }
             guard let (metadata, body) = await loadDiskEntry(forKey: key) else { return nil }
 
             // Vary mismatch: the stored variant cannot satisfy this request. It is a miss,
@@ -215,7 +218,8 @@ extension HCache {
 
             // Expiration: keep entries that can still be revalidated or served on error, evict the rest.
             if metadata.isExpired(maxAge: config.expirationTime, grace: metadata.servableStaleWindow) {
-                if metadata.isDiscardable(maxAge: config.expirationTime) {
+                // Only the entry that was read is evicted, not one written meanwhile.
+                if metadata.isDiscardable(maxAge: config.expirationTime), keyVersion(name) == version {
                     await removeDiskData(forKey: key)
                 }
                 return nil
@@ -223,10 +227,10 @@ extension HCache {
 
             guard let model = await decodeEntry(body, decode: decode) else { return nil }
 
-            // A clearAllCache, or a removal of this key (`clearCache()`, a `no-store` response),
-            // that ran while the disk read was suspended wins: the entry is neither served nor
-            // promoted back into memory.
-            guard token == cacheClearToken, epoch == removalEpoch(forKey: key) else { return nil }
+            // A clearAllCache, or a write or removal of this key (a newer response,
+            // `clearCache()`, a `no-store` response) that ran while the read or the decoding was
+            // suspended wins: the entry read is neither served nor promoted into memory.
+            guard token == cacheClearToken, keyVersion(name) == version else { return nil }
 
             // Promote to Memory Cache
             memoryCache.setObject(Entry(data: body, metadata: metadata), forKey: nsKey, cost: body.count)
@@ -361,16 +365,25 @@ extension HCache {
         ///   - key: The cache key string.
         ///   - response: The 304 response; headers it omits keep the stored values.
         ///   - config: The cache configuration providing the fallback expiration and disk capacity.
-        func refreshEntry(forKey key: String, response: HTTPURLResponse?, config: HCache.Configuration) async {
+        ///   - requestHeaders: The request headers, for `Vary` validation.
+        ///   - validatedETag: The `ETag` the `304` validated (its own, or the one sent).
+        func refreshEntry(forKey key: String, response: HTTPURLResponse?, config: HCache.Configuration, requestHeaders: [String: String]? = nil, validatedETag: String? = nil) async {
             let token = cacheClearToken
+            let name = FileStorage.fileName(for: key)
+            let version = beginKeyOperation(name)
+            defer { endKeyOperation(name) }
 
             var current = memoryCache.object(forKey: NSString(string: key))
             if current == nil, let (metadata, body) = await loadDiskEntry(forKey: key) {
                 current = Entry(data: body, metadata: metadata)
             }
 
-            // Nothing to refresh, or the cache was cleared while the disk read was suspended.
-            guard let entry = current, token == cacheClearToken else { return }
+            // Nothing to refresh, or the cache was cleared, or the key written or removed, while
+            // the disk read was suspended. The entry must still be the variant and the
+            // representation the 304 validated: another request may have replaced it since.
+            guard let entry = current, token == cacheClearToken, keyVersion(name) == version,
+                  entry.metadata.matchesVaryOrWildcard(Self.varyKey(for: entry.metadata.vary, requestHeaders: requestHeaders)),
+                  Self.isValidated(entry.metadata, by: validatedETag) else { return }
 
             let directives = response?.value(forHTTPHeaderField: "Cache-Control").map { Self.parseCacheControlDirectives($0) }
             if directives?.noStore == true {
@@ -428,7 +441,6 @@ extension HCache {
         /// Clears all cached data, waiting until disk cleanup completes.
         func clearAllCache() async {
             cacheClearToken &+= 1
-            removalEpochs.removeAll()
             memoryCache.removeAllObjects()
             diskIndex = DiskIndex()
             lastPersistedAccess.removeAll()
@@ -446,14 +458,51 @@ extension HCache {
         /// Removes specific cached data, waiting until disk cleanup completes.
         /// - Parameter key: The cache key string of the entry to remove.
         func removeCachedData(for key: String) async {
-            removalEpochs[FileStorage.fileName(for: key), default: 0] &+= 1
             memoryCache.removeObject(forKey: NSString(string: key))
             await removeDiskData(forKey: key)
         }
 
-        /// The number of removals of `key` since the last `clearAllCache` (see `removalEpochs`).
-        private func removalEpoch(forKey key: String) -> Int {
-            removalEpochs[FileStorage.fileName(for: key)] ?? 0
+        // MARK: - Key Activity
+
+        /// In-flight bookkeeping of one key: how many operations captured its version, and the
+        /// version itself, bumped by every write and removal.
+        private struct KeyActivity {
+            /// Writes and removals since the first in-flight operation began.
+            var version = 0
+            /// Operations in flight on the key.
+            var pending = 0
+        }
+
+        /// Starts an operation on a key that must not act on stale data after a suspension.
+        /// Pair it with `endKeyOperation(_:)`.
+        /// - Parameter name: The key's file name.
+        /// - Returns: The key's version now, to compare with `keyVersion(_:)` after suspending.
+        private func beginKeyOperation(_ name: String) -> Int {
+            var activity = keyActivity[name] ?? KeyActivity()
+            activity.pending += 1
+            keyActivity[name] = activity
+            return activity.version
+        }
+
+        /// Ends an operation started with `beginKeyOperation(_:)`; the record goes away with the
+        /// last one, so no version outlives the operations comparing it.
+        /// - Parameter name: The key's file name.
+        private func endKeyOperation(_ name: String) {
+            guard var activity = keyActivity[name] else { return }
+            activity.pending -= 1
+            keyActivity[name] = activity.pending > 0 ? activity : nil
+        }
+
+        /// Records a write or removal of a key for the operations in flight on it.
+        /// - Parameter name: The key's file name.
+        private func noteKeyChange(_ name: String) {
+            keyActivity[name]?.version &+= 1
+        }
+
+        /// The current version of a key (see `beginKeyOperation(_:)`).
+        /// - Parameter name: The key's file name.
+        private func keyVersion(_ name: String) -> Int {
+            keyActivity[name]?.version ?? 0
         }
 
         /// Applies the memory limit derived from the global default cache type. Called whenever
@@ -651,9 +700,12 @@ extension HCache {
                 return true
             }
 
-            // `URLCache` does not keep the response time, so the apparent age (time since `Date`)
-            // stands in for the resident time: the larger of it and `Age` (RFC 9111, section 4.2.3).
-            let currentAge = max(date.map { max(now.timeIntervalSince($0), 0) } ?? 0, Self.ageHeaderValue(of: response))
+            // `URLCache` does not keep the response time, which RFC 9111 (section 4.2.3) needs to
+            // tell the time spent upstream from the time spent here. Adding the time since `Date`
+            // and `Age` never underestimates the age (a CDN that rewrites `Date` at delivery
+            // keeps counting `Age`); when the CDN keeps the origin's `Date` it overestimates it,
+            // which only makes the response go stale earlier.
+            let currentAge = (date.map { max(now.timeIntervalSince($0), 0) } ?? 0) + Self.ageHeaderValue(of: response)
             let grace = directives.mustRevalidate ? 0 : TimeInterval(max(directives.staleWhileRevalidate ?? 0, 0))
             return currentAge < lifetime + grace
         }
@@ -733,6 +785,9 @@ extension HCache {
         /// deleted and reported as a miss.
         private func loadDiskEntry(forKey key: String) async -> (HCache.EntryMetadata, Data)? {
             let dir = self.cacheDirectory
+            let name = FileStorage.fileName(for: key)
+            let version = beginKeyOperation(name)
+            defer { endKeyOperation(name) }
             let result: DiskRead = await withCheckedContinuation { continuation in
                 diskQueue.async {
                     continuation.resume(returning: FileStorage.readEntry(at: FileStorage.url(for: key, in: dir)))
@@ -742,7 +797,10 @@ extension HCache {
             case .missing:
                 return nil
             case .invalid:
-                await removeDiskData(forKey: key)
+                // Only the file that was read is deleted, not one written meanwhile.
+                if keyVersion(name) == version {
+                    await removeDiskData(forKey: key)
+                }
                 return nil
             case .entry(let metadata, let body):
                 return (metadata, body)
@@ -762,6 +820,7 @@ extension HCache {
         /// Removes the disk entry of a key and drops it from the disk index.
         /// - Parameter key: The cache key of the entry.
         private func removeDiskData(forKey key: String) async {
+            noteKeyChange(FileStorage.fileName(for: key))
             let dir = self.cacheDirectory
             await withCheckedContinuation { continuation in
                 diskQueue.async(flags: .barrier) {
@@ -793,13 +852,20 @@ extension HCache {
                 return
             }
 
-            let epoch = removalEpoch(forKey: key)
+            // This write is a change of the key for the operations in flight on it; a later write
+            // or removal is one for this write. Writes and deletes run in queue order, so the
+            // last one queued is the one on disk, and only it may update memory and the index.
+            let name = FileStorage.fileName(for: key)
+            _ = beginKeyOperation(name)
+            defer { endKeyOperation(name) }
+            noteKeyChange(name)
+            let version = keyVersion(name)
             let written = await writeToDisk(fileData, forKey: key)
 
-            // Prevent L1/L2 desync if a clearAllCache, or a removal of this key, executed while
-            // we were suspended writing to disk. Its delete barrier runs after this write, so
-            // the file itself is gone as well.
-            guard token == cacheClearToken, epoch == removalEpoch(forKey: key) else { return }
+            // Prevent L1/L2 desync if a clearAllCache, or another write or a removal of this
+            // key, executed while we were suspended writing to disk: its barrier runs after
+            // this write, so the disk holds its result, not this entry.
+            guard token == cacheClearToken, keyVersion(name) == version else { return }
 
             guard written else {
                 HLogger.log("Failed to persist cache entry on disk", level: .error)

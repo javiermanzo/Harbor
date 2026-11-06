@@ -15,8 +15,10 @@ public extension Harbor {
     /// Sets default cache type for requests without explicit cache settings.
     /// Default is .urlCache.
     ///
-    /// The memory limit of the custom cache follows the default configuration when it is
-    /// `.custom`; per-request configurations can only raise it, never lower it.
+    /// The memory and disk limits of the custom cache follow the default configuration when it
+    /// is `.custom`; per-request configurations can only raise them, never lower them. When the
+    /// default is not `.custom`, the limits are those of the per-request `.custom`
+    /// configurations (the largest one seen), or `HCache.Configuration()`'s until one is used.
     /// - Note: This is a method rather than a `get set` property to allow cross-actor mutation, as Swift forbids mutating actor-isolated static properties from outside the actor's context.
     /// - Parameter cacheType: The cache type applied to GET requests whose `cacheType` is `nil`.
     static func setDefaultCacheType(_ cacheType: HCache.CacheType) {
@@ -100,6 +102,10 @@ public extension Harbor {
     /// Clears all cached data: the custom cache (memory and disk), `URLCache.shared`, and the
     /// URLCache of the configured default cache type and custom session when they differ.
     /// The credentials remembered for offline cache lookups are forgotten as well.
+    ///
+    /// Cache entries are keyed by URL only, never by credential, so call this whenever the
+    /// signed-in account changes (logout, switching accounts): otherwise
+    /// the next account can read the responses cached for the previous one.
     static func clearAllCache() async {
         HRequestManager.forgetRememberedAuthHeaders()
         await HCache.Manager.shared.clearAllCache()

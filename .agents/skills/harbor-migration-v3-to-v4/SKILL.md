@@ -78,7 +78,7 @@ If code mutated a request after creating it, pass the values through the initial
 **v3:** `func getAuthorizationHeader() async -> HAuthorizationHeader`
 **v4:** `func getAuthorizationHeader() async -> HAuthorizationHeader?`. Return `nil` to send the request without credentials.
 
-The 401 flow is also stricter: keep the token refresh inside `authFailed()` and make `getAuthorizationHeader()` return the current token only. Harbor calls `authFailed()` at most once per request (see `../harbor-core/auth.md`). Cached responses of `needsAuth` requests are namespaced per credential: call `await Harbor.clearAllCache()` on logout.
+The 401 flow is also stricter: keep the token refresh inside `authFailed()` and make `getAuthorizationHeader()` return the current token only. Harbor calls `authFailed()` at most once per request (see `../harbor-core/auth.md`). Cached responses are keyed by URL only, never by credential: call `await Harbor.clearAllCache()` whenever the signed-in account changes.
 
 ## 4. mTLS
 

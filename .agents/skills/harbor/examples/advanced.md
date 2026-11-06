@@ -185,7 +185,7 @@ final class OAuth2Provider: HAuthProviderProtocol {
 
 func logout(store: OAuthTokenStore) async {
     await store.save(access: nil, refresh: nil)
-    await Harbor.clearAllCache()   // per-credential cache entries are not removed automatically
+    await Harbor.clearAllCache()   // entries are keyed by URL, not by credential: the next account would read them
 }
 ```
 

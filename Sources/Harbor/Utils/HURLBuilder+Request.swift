@@ -145,11 +145,11 @@ extension HURLBuilder {
         // Inject the stored validators as conditional headers for GET requests using the custom
         // cache. A conditional header set by the caller is kept as-is: the caller owns the
         // revalidation, so neither validator is injected. A request that needs auth but goes
-        // out without a credential has no cache entry of its own to revalidate.
+        // out without a credential is never cached, so it does not revalidate an entry either.
         let hasCallerValidators = urlRequest.value(forHTTPHeaderField: "If-None-Match") != nil
             || urlRequest.value(forHTTPHeaderField: "If-Modified-Since") != nil
-        let hasCacheNamespace = !request.needsAuth || authHeader != nil
-        if request.httpMethod == .get, !hasCallerValidators, hasCacheNamespace, let getRequest = request as? any HGetRequestProtocol {
+        let sendsRequiredCredential = !request.needsAuth || authHeader != nil
+        if request.httpMethod == .get, !hasCallerValidators, sendsRequiredCredential, let getRequest = request as? any HGetRequestProtocol {
             let cacheType: HCache.CacheType
             if let requestCacheType = getRequest.cacheType {
                 cacheType = requestCacheType
@@ -158,9 +158,9 @@ extension HURLBuilder {
             }
 
             if case .custom = cacheType {
-                // Same key as the cache reads and writes: namespaced by the credentials sent (the
-                // provider's header of a request that needs auth and any sensitive header).
-                let cacheKey = HCache.Manager.cacheKey(for: url, credentialHeaders: urlRequest.allHTTPHeaderFields, authHeader: request.needsAuth ? authHeader : nil)
+                // Same key as the cache reads and writes: the composite URL, never a credential.
+                // The sent headers only select the `Vary` variant.
+                let cacheKey = HCache.Manager.cacheKey(for: url)
                 let validators = await HCache.Manager.shared.getValidators(forKey: cacheKey, requestHeaders: urlRequest.allHTTPHeaderFields)
                 if let etag = validators.etag {
                     urlRequest.setValue(etag, forHTTPHeaderField: "If-None-Match")

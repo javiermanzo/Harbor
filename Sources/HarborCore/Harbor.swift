@@ -21,11 +21,12 @@ public extension Harbor {
 
     /// Configures authentication provider for requests requiring auth.
     ///
-    /// Cached responses of requests that need auth are namespaced by a SHA-256 digest of the
-    /// authorization header they were fetched with, so a new provider (or a new credential)
-    /// never reads entries stored for another one. Replacing the provider does not delete
-    /// those entries: with the REST product, call `Harbor.clearAllCache()` on logout to remove
-    /// a previous user's data from memory and disk. It does forget the credentials remembered
+    /// Cached responses are keyed by URL only: the authorization header (or any other
+    /// sensitive header) is never part of a cache key, so entries are **not** separated per
+    /// credential and a new provider or a new credential reads the entries stored with the
+    /// previous one. Replacing the provider does not delete them: with the REST product, call
+    /// `Harbor.clearAllCache()` whenever the signed-in account changes (logout, account switch)
+    /// to remove the previous user's data from memory and disk. It does forget the credentials remembered
     /// for offline cache lookups, so the new provider is consulted again, and a `401` refresh
     /// in flight stops using the old provider. Already open `HWebSocket` connections are not
     /// affected: close them on logout.

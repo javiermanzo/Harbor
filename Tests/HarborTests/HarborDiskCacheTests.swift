@@ -283,6 +283,23 @@ final class HarborDiskCacheTests: XCTestCase {
         XCTAssertNil(HCache.DiskCodec.decode(fileData))
     }
 
+    func testVersion2FileThatMayHoldACredentialDigestIsDiscardedOnRead() async throws {
+        // Given a file written by the previous format, whose key or Vary key may hold a digest
+        // of a credential
+        let key = "https://disk.test/version-2"
+        let fileURL = fileURL(for: key)
+        var metadata = HCache.EntryMetadata(timestamp: Date(), expirationTime: .oneHour)
+        metadata.version = 2
+        try HCache.DiskCodec.encode(metadata, body: try JSONEncoder().encode("old")).write(to: fileURL)
+
+        // When it is read
+        let cached: String? = await HCache.Manager.shared.getCachedData(forKey: key, type: String.self, config: HCache.Configuration())
+
+        // Then it is a miss and the file is deleted
+        XCTAssertNil(cached)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fileURL.path), "Version 2 files should be discarded")
+    }
+
     func testStartupCleanupDiscardsOutdatedAndExpiredFilesOnly() async throws {
         // Given an outdated file, an expired entry without validators, an expired entry with
         // a validator and a fresh entry

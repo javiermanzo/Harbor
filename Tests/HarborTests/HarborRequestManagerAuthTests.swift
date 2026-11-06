@@ -470,65 +470,65 @@ final class HarborRequestManagerAuthTests: XCTestCase {
 
     // MARK: - Vary: Authorization Cache Tests
 
-    func testVaryAuthorizationVariantsAreKeyedPerCredential() async throws {
-        // Given a custom cache and a server that varies on Authorization, tagging each
-        // body with the credential it was fetched with
+    func testVaryAuthorizationIsAlwaysRevalidatedWithTheCurrentCredential() async throws {
+        // Given a custom cache and a server that varies on Authorization
         await Harbor.clearAllCache()
         Harbor.setDefaultCacheType(.custom(HCache.Configuration(expirationTime: .oneHour)))
-        AuthStubProtocol.responseHeaders = ["Vary": "Authorization"]
+        AuthStubProtocol.responseHeaders = ["Vary": "Authorization", "Cache-Control": "max-age=3600"]
         AuthStubProtocol.etag = "\"vary-etag\""
-        AuthStubProtocol.bodyIncludesAuthorization = true
 
         let tokenA = HAuthorizationHeader(key: "Authorization", value: "Bearer token_A")
         let tokenB = HAuthorizationHeader(key: "Authorization", value: "Bearer token_B")
-
         let request = ClassAuthGetRequest(url: "https://example.com/vary")
 
-        // When user A fetches, the response is cached under A's credential
-        Harbor.setAuthProvider(SpyAuthProvider(headers: [tokenA]))
+        // When user A fetches
+        Harbor.setAuthProvider(SpyAuthProvider(headers: [tokenA, tokenA]))
         guard case .success(let modelA) = await request.request() else {
             XCTFail("Expected success for the first request")
             return
         }
-        XCTAssertEqual(modelA.quote, "Bearer token_A")
+        XCTAssertEqual(modelA.quote, "ok")
 
-        // Then a request with B's credential must not be served A's cached variant: the
-        // vary mismatch withholds the validators, so the server answers a full 200
+        // Then the entry is never served without asking the server, even to the same credential:
+        // Harbor stores no value (nor digest) of the credential to match the variant with
+        let cachedForA = await request.cache()
+        XCTAssertNil(cachedForA)
+
+        // And a request with B's credential sends the stored validators, and the server's 304
+        // (its confirmation for B) serves the stored body
         Harbor.setAuthProvider(SpyAuthProvider(headers: [tokenB]))
         guard case .success(let modelB) = await request.request() else {
-            XCTFail("Expected success for the second request")
-            return
-        }
-        XCTAssertEqual(modelB.quote, "Bearer token_B")
-
-        // And repeating B's credential revalidates: the server answers 304 and the
-        // cached variant for B is served
-        Harbor.setAuthProvider(SpyAuthProvider(headers: [tokenB]))
-        guard case .success(let modelBAgain) = await request.request() else {
             XCTFail("Expected success for the revalidation request")
             return
         }
-        XCTAssertEqual(modelBAgain.quote, "Bearer token_B")
-        XCTAssertEqual(AuthStubProtocol.receivedIfNoneMatch, [nil, nil, "\"vary-etag\""])
+        XCTAssertEqual(modelB.quote, "ok")
+        XCTAssertEqual(AuthStubProtocol.receivedIfNoneMatch, [nil, "\"vary-etag\""])
+        XCTAssertEqual(AuthStubProtocol.receivedAuthorizations, ["Bearer token_A", "Bearer token_B"])
     }
 
     func testCacheReadWithoutExplicitHeaderResolvesItFromTheProvider() async throws {
-        // Given a stored Vary: Authorization entry and a provider issuing the same credential
+        // Given a stored entry and a provider issuing a credential
         await Harbor.clearAllCache()
         Harbor.setDefaultCacheType(.custom(HCache.Configuration(expirationTime: .oneHour)))
         let token = HAuthorizationHeader(key: "Authorization", value: "Bearer token_A")
-        Harbor.setAuthProvider(SpyAuthProvider(headers: [token]))
+        let provider = SpyAuthProvider(headers: [token])
+        Harbor.setAuthProvider(provider)
 
-        let request = ClassAuthGetRequest(url: "https://example.com/vary-auto")
-        try await storeVaryAuthorizationEntry(Data("{\"quote\":\"cached\"}".utf8), for: request, authHeader: token)
+        let request = ClassAuthGetRequest(url: "https://example.com/auto")
+        let url = try XCTUnwrap(URL(string: request.url))
+        await request.saveCache(Data("{\"quote\":\"cached\"}".utf8),
+                                response: HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil),
+                                authHeader: token)
 
-        // When the cache is read without an explicit header, the provider's header keys
-        // the vary lookup and the entry is served
+        // When the cache is read without an explicit header, the provider is consulted (a
+        // request that needs auth is only served while a credential is available) and the
+        // entry of the URL is served
         let cached = await request.cache()
         XCTAssertEqual(cached?.quote, "cached")
+        XCTAssertEqual(provider.headerCallCount, 1)
     }
 
-    func testCacheReadWithoutExplicitHeaderMissesWhenProviderCredentialDiffers() async throws {
+    func testCacheReadNeverServesAVaryAuthorizationEntry() async throws {
         // Given a stored Vary: Authorization entry and a provider issuing a different credential
         await Harbor.clearAllCache()
         Harbor.setDefaultCacheType(.custom(HCache.Configuration(expirationTime: .oneHour)))
@@ -539,7 +539,7 @@ final class HarborRequestManagerAuthTests: XCTestCase {
         let request = ClassAuthGetRequest(url: "https://example.com/vary-auto")
         try await storeVaryAuthorizationEntry(Data("{\"quote\":\"cached\"}".utf8), for: request, authHeader: storedToken)
 
-        // When the cache is read, the vary mismatch must not serve the stored variant
+        // When the cache is read, the entry is not served: it needs revalidation by the server
         let cached = await request.cache()
         XCTAssertNil(cached)
     }
@@ -554,7 +554,7 @@ final class HarborRequestManagerAuthTests: XCTestCase {
         let request = ClassAuthGetRequest(url: "https://example.com/vary-auto")
         try await storeVaryAuthorizationEntry(Data("{\"quote\":\"cached\"}".utf8), for: request, authHeader: token)
 
-        // When the cache is read, the lookup proceeds without a header and misses
+        // When the cache is read, a request that needs auth has no lookup without a credential
         let cached = await request.cache()
         XCTAssertNil(cached)
     }
@@ -594,9 +594,9 @@ final class HarborRequestManagerAuthTests: XCTestCase {
         XCTAssertEqual(provider.headerCallCount, 0)
     }
 
-    func testOfflineRequestThatNeedsAuthNeverServesTheEntryStoredWithoutCredentials() async throws {
-        // Given an offline monitor and, for the same URL, an entry stored while logged out
-        // (no credential, un-namespaced) and one stored under the current credential
+    func testOfflineRequestThatNeedsAuthNeverStoresAResponseSentWithoutCredentials() async throws {
+        // Given an offline monitor and, for the same URL, a response received while logged
+        // out (no credential: never stored) and one received with the current credential
         HRequestManager.connectivityMonitor = FakeConnectivityMonitor(connected: false)
         defer { HRequestManager.connectivityMonitor = HRequestManagerMonitor() }
         await Harbor.clearAllCache()
@@ -604,7 +604,7 @@ final class HarborRequestManagerAuthTests: XCTestCase {
         Harbor.setAuthProvider(nil)
 
         let token = HAuthorizationHeader(key: "Authorization", value: "Bearer token_A")
-        let request = ClassAuthGetRequest(url: "https://example.com/offline-namespaced")
+        let request = ClassAuthGetRequest(url: "https://example.com/offline-logged-out")
         let headers = ["Cache-Control": "max-age=0, stale-if-error=300"]
         try await storeStaleEntry(Data("{\"quote\":\"logged-out\"}".utf8), for: request, headers: headers)
         try await storeStaleEntry(Data("{\"quote\":\"logged-in\"}".utf8), for: request, headers: headers, authHeader: token)
@@ -615,7 +615,7 @@ final class HarborRequestManagerAuthTests: XCTestCase {
         // When
         let response = await request.request()
 
-        // Then the credential is resolved and only its own entry is served
+        // Then the credential is resolved and the entry stored with it is served
         guard case .success(let model) = response else {
             XCTFail("Expected the logged-in body but got: \(response)")
             return
@@ -625,8 +625,7 @@ final class HarborRequestManagerAuthTests: XCTestCase {
     }
 
     func testOfflineStaleCacheMissResolvesAuthHeaderAndRetriesLookup() async throws {
-        // Given an offline monitor and a stale servable Vary: Authorization entry stored
-        // under a credential
+        // Given an offline monitor and a stale servable entry stored with a credential
         HRequestManager.connectivityMonitor = FakeConnectivityMonitor(connected: false)
         defer { HRequestManager.connectivityMonitor = HRequestManagerMonitor() }
         await Harbor.clearAllCache()
@@ -634,10 +633,10 @@ final class HarborRequestManagerAuthTests: XCTestCase {
         Harbor.setAuthProvider(nil)
 
         let token = HAuthorizationHeader(key: "Authorization", value: "Bearer token_A")
-        let request = ClassAuthGetRequest(url: "https://example.com/offline-stale-vary")
-        try await storeStaleEntry(Data("{\"quote\":\"stale-vary\"}".utf8),
+        let request = ClassAuthGetRequest(url: "https://example.com/offline-stale-auth")
+        try await storeStaleEntry(Data("{\"quote\":\"stale-auth\"}".utf8),
                                   for: request,
-                                  headers: ["Cache-Control": "max-age=0, stale-if-error=300", "Vary": "Authorization"],
+                                  headers: ["Cache-Control": "max-age=0, stale-if-error=300"],
                                   authHeader: token)
 
         let provider = SpyAuthProvider(headers: [token])
@@ -651,15 +650,14 @@ final class HarborRequestManagerAuthTests: XCTestCase {
             XCTFail("Expected the stale body but got: \(response)")
             return
         }
-        XCTAssertEqual(model.quote, "stale-vary")
+        XCTAssertEqual(model.quote, "stale-auth")
         XCTAssertEqual(provider.headerCallCount, 1)
     }
 
     // MARK: - Offline Remembered Credential Tests
 
     func testOfflineRequestThatNeedsAuthReusesTheCredentialItSucceededWithWithoutConsultingTheProvider() async throws {
-        // Given a request that succeeded online with the provider's credential, so its entry
-        // is stored under that credential's namespace
+        // Given a request that succeeded online with the provider's credential
         await Harbor.clearAllCache()
         Harbor.setDefaultCacheType(.custom(HCache.Configuration(expirationTime: .oneHour)))
         let token = HAuthorizationHeader(key: "Authorization", value: "Bearer token_A")
@@ -679,7 +677,7 @@ final class HarborRequestManagerAuthTests: XCTestCase {
         defer { HRequestManager.connectivityMonitor = HRequestManagerMonitor() }
         let response = await request.request()
 
-        // Then the namespaced entry is served with the remembered credential: the provider,
+        // Then the entry is served with the remembered credential: the provider,
         // whose header resolution could refresh a token over the network, is never consulted
         guard case .success(let model) = response else {
             XCTFail("Expected the cached body but got: \(response)")
@@ -710,7 +708,7 @@ final class HarborRequestManagerAuthTests: XCTestCase {
         let response = await request.request()
 
         // Then the remembered credential was forgotten: the new provider is consulted and,
-        // issuing the same credential, its namespaced entry is served
+        // issuing a credential, the entry of the URL is served
         guard case .success(let model) = response else {
             XCTFail("Expected the cached body but got: \(response)")
             return

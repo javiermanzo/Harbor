@@ -47,7 +47,7 @@ func authFlow() async {
     // nil still lets offline lookups use the credential remembered for a URL)
     await store.update(nil)
     await Harbor.setAuthProvider(nil)
-    await Harbor.clearAllCache()   // REST cache entries are per credential but are not deleted automatically
+    await Harbor.clearAllCache()   // REST cache entries are keyed by URL, not by credential, and are not deleted automatically
 }
 ```
 
@@ -68,7 +68,7 @@ func authFlow() async {
 
 | Product | How auth applies |
 |---|---|
-| REST (`harbor`) | `needsAuth` on the request. `.custom` cache entries are namespaced by a hash of the credential; call `await Harbor.clearAllCache()` on logout (`../harbor/cache.md`). |
+| REST (`harbor`) | `needsAuth` on the request. Cache entries are keyed by URL only, never by credential: call `await Harbor.clearAllCache()` whenever the signed-in account changes (`../harbor/cache.md`). |
 | JSON-RPC (`harbor-jrpc`) | `needsAuth` on the call. A batch is authenticated when any of its requests has `needsAuth`. Errors: `HJRPCRequestError.authNeeded` / `.authProviderNeeded`. |
 | WebSocket (`harbor-websocket`) | `needsAuth` on the socket request: the handshake carries the header and gets the same `401` flow. An open connection is never re-authenticated; reconnect after a token change. Errors: `HWebSocketError.authNeeded` / `.authProviderNeeded`. |
 

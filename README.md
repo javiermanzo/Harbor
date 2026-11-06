@@ -276,7 +276,7 @@ struct SecureRequest: HGetRequestProtocol {
 
 On a 401, Harbor asks the provider for its current header. If it already differs from the rejected one (another request's refresh finished meanwhile), the request is sent again with it without calling `authFailed()`. Otherwise Harbor calls `authFailed()` exactly once per request (concurrent requests rejected with the same credential share a single call) and, if the provider then returns a different header, sends the request once more with it. When no re-send is possible, or the re-sent request is rejected again, the request fails with `.authNeeded`; by then `authFailed()` has been called exactly once. A request cancelled while it waits for `authFailed()` stops waiting and fails with `.cancelled`, and replacing the provider (e.g. on logout) while a refresh runs makes the waiting requests give up instead of retrying with the old provider's header. A `401` on a request without `needsAuth` is `.authNeeded` too (the provider is not consulted and the body is not returned).
 
-Cached responses (`.custom` cache) of requests that send a credential are namespaced by a hash of it, so one user never reads another user's entries: the auth provider's header of `needsAuth` requests and sensitive headers such as `Authorization`, `Proxy-Authorization`, `Cookie` or `X-API-Key` set in the default headers or in `headerParameters`. `.urlCache` keys entries by URL only and is not namespaced: use `.custom` for credential-dependent responses. A `needsAuth` request sent without a credential (the provider returned `nil`) is neither cached nor served from cache. Replacing the provider does not delete existing entries: **call `await Harbor.clearAllCache()` on logout.** A response whose request was in flight when `Harbor.clearAllCache()` or `Harbor.setAuthProvider(_:)` ran is still returned to its caller, but it is not written to the cache nor remembered for offline lookups.
+Cached responses are keyed by URL only, with both `.custom` and `.urlCache`: no credential is ever part of a cache key, not even as a hash. Neither the auth provider's header nor any header Harbor treats as sensitive (`Authorization`, `Proxy-Authorization`, `Cookie`, `X-API-Key`, the keys added with `Harbor.updateLogSensitiveKeys(_:)`, ...) separates entries, so **responses for the same URL are shared by every account: call `await Harbor.clearAllCache()` whenever the signed-in account changes (logout, switching accounts)**, or the next account can read the previous one's responses. A response whose `Vary` names a sensitive header (`Vary: Authorization`, `Vary: Cookie`) is stored like `Vary: *`: it is never served without asking the server, and the stored body is only used when the server answers its validators with `304 Not Modified`. A `needsAuth` request sent without a credential (the provider returned `nil`) is neither cached nor served from cache. Replacing the provider does not delete existing entries. A response whose request was in flight when `Harbor.clearAllCache()` or `Harbor.setAuthProvider(_:)` ran is still returned to its caller, but it is not written to the cache nor remembered for offline lookups.
 
 ### Retry Policies
 
@@ -394,7 +394,7 @@ The custom cache:
 - keeps expired entries without validators while their `stale-if-error` window still allows serving them;
 - ignores the shared-cache-only directives `s-maxage` and `proxy-revalidate` (it is a private cache);
 - evicts least-recently-used entries when the disk capacity is exceeded (the directory is shared: a per-request configuration can raise the capacity, never shrink it);
-- namespaces entries by the credential a request is sent with, whether from the auth provider or from sensitive headers such as `Authorization` or `X-API-Key` (see [Authentication](#authentication)).
+- keys entries by URL only: no credential (the auth provider's header, or a sensitive header such as `Authorization`, `Cookie` or `X-API-Key`) is part of the key, and a `Vary` naming a sensitive header is handled like `Vary: *`. Entries are shared by every account, so **call `await Harbor.clearAllCache()` when the signed-in account changes** (see [Authentication](#authentication)).
 
 A GET request can keep a success status out of the cache by overriding `shouldCache(statusCode:)` (for example to return `false` for a `202 Accepted`, so it doesn't replace the good copy).
 
@@ -423,7 +423,8 @@ func inspectCache() async {
     // Remove this request's entry
     await request.clearCache()
 
-    // Remove everything (custom cache, URLCache.shared and configured URLCaches). Call it on logout.
+    // Remove everything (custom cache, URLCache.shared and configured URLCaches). Call it
+    // whenever the signed-in account changes: entries are keyed by URL, never by credential.
     await Harbor.clearAllCache()
 
     print(eTag ?? "-", cachedUser?.name ?? "-")

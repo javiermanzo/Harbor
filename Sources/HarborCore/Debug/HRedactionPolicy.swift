@@ -114,7 +114,16 @@ package struct HRedactionPolicy: Sendable {
     /// Whether `key` is sensitive under this policy. Always `false` when redaction is disabled.
     /// - Parameter key: A header name, query item name or body field name.
     func isSensitive(_ key: String) -> Bool {
-        isEnabled && HJSONRedactor.isSensitiveKey(key, needles: needles)
+        isEnabled && isSensitiveName(key)
+    }
+
+    /// Whether `key` matches one of this policy's sensitive needles, even when redaction is
+    /// disabled (`Harbor.setLogSensitiveValues(true)` only changes what logs print). Used where
+    /// a credential must be recognized whatever the logging switches say, such as the response
+    /// cache, which never varies an entry on a sensitive header.
+    /// - Parameter key: A header name, query item name or body field name.
+    package func isSensitiveName(_ key: String) -> Bool {
+        HJSONRedactor.isSensitiveKey(key, needles: needles)
     }
 
     // MARK: - Headers

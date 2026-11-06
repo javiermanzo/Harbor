@@ -15,10 +15,10 @@ public extension HCache {
         /// Foundation's `URLCache`, which stores and revalidates responses (`ETag`/`304`)
         /// transparently following the response's HTTP caching headers.
         ///
-        /// `URLCache` keys entries by URL only: unlike `.custom`, entries are not namespaced by
+        /// `URLCache` keys entries by URL only, like `.custom`: entries are not separated per
         /// credential, neither for `needsAuth` requests nor for credentials sent in headers
-        /// (`Authorization`, `X-API-Key`, ...). Use `.custom` when responses depend on the
-        /// credential, and call `Harbor.clearAllCache()` on logout.
+        /// (`Authorization`, `X-API-Key`, ...). Call `Harbor.clearAllCache()` when the
+        /// signed-in account changes.
         /// - Parameters:
         ///   - urlCache: The URLCache to use. Defaults to `URLCache.shared`.
         ///   - requestCachePolicy: The cache policy of the requests. Defaults to `.useProtocolCachePolicy`.
@@ -26,10 +26,15 @@ public extension HCache {
 
         /// Harbor's own memory + disk cache (LRU), with a fallback expiration and size limits. It
         /// honors `Cache-Control`, `Expires`, `Age`, `Vary`, `stale-while-revalidate` and
-        /// `stale-if-error`, and revalidates entries with their `ETag`/`Last-Modified`. Entries are
-        /// namespaced by the credential a request is sent with: the auth provider's header and any
-        /// sensitive header (`Authorization`, `Proxy-Authorization`, `Cookie`, `X-API-Key`, ...)
-        /// set in the default or request headers.
+        /// `stale-if-error`, and revalidates entries with their `ETag`/`Last-Modified`.
+        ///
+        /// Entries are keyed by the request URL (query items sorted) only. No credential is part
+        /// of the key, not even as a digest: neither the auth provider's header nor any header
+        /// Harbor treats as sensitive (`Authorization`, `Proxy-Authorization`, `Cookie`,
+        /// `X-API-Key`, the keys of `Harbor.updateLogSensitiveKeys(_:)`, ...). Entries are
+        /// therefore shared by every credential: call `Harbor.clearAllCache()` when the
+        /// signed-in account changes (logout, switching accounts). A response whose `Vary` names
+        /// a sensitive header is stored like `Vary: *`: never served without revalidation.
         case custom(Configuration)
 
         /// No caching: every request reaches the network.

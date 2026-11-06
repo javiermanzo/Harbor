@@ -64,7 +64,7 @@ A request's own `cacheType` wins over the global default. The memory and disk li
 - `s-maxage` and `proxy-revalidate` are ignored: they only apply to shared caches, and Harbor's cache (like `URLCache`) is a private cache.
 - `stale-while-revalidate`: `cache()` and `.cacheAndRemote` may serve the entry within that window after expiry.
 - `stale-if-error`: served after network errors or 5xx responses within that window.
-- `Vary`: the varying request header values are stored as a SHA-256 digest (never in clear) and enforced on reads. `Vary: *` entries are never served directly.
+- `Vary`: the varying request header values are stored as a SHA-256 digest (never in clear) and enforced on reads. `Vary: *` entries are never served directly. A `Vary` that names a sensitive header (any name Harbor's redaction policy matches: `Authorization`, `Cookie`, `X-API-Key`, the configured log keys, the auth provider's header key) is stored as `Vary: *`, so no credential is stored, not even as a digest; its validators are still sent and a `304` serves the stored body.
 - Expired entries without validators are evicted once their `stale-if-error` window (if any) has elapsed; until then they are kept (by reads and by the startup cleanup) so they can still be served after errors. Expired entries with validators are kept as a source of `If-None-Match` / `If-Modified-Since`.
 
 For `.urlCache`, `cache()` (and the cached leg of `requestStream(source: .cacheAndRemote)`) serves the stored 2xx response unless it is explicitly stale: `Cache-Control: no-cache` or `no-store`, an elapsed `max-age` / `Expires` lifetime (the age is the time since `Date` plus `Age`, which never underestimates it; extended by `stale-while-revalidate`), an invalid `Expires`, or an elapsed 10% `Last-Modified` heuristic when a `Date` header is present. A response without freshness headers is served. A policy that explicitly prefers cached data (`.returnCacheDataElseLoad`, `.returnCacheDataDontLoad`) skips the check altogether.
@@ -72,16 +72,16 @@ For `.urlCache`, `cache()` (and the cached leg of `requestStream(source: .cacheA
 ## Cache keys and credentials
 
 - The key is the composite URL (path parameters substituted, query items sorted by name and strictly percent-encoded).
-- When the request is sent with a credential, `#harbor-auth=<sha256(credentials)>` is appended. Credentials are the auth provider's header (`needsAuth` requests) and every header of the effective request (default headers merged with `headerParameters`, names compared case-insensitively) whose name contains a built-in sensitive key (`HRedactionPolicy.defaultSensitiveKeys`: `Authorization`, `Proxy-Authorization`, `Cookie`, `X-API-Key`, anything containing `token`, `secret`, `password`, `signature`, `credential`, ...). Each credential set gets its own entries, and the raw value is never stored in the key. A request without any such header keeps the plain URL key. Lookup, store, `clearCache()`, `cachedETag()`, conditional validators and offline fallback all build the key the same way; the network flow uses the headers the request was actually sent with, so a default header changed while it was in flight cannot file its response under another credential.
-- The match is by substring: a header that changes on every request and has such a name (a request signature, a rotating `X-CSRF-Token`) gives every request its own entry, so `cache()` and the offline fallback never hit. Keep such values out of cached GET requests, or use `.disabled`.
-- The digest is not salted: anyone who can read the cache files could brute-force a short credential from it. Prefer long, random credentials, and clear the cache on logout.
-- `.urlCache` is not namespaced: `URLCache` keys entries by URL only, so responses that depend on a credential (provider or manual header) must use `.custom`, and `Harbor.clearAllCache()` is the only protection on logout. It clears `URLCache.shared`, the `URLCache` of the default cache type and the one of a custom session, but not a `URLCache` passed to a single request's `.urlCache(urlCache:)`: clear that one yourself.
-- Replacing the auth provider or the token does **not** delete old entries. **Call `await Harbor.clearAllCache()` on logout.**
+- No header is part of the key, and never a credential: neither the auth provider's header nor any header Harbor's redaction policy treats as sensitive (`Authorization`, `Proxy-Authorization`, `Cookie`, `X-API-Key`, anything containing `token`, `secret`, `password`, `signature`, `credential`, the keys of `Harbor.updateLogSensitiveKeys(_:)`, ...), not even as a digest. Lookup, store, `clearCache()`, `cachedETag()`, conditional validators, `304` refreshes, `stale-if-error` and the offline fallback all build the key with `HCache.Manager.cacheKey(for:)`, so a store and its lookup always agree. Headers only select a `Vary` variant (see the `Vary` rule above).
+- Consequence: **entries are shared by every credential and every account.** A token refresh keeps the entries (the stored validators are sent with the new token). An account change does not: **call `await Harbor.clearAllCache()` whenever the signed-in account changes (logout, switching accounts)**, or the next account can read the previous one's responses. `clearCache()` removes the entry of the request's URL whatever credential stored it.
+- A `needsAuth` request sent without a credential (the provider returned `nil`) is neither stored nor served, and has no validators injected.
+- `.urlCache` behaves the same way (`URLCache` keys entries by URL). `Harbor.clearAllCache()` clears `URLCache.shared`, the `URLCache` of the default cache type and the one of a custom session, but not a `URLCache` passed to a single request's `.urlCache(urlCache:)`: clear that one yourself.
+- Replacing the auth provider or the token does **not** delete old entries.
 
 ## Storage
 
 - L1: `NSCache` bounded by body bytes.
-- L2: `Library/Caches/HarborCache/`. Each entry is one file named `sha256(key).cache`, holding a length-prefixed JSON metadata header followed by the raw body (format version 2). Files in an older format, or from legacy versions, are deleted. Reads refresh the access time, and eviction is least-recently-used once the disk capacity is exceeded. A background task at startup removes expired (outside any `stale-if-error` window), invalid and outdated files; a file rewritten since the scan and a file that cannot be read yet (protected before the first unlock) are kept.
+- L2: `Library/Caches/HarborCache/`. Each entry is one file named `sha256(key).cache`, holding a length-prefixed JSON metadata header followed by the raw body (format version 3). Files in an older format, or from legacy versions, are deleted (version 2 files, whose key or `Vary` key may hold a digest of a credential, included). Reads refresh the access time, and eviction is least-recently-used once the disk capacity is exceeded. A background task at startup removes expired (outside any `stale-if-error` window), invalid and outdated files; a file rewritten since the scan and a file that cannot be read yet (protected before the first unlock) are kept.
 - Cached bodies are decoded with the request's `parseData(data:model:)`, the same decoder as the network path, off Harbor's actor. A body that does not decode for a request is a miss for that request but is kept, since request types with different models or parsers may share a URL. The next full response replaces it. On-disk access-time updates are throttled per entry (once per 60 s).
 - An entry removed while a read or write of it was in flight (`clearCache()`, a `no-store` response) is not brought back.
 
@@ -96,23 +96,23 @@ struct ProfileRequest: HGetRequestProtocol {
 }
 
 func cacheAPI() async {
-    // Cached model, or nil (miss, stale, Vary mismatch, other credential)
+    // Cached model, or nil (miss, stale, Vary mismatch, no credential for a needsAuth request)
     let cached: String? = await ProfileRequest().cache()
 
     // Stored ETag (custom cache and URLCache)
     let etag: String? = await ProfileRequest().cachedETag()
 
-    // Remove this request's entry (current credential + the credential-less entry)
+    // Remove the entry of this request's URL (whatever credential stored it)
     await ProfileRequest().clearCache()
 
     // Custom cache (memory + disk), URLCache.shared, and the URLCache of the default
-    // cache type / custom session when they differ
+    // cache type / custom session when they differ. Call it when the signed-in account changes.
     await Harbor.clearAllCache()
     _ = (cached, etag)
 }
 ```
 
-Only `cache()`, `cachedETag()` and `clearCache()` are public. For `needsAuth` requests they resolve the credential from the auth provider's current header.
+Only `cache()`, `cachedETag()` and `clearCache()` are public. For `needsAuth` requests, `cache()` and `cachedETag()` return `nil` while the auth provider issues no credential; the credential never selects the entry.
 
 ## Streaming with cache
 
@@ -121,7 +121,7 @@ Only `cache()`, `cachedETag()` and `clearCache()` are public. For `needsAuth` re
 ## Best practices
 
 - Use `.custom` for data you want offline, with ETags. Use `.disabled` for real-time or one-shot sensitive responses. Servers should send `Cache-Control: no-store` for secrets.
-- Clear the cache on logout (`Harbor.clearAllCache()`).
+- Clear the cache whenever the signed-in account changes (`Harbor.clearAllCache()`): entries are keyed by URL, never by credential.
 - After a model change, old entries are misses and get replaced by the next network response. No migration is needed.
 
 ## Related files

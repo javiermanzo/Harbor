@@ -246,7 +246,7 @@ extension HURLBuilderTests {
         // Given validators stored for the URL
         let request = ValidatorGetRequest(headerParameters: ["If-None-Match": "\"caller\""])
         let url = try XCTUnwrap(URL(string: request.url))
-        let key = HCache.Manager.cacheKey(for: url, authHeader: nil)
+        let key = HCache.Manager.cacheKey(for: url)
         let response = try XCTUnwrap(HTTPURLResponse(url: url, statusCode: 200, httpVersion: "HTTP/1.1",
                                                      headerFields: ["ETag": "\"stored\"", "Last-Modified": "Wed, 21 Oct 2015 07:28:00 GMT"]))
         await HCache.Manager.shared.storeData(Data("{\"quote\":\"q\"}".utf8), forKey: key, config: HCache.Configuration(), response: response)
@@ -270,7 +270,7 @@ extension HURLBuilderTests {
         let url = try XCTUnwrap(URL(string: request.url))
         let response = try XCTUnwrap(HTTPURLResponse(url: url, statusCode: 200, httpVersion: "HTTP/1.1",
                                                      headerFields: ["ETag": "\"stored\"", "Last-Modified": "Wed, 21 Oct 2015 07:28:00 GMT"]))
-        await HCache.Manager.shared.storeData(Data("{\"quote\":\"q\"}".utf8), forKey: HCache.Manager.cacheKey(for: url, authHeader: nil),
+        await HCache.Manager.shared.storeData(Data("{\"quote\":\"q\"}".utf8), forKey: HCache.Manager.cacheKey(for: url),
                                               config: HCache.Configuration(), response: response)
         addTeardownBlock { await HCache.Manager.shared.clearAllCache() }
 

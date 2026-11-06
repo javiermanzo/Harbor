@@ -103,10 +103,12 @@ extension HCache {
             // 2. Create directory
             try? FileManager.default.createDirectory(at: cacheDirectory, withIntermediateDirectories: true)
 
-            // 3. Configure NSCache limits: bounded by cost (body bytes) only, no fixed count.
-            self.defaultMemoryCapacity = Configuration().memoryCacheCapacityInBytes
-            self.defaultDiskCapacity = Configuration().diskCacheCapacityInBytes
-            memoryCache.totalCostLimit = defaultMemoryCapacity
+            // 3. Configure NSCache limits: bounded by cost (body bytes) only, no fixed count. The
+            //    default capacities come from the global default cache type (0 unless it is
+            //    `.custom`), so the limits of per-request `.custom` configurations apply when it
+            //    is not; `Configuration()`'s are only the fallback while none is known.
+            (self.defaultMemoryCapacity, self.defaultDiskCapacity) = Self.defaultCapacities(of: HRESTConfig.shared.cacheType)
+            updateMemoryCostLimit()
 
             // 4. Discard expired and outdated files in the background. Only metadata headers are
             //    read, off the actor, at background priority; writes queued behind the scan wait
@@ -118,57 +120,24 @@ extension HCache {
 
         // MARK: - Keys
 
-        /// Builds the cache key for a request URL. Requests that need auth are namespaced by a
-        /// SHA-256 digest of the authorization header they are sent with, so an entry stored
-        /// for one credential can never be read with another. The raw credential is never part
-        /// of the key.
-        /// - Parameters:
-        ///   - url: The composite request URL.
-        ///   - authHeader: The authorization header sent with an authenticated request, or `nil`
-        ///     for requests that do not need auth or are sent without credentials.
+        /// Builds the cache key of a request: its composite URL (path parameters applied, query
+        /// items sorted, see `HURLBuilder.compositeURL`), and nothing else.
+        ///
+        /// No header is part of the key, and in particular no credential: neither the auth
+        /// provider's header nor any header Harbor treats as sensitive (`Authorization`,
+        /// `Proxy-Authorization`, `Cookie`, `X-API-Key`, the keys of
+        /// `Harbor.updateLogSensitiveKeys(_:)`, ...), not even as a digest. Entries are therefore
+        /// shared by every credential: the app clears the cache (`Harbor.clearAllCache()`) when
+        /// the signed-in account changes. Headers that select a different representation are
+        /// handled by `Vary` (see `varyKey(for:requestHeaders:)`), never by the key.
+        ///
+        /// Every path that reads, writes, revalidates or removes an entry (`cache()`, the
+        /// network flow, validator injection, `304` refreshes, `stale-if-error`, the offline
+        /// fallback, `clearCache()`) builds its key here, so a store and its lookup always agree.
+        /// - Parameter url: The composite request URL.
         /// - Returns: The cache key string.
-        nonisolated static func cacheKey(for url: URL, authHeader: HAuthorizationHeader?) -> String {
-            cacheKey(for: url, credentialHeaders: nil, authHeader: authHeader)
-        }
-
-        /// Builds the cache key for a request URL, namespaced by every credential the request
-        /// is sent with: the authorization header of the auth provider and any header whose name
-        /// is one of Harbor's built-in sensitive names (`HRedactionPolicy.defaultSensitiveKeys`,
-        /// e.g. `Authorization`, `Proxy-Authorization`, `Cookie`, `X-API-Key`) among the
-        /// effective request headers (default headers merged with the request's own). Names are
-        /// compared case-insensitively. A request with no credential keeps the plain URL key,
-        /// and a request whose only credential is the provider's header keeps the key of
-        /// `cacheKey(for:authHeader:)`. Only a SHA-256 digest of the credentials is part of the
-        /// key, never the raw values.
-        /// - Parameters:
-        ///   - url: The composite request URL.
-        ///   - credentialHeaders: The effective request headers, or `nil` for none. Only the
-        ///     credential headers among them are used.
-        ///   - authHeader: The provider's authorization header of a `needsAuth` request, or `nil`.
-        /// - Returns: The cache key string.
-        nonisolated static func cacheKey(for url: URL, credentialHeaders: [String: String]?, authHeader: HAuthorizationHeader?) -> String {
-            var credentials: [String: String] = [:]
-            for (name, value) in credentialHeaders ?? [:] where isCredentialHeader(name) {
-                credentials[name.lowercased()] = value
-            }
-            if let authHeader {
-                credentials[authHeader.key.lowercased()] = authHeader.value
-            }
-            guard !credentials.isEmpty else { return url.absoluteString }
-
-            let credential = credentials
-                .sorted { $0.key < $1.key }
-                .map { "\($0.key):\($0.value)" }
-                .joined(separator: "\n")
-            return "\(url.absoluteString)#harbor-auth=\(credential.sha256Hex)"
-        }
-
-        /// Whether a header name carries a credential: it is one of Harbor's built-in sensitive
-        /// names. The log-redaction switches and configurable keys are deliberately not
-        /// consulted, so a cache key never changes with the logging configuration.
-        /// - Parameter name: The header name.
-        nonisolated private static func isCredentialHeader(_ name: String) -> Bool {
-            HJSONRedactor.isSensitiveKey(name, needles: HRedactionPolicy.defaultSensitiveKeys)
+        nonisolated static func cacheKey(for url: URL) -> String {
+            url.absoluteString
         }
 
         // MARK: - Public API
@@ -510,13 +479,7 @@ extension HCache {
         /// raise the limit.
         /// - Parameter cacheType: The new global default cache type.
         func applyDefaultCacheType(_ cacheType: HCache.CacheType) {
-            if case .custom(let config) = cacheType {
-                defaultMemoryCapacity = config.memoryCacheCapacityInBytes
-                defaultDiskCapacity = config.diskCacheCapacityInBytes
-            } else {
-                defaultMemoryCapacity = 0
-                defaultDiskCapacity = 0
-            }
+            (defaultMemoryCapacity, defaultDiskCapacity) = Self.defaultCapacities(of: cacheType)
             largestRequestedMemoryCapacity = 0
             largestRequestedDiskCapacity = 0
             updateMemoryCostLimit()
@@ -568,6 +531,25 @@ extension HCache {
         }
 
         // MARK: - Capacity Limits
+
+        /// The memory and disk capacities a global default cache type sets: its configuration's
+        /// when it is `.custom`, 0 (no default limit) otherwise.
+        /// - Parameter cacheType: The global default cache type.
+        private static func defaultCapacities(of cacheType: HCache.CacheType) -> (memory: Int, disk: Int) {
+            guard case .custom(let config) = cacheType else { return (0, 0) }
+            return (config.memoryCacheCapacityInBytes, config.diskCacheCapacityInBytes)
+        }
+
+        /// Default memory and disk capacities currently applied (0 when the default cache type
+        /// is not `.custom`). Intended for testing.
+        var defaultCapacitiesForTesting: (memory: Int, disk: Int) {
+            (defaultMemoryCapacity, defaultDiskCapacity)
+        }
+
+        /// Disk capacity entries are currently evicted down to. Intended for testing.
+        var diskCapacityLimit: Int {
+            diskCapacity
+        }
 
         /// Raises the memory and disk limits when a configuration asks for more than the current ones.
         private func registerCapacities(of config: HCache.Configuration) {
@@ -756,10 +738,18 @@ extension HCache {
         }
 
         /// Resolves the values of the header fields listed in a `Vary` header from the given
-        /// request headers, producing a comparable key. Returns `"*"` when the vary header
-        /// contains a wildcard, and `nil` when there is no vary. Otherwise the key is the
-        /// SHA-256 hex digest of the normalized `name=value` pairs, so request header values
-        /// (e.g. an `Authorization` token) are never stored in clear.
+        /// request headers, producing a comparable key. Returns `nil` when there is no vary, and
+        /// `"*"` when the vary header contains a wildcard **or names a sensitive header**.
+        /// Otherwise the key is the SHA-256 hex digest of the normalized `name=value` pairs.
+        ///
+        /// A header is sensitive when Harbor's redaction policy matches its name, whatever the
+        /// logging switches say: the built-in credential names (`Authorization`,
+        /// `Proxy-Authorization`, `Cookie`, `X-API-Key`, ...), the keys of
+        /// `Harbor.updateLogSensitiveKeys(_:)` and the header keys the auth provider sent
+        /// credentials under. Their values are never stored, not even as a digest, so a response
+        /// that varies on one (`Vary: Authorization`) is kept like `Vary: *`: never served
+        /// without revalidation, but its validators are still sent, and a `304` (the server's
+        /// confirmation for the credential now sent) serves the stored body.
         /// - Parameters:
         ///   - varyHeader: The response `Vary` header value, or `nil` when absent.
         ///   - requestHeaders: The request headers whose values are selected by `Vary`.
@@ -771,6 +761,8 @@ extension HCache {
                 .filter { !$0.isEmpty })
             guard !names.isEmpty else { return nil }
             if names.contains("*") { return "*" }
+            let policy = HRedactionPolicy.current
+            if names.contains(where: { policy.isSensitiveName($0) }) { return "*" }
 
             var lowercasedHeaders: [String: String] = [:]
             for (key, value) in requestHeaders ?? [:] {

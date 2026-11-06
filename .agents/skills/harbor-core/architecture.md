@@ -68,10 +68,10 @@ request()
       ├─ HURLBuilder.prepareRequest (+Request): URL + path/query encoding, timeout, cookies, body,
       │  default headers → request headers → auth header, conditional validators (custom cache)
       ├─ URLSession data/upload task with a per-task HTaskContext delegate
-      ├─ 2xx  → decode off-actor, store in cache (GET, shouldCache; keyed by the headers sent;
-      │         needsAuth: only under the credential it was sent with, never when sent without
-      │         one; skipped if clearAllCache() / setAuthProvider(_:) ran since the request
-      │         started) → .success
+      ├─ 2xx  → decode off-actor, store in cache (GET, shouldCache; keyed by URL only, never by
+      │         a credential; the headers sent select the Vary variant; needsAuth: never when
+      │         sent without a credential; skipped if clearAllCache() / setAuthProvider(_:) ran
+      │         since the request started) → .success
       ├─ 304  → validators Harbor injected: serve + refresh the cached entry (same ETag only;
       │         no-store removes it); no servable body: re-send once without the validators.
       │         Caller-set validators: .api(304)

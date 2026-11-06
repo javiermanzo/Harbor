@@ -61,7 +61,7 @@ func load() async {
 - A POST/PUT/PATCH that must decode a response also conforms to `HRequestWithResultProtocol`, and the call site annotates the result type (`protocols.md`).
 - Only `http` and `https` URLs are accepted; anything else fails with `.malformedRequest`.
 - With the `.custom` cache, `request()` on a GET always contacts the server (conditionally when it can); with the default `.urlCache()`, `URLSession` may answer from `URLCache`. For cache-first behavior call `cache()` or use `requestStream(source:)`, which yields at most one `.cache` and one `.remote` element (`cache.md`).
-- Cached `.custom` responses are namespaced per credential (the provider's header, or sensitive headers such as `Authorization`/`X-API-Key` in `headerParameters` and default headers; `.urlCache` is not) and never deleted automatically: call `await Harbor.clearAllCache()` on logout.
+- Cached responses (`.custom` and `.urlCache`) are keyed by URL only: no credential (the provider's header, or sensitive headers such as `Authorization`/`X-API-Key`) is part of the key, so every account shares the entries of a URL and they are never deleted automatically: call `await Harbor.clearAllCache()` whenever the signed-in account changes (`cache.md`).
 - `retryPolicy` retries transient failures only; POST and PATCH only after pre-connection failures unless `retryNonIdempotentRequests: true` (`../harbor-core/retry.md`).
 - Mocks (`HMock`, `HMockSequence`) are on in DEBUG and off in release; `await Harbor.setMocksEnabled(true)` enables them in release. They apply to REST requests only (`testing.md`).
 - Logging is opt-in per request through `HDebugRequestProtocol` and redacts sensitive values (`../harbor-core/logging.md`).

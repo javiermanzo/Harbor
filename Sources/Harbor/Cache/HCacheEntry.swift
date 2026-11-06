@@ -47,7 +47,10 @@ extension HCache {
         ///
         /// - 1: single JSON document with a base64 body and a plain-text vary key.
         /// - 2: length-prefixed JSON metadata header followed by the raw body; hashed vary key.
-        static let currentVersion = 2
+        /// - 3: same layout as 2. Keys are the URL only and a `Vary` that names a sensitive
+        ///   header is stored as `*`; version 2 files may be keyed or varied by a digest of a
+        ///   credential, so they are discarded.
+        static let currentVersion = 3
 
         /// The version of the schema when this entry was written.
         var version: Int = Self.currentVersion

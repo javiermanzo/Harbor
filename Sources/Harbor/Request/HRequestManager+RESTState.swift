@@ -12,9 +12,10 @@ import HarborCore
 
 extension HRequestManager {
     /// The authorization header each authenticated GET request last succeeded with, keyed by
-    /// its plain cache key (the composite URL). Offline lookups use it to find the
-    /// credential-namespaced cache entry without consulting the auth provider, whose header
-    /// resolution may refresh a token over the network. Cleared by `forgetRememberedAuthHeaders()`
+    /// its cache key (the composite URL). Offline lookups of requests that need auth use it to
+    /// know a credential is available without consulting the auth provider, whose header
+    /// resolution may refresh a token over the network. The credential is never part of a
+    /// cache key. Cleared by `forgetRememberedAuthHeaders()`
     /// (`Harbor.clearAllCache()`) and when `Harbor.setAuthProvider(_:)` is called.
     static var rememberedAuthHeaders: [String: HAuthorizationHeader] = [:]
 
@@ -73,7 +74,7 @@ extension HRequestManager {
     }
 
     /// Records the credential an authenticated GET request succeeded with, so offline lookups
-    /// can find its credential-namespaced cache entry without consulting the provider.
+    /// can serve its cache entry without consulting the provider.
     /// Requests that do not need auth or were sent without credentials record nothing.
     /// - Parameters:
     ///   - authHeader: The authorization header the successful attempt was sent with.

@@ -41,12 +41,11 @@ extension HRequestManager {
             if let getRequest = request as? any HGetRequestProtocol {
                 // Offline: serve a fresh custom-cache entry, the URLCache response or a
                 // stale-if-error entry before failing. Requests that do not need auth never
-                // consult the provider. Requests that need auth only look up the entry
-                // namespaced by their credential (the entry stored without credentials, e.g.
-                // while logged out, is never served in its place): the credential the request
-                // last succeeded with is reused when known, so the provider, whose header
-                // resolution may refresh a token over the network, is only consulted for
-                // requests that never succeeded online.
+                // consult the provider. Requests that need auth are only served while a
+                // credential is available (entries are keyed by URL, never by credential): the
+                // credential the request last succeeded with is reused when known, so the
+                // provider, whose header resolution may refresh a token over the network, is
+                // only consulted for requests that never succeeded online.
                 let authHeader: HAuthorizationHeader?
                 if let remembered = rememberedAuthHeader(for: getRequest) {
                     authHeader = remembered
@@ -233,8 +232,9 @@ extension HRequestManager {
     }
 
     /// Processes the raw response for a model-returning request, decoding the payload or handling errors/revalidation.
-    /// `authHeader` and `sentHeaders` key the custom-cache reads and writes, so entries are
-    /// namespaced by the credentials the request was sent with.
+    /// The custom-cache reads and writes are keyed by the request URL only; `sentHeaders`
+    /// select the `Vary` variant and `authHeader` only tells whether a request that needs auth
+    /// was sent with a credential (one sent without is never cached).
     /// - Parameters:
     ///   - model: The expected model type to decode.
     ///   - request: The request conforming to `HRequestWithResultProtocol`.

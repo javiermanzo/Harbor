@@ -25,11 +25,11 @@ public extension Harbor {
     /// sensitive header) is never part of a cache key, so entries are **not** separated per
     /// credential and a new provider or a new credential reads the entries stored with the
     /// previous one. Replacing the provider does not delete them: with the REST product, call
-    /// `Harbor.clearAllCache()` whenever the signed-in account changes (logout, account switch)
-    /// to remove the previous user's data from memory and disk. It does forget the credentials remembered
-    /// for offline cache lookups, so the new provider is consulted again, and a `401` refresh
-    /// in flight stops using the old provider. Already open `HWebSocket` connections are not
-    /// affected: close them on logout.
+    /// `Harbor.clearAllCache()` whenever the signed-in account changes (logout, switching
+    /// accounts) to remove the previous user's data from memory and disk. Replacing the
+    /// provider does forget the credentials remembered for offline cache lookups, so the new
+    /// provider is consulted again, and a `401` refresh in flight stops using the old provider.
+    /// Already open `HWebSocket` connections are not affected: close them on logout.
     /// - Note: This is a method rather than a `get set` property to allow cross-actor mutation, as Swift forbids mutating actor-isolated static properties from outside the actor's context.
     /// - Parameter authProvider: The provider supplying authorization headers, or `nil` to remove it.
     static func setAuthProvider(_ authProvider: HAuthProviderProtocol?) {

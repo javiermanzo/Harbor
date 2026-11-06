@@ -104,8 +104,8 @@ public extension Harbor {
     /// The credentials remembered for offline cache lookups are forgotten as well.
     ///
     /// Cache entries are keyed by URL only, never by credential, so call this whenever the
-    /// signed-in account changes (logout, switching accounts): otherwise
-    /// the next account can read the responses cached for the previous one.
+    /// signed-in account changes (logout, switching accounts): otherwise the next account can
+    /// read the responses cached for the previous one.
     static func clearAllCache() async {
         HRequestManager.forgetRememberedAuthHeaders()
         await HCache.Manager.shared.clearAllCache()

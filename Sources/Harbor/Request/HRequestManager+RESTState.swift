@@ -19,6 +19,25 @@ extension HRequestManager {
     /// (`Harbor.clearAllCache()`) and when `Harbor.setAuthProvider(_:)` is called.
     static var rememberedAuthHeaders: [String: HAuthorizationHeader] = [:]
 
+    /// The `URLCache`s that requests selected through their own `cacheType`, held weakly so
+    /// `Harbor.clearAllCache()` can clear them as well: it cannot reach a cache the app
+    /// created for a single request type otherwise.
+    private static var requestURLCaches: [WeakURLCache] = []
+
+    /// Records the `URLCache` a request uses, so `clearURLCaches()` reaches it. Idempotent.
+    /// - Parameter urlCache: The cache selected by a request's `cacheType`.
+    static func registerURLCache(_ urlCache: URLCache) {
+        requestURLCaches.removeAll { $0.cache == nil }
+        guard urlCache !== URLCache.shared, !requestURLCaches.contains(where: { $0.cache === urlCache }) else { return }
+        requestURLCaches.append(WeakURLCache(cache: urlCache))
+    }
+
+    /// Removes every response from the `URLCache`s registered by `registerURLCache(_:)`.
+    static func clearRequestURLCaches() {
+        for entry in requestURLCaches { entry.cache?.removeAllCachedResponses() }
+        requestURLCaches.removeAll { $0.cache == nil }
+    }
+
     /// Bound of `rememberedAuthHeaders`; past it the map is reset before recording a new entry.
     static let maxRememberedAuthHeaders = 512
 
@@ -94,4 +113,10 @@ extension HRequestManager {
         guard request.needsAuth, let key = request.cacheNamespaceKey() else { return nil }
         return rememberedAuthHeaders[key]
     }
+}
+
+// MARK: - Private Helpers
+
+private struct WeakURLCache {
+    weak var cache: URLCache?
 }

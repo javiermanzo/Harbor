@@ -100,7 +100,8 @@ public extension Harbor {
 public extension Harbor {
 
     /// Clears all cached data: the custom cache (memory and disk), `URLCache.shared`, and the
-    /// URLCache of the configured default cache type and custom session when they differ.
+    /// URLCache of the configured default cache type and custom session when they differ, and
+    /// every `URLCache` a request selected through its own `cacheType`.
     /// The credentials remembered for offline cache lookups are forgotten as well.
     ///
     /// Cache entries are keyed by URL only, never by credential, so call this whenever the
@@ -114,6 +115,8 @@ public extension Harbor {
         if case .urlCache(let cache, _) = HRESTConfig.shared.cacheType, cache !== URLCache.shared {
             cache.removeAllCachedResponses()
         }
+
+        HRequestManager.clearRequestURLCaches()
 
         if let sessionCache = HConfig.shared.customURLSession?.configuration.urlCache, sessionCache !== URLCache.shared {
             sessionCache.removeAllCachedResponses()

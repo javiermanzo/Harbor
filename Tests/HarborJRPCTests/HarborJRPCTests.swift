@@ -281,6 +281,37 @@ final class HarborJRPCTests: XCTestCase {
         XCTAssertEqual(actual, .string("2"))
     }
 
+    func testResponseWithoutIDReturnsInvalidResponse() async throws {
+        // Given a response that does not echo the request id, so it cannot be tied to the request
+        let json = #"{"jsonrpc":"2.0","result":{"value":"hello"}}"#
+        let mock = HMock(request: HJRPCRequestWrapper<TestModel>.self, statusCode: 200, jsonResponse: json)
+        Harbor.register(mock: mock)
+
+        // When
+        let response = await TestRequest(method: "test_method", requestID: .string("1")).requestResult()
+
+        // Then
+        guard case .error(.invalidResponse) = response else {
+            return XCTFail("Expected invalidResponse but got: \(response)")
+        }
+    }
+
+    func testResponseWithNullIDStillResolvesTheRequest() async throws {
+        // Given a server that answers with a null id (it could not read the request id)
+        let json = #"{"jsonrpc":"2.0","id":null,"result":{"value":"hello"}}"#
+        let mock = HMock(request: HJRPCRequestWrapper<TestModel>.self, statusCode: 200, jsonResponse: json)
+        Harbor.register(mock: mock)
+
+        // When
+        let response = await TestRequest(method: "test_method", requestID: .string("1")).requestResult()
+
+        // Then
+        guard case .success(let model) = response else {
+            return XCTFail("Expected success but got: \(response)")
+        }
+        XCTAssertEqual(model.value, "hello")
+    }
+
     func testWrongJRPCVersionReturnsInvalidResponse() async throws {
         // Given
         let json = #"{"jsonrpc":"1.0","id":"1","result":{"value":"hello"}}"#

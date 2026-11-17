@@ -8,6 +8,8 @@
 import Foundation
 import HarborCore
 
+// MARK: - Cache Durations
+
 /// Named durations for `HCache.Configuration.expirationTime`, e.g. `.oneHour`.
 public extension TimeInterval {
     /// Never expires on its own: entries only expire through response headers (max-age / Expires).

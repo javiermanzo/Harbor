@@ -49,29 +49,3 @@ package enum HRequestManager {
     /// credentials for offline lookups and drops them at once instead of when next read.
     package static var authProviderDidChange: (@HRequestManagerActor () -> Void)?
 }
-
-// MARK: - Retry Loop Outcomes
-
-/// Outcome of a single attempt in the retry loop. Carries the final response when the
-/// loop should exit; otherwise signals a retry or a 401 that may be retried with refreshed
-/// credentials.
-package enum HAttemptOutcome<Response: Sendable> {
-    /// The request is done; return the response to the caller.
-    case finish(Response)
-    /// The attempt failed in a retryable way; the loop runs another attempt after the given
-    /// delay (from `Retry-After`), or after the policy's backoff when `nil`.
-    case retry(after: TimeInterval?)
-    /// The server rejected the credentials; the loop decides whether a refreshed header allows another attempt.
-    case unauthorized
-}
-
-/// Outcome of evaluating a 401 response against the auth provider. The retry case carries
-/// the refreshed authorization header, which the loop applies to the next attempt's
-/// `URLRequest` without touching the request object.
-package enum HAuthRefresh {
-    /// The provider issued a different authorization header; retry with it applied.
-    /// `notifiedProvider` tells whether `authFailed()` was called to obtain it.
-    case retry(HAuthorizationHeader, notifiedProvider: Bool)
-    /// No further attempt is possible; the request fails with `HRequestError.authNeeded`.
-    case giveUp
-}

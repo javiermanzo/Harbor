@@ -21,6 +21,8 @@ protocol HCacheEntryInfo {
     var alwaysStale: Bool { get }
 }
 
+// MARK: - Expiration
+
 extension HCacheEntryInfo {
     /// Checks if the cache entry is expired based on max age or stored expiration time.
     /// - Parameters:

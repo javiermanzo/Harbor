@@ -8,67 +8,6 @@
 import Foundation
 import LogBird
 
-/// Severity of a log entry.
-package enum HLogLevel: Sendable {
-    /// Verbose diagnostics (requests, responses, messages).
-    case debug
-    /// A noteworthy event.
-    case info
-    /// A recoverable problem.
-    case warning
-    /// A failure.
-    case error
-
-    /// The LogBird level this one maps to.
-    fileprivate var logBirdLevel: LBLogLevel {
-        switch self {
-        case .debug: return .debug
-        case .info: return .info
-        case .warning: return .warning
-        case .error: return .error
-        }
-    }
-}
-
-/// A structured metadata value of a log entry.
-package enum HLogValue: Sendable {
-    /// A string.
-    case string(String)
-    /// An integer.
-    case int(Int)
-    /// A floating-point number.
-    case double(Double)
-    /// A Boolean.
-    case bool(Bool)
-
-    /// The LogBird value this one maps to.
-    fileprivate var logBirdValue: LBValue {
-        switch self {
-        case .string(let value): return .string(value)
-        case .int(let value): return .int(value)
-        case .double(let value): return .double(value)
-        case .bool(let value): return .bool(value)
-        }
-    }
-}
-
-/// A titled block of text attached to a log entry (for example a cURL command).
-package struct HLogExtraMessage: Sendable {
-    /// The block title.
-    let key: String
-    /// The block contents.
-    let value: String
-
-    /// Creates a block.
-    /// - Parameters:
-    ///   - key: The block title.
-    ///   - value: The block contents.
-    package init(key: String, value: String) {
-        self.key = key
-        self.value = value
-    }
-}
-
 /// Harbor's logging facade over LogBird. The products log only through it, with `HLogLevel`,
 /// `HLogValue` and `HLogExtraMessage`, so they do not depend on LogBird; inside HarborCore only
 /// the SSL and PKCS#12 diagnostics loggers and the redaction defaults use LogBird directly.

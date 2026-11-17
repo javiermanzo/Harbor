@@ -36,6 +36,9 @@ public extension Harbor {
         HConfig.shared.authProvider = authProvider
         HRequestManager.authGeneration &+= 1
         HRequestManager.completedAuthFailures.removeAll()
+        // A notification in flight belongs to the previous provider: a request rejected with
+        // the same header on the new one must not wait for it.
+        HRequestManager.inFlightAuthFailures.removeAll()
         HRequestManager.authProviderDidChange?()
     }
 

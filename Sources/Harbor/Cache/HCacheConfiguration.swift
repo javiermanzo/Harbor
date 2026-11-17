@@ -8,6 +8,8 @@
 import Foundation
 import HarborCore
 
+// MARK: - Configuration
+
 public extension HCache {
     /// Configuration for custom cache behavior.
     /// Used with `.custom(Configuration)` cacheType.

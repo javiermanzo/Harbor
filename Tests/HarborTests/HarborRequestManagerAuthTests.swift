@@ -407,6 +407,29 @@ final class HarborRequestManagerAuthTests: XCTestCase {
         XCTAssertEqual(AuthStubProtocol.receivedAuthorizations, ["Bearer old"])
     }
 
+    func testReplacingTheProviderDoesNotMakeTheNewProviderWaitForTheOldProvidersRefresh() async throws {
+        // Given the old provider's refresh in flight for a rejected header
+        let oldProvider = GatedAuthProvider(headers: ["Bearer same", "Bearer same"])
+        Harbor.setAuthProvider(oldProvider)
+        AuthStubProtocol.statusCodes = [401]
+        let first = Task { await ClassAuthGetRequest(url: "https://example.com/secure-old").request() }
+        await oldProvider.waitUntilAuthFailedStarts()
+
+        // When the provider is replaced by one that issues the same header and a request is rejected with it
+        let newProvider = SpyAuthProvider(headers: Array(repeating: HAuthorizationHeader(key: "Authorization", value: "Bearer same"), count: 3))
+        Harbor.setAuthProvider(newProvider)
+        let second = await ClassAuthGetRequest(url: "https://example.com/secure-new").request()
+
+        // Then the new provider is told about its own failure without waiting for the old refresh
+        guard case .error(.authNeeded) = second else {
+            await oldProvider.finishAuthFailed()
+            return XCTFail("Expected .authNeeded but got: \(second)")
+        }
+        XCTAssertEqual(newProvider.authFailedCount, 1)
+        await oldProvider.finishAuthFailed()
+        _ = await first.value
+    }
+
     func testCancellingARequestStopsWaitingForTheRefresh() async throws {
         // Given a request waiting for a refresh that does not finish (e.g. a login screen)
         let provider = GatedAuthProvider(headers: ["Bearer old", "Bearer old", "Bearer refreshed"])

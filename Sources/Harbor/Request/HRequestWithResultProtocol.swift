@@ -28,6 +28,8 @@ public protocol HRequestWithResultProtocol: HRequestBaseRequestProtocol {
     func request() async -> HResponseWithResult<Model>
 }
 
+// MARK: - Default Implementation
+
 /// Default implementation for `HRequestWithResultProtocol`.
 public extension HRequestWithResultProtocol {
     /// Default implementation that routes through `HRequestManager`.

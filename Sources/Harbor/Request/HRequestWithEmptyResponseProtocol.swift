@@ -19,6 +19,8 @@ public protocol HRequestWithEmptyResponseProtocol: HRequestBaseRequestProtocol {
     func request() async -> HResponse
 }
 
+// MARK: - Default Implementation
+
 /// Default implementation for `HRequestWithEmptyResponseProtocol`.
 public extension HRequestWithEmptyResponseProtocol {
     /// Default implementation that routes through `HRequestManager`.

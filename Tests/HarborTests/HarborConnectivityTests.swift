@@ -221,6 +221,55 @@ final class HarborOfflineCacheFallbackTests: XCTestCase {
         XCTAssertEqual(model.quote, "url-cache")
     }
 
+    func testURLCacheResponseOfARequestThatNeedsAuthIsNotServedOfflineWithoutCredential() async throws {
+        // Given a stored response, a request that needs auth, no auth provider (e.g. after logout) and an offline monitor
+        let urlCache = URLCache(memoryCapacity: 1024 * 1024, diskCapacity: 0)
+        let request = AuthOfflineGetRequest(url: "https://example.com/offline-url-cache-auth", cacheType: .urlCache(urlCache: urlCache))
+        try await storeURLCacheResponse(#"{"quote":"previous-account"}"#, for: request.asOffline, in: urlCache)
+        HRequestManager.connectivityMonitor = FakeConnectivityMonitor(connected: false)
+
+        // When
+        let response = await request.request()
+        let cached = await request.cachedModel(authHeader: nil)
+
+        // Then nothing is served, neither as the offline fallback nor as a cache read
+        guard case .error(.noConnection) = response else {
+            return XCTFail("Expected .noConnection but got: \(response)")
+        }
+        XCTAssertNil(cached)
+    }
+
+    func testURLCacheResponseOfARequestThatNeedsAuthIsServedOfflineWithCredential() async throws {
+        // Given the same stored response but a credential
+        let urlCache = URLCache(memoryCapacity: 1024 * 1024, diskCapacity: 0)
+        let request = AuthOfflineGetRequest(url: "https://example.com/offline-url-cache-auth-ok", cacheType: .urlCache(urlCache: urlCache))
+        try await storeURLCacheResponse(#"{"quote":"mine"}"#, for: request.asOffline, in: urlCache)
+        let header = HAuthorizationHeader(key: "Authorization", value: "Bearer mine")
+
+        // When
+        let offline = await request.offlineCache(authHeader: header, resolvingAuthHeader: false)
+        let withoutHeader = await request.offlineCache(authHeader: nil, resolvingAuthHeader: false)
+
+        // Then
+        XCTAssertEqual(offline?.quote, "mine")
+        XCTAssertNil(withoutHeader)
+    }
+
+    func testClearAllCacheClearsTheURLCacheOfARequestSelectedThroughItsCacheType() async throws {
+        // Given a response stored in a URLCache that only a request type knows
+        let urlCache = URLCache(memoryCapacity: 1024 * 1024, diskCapacity: 0)
+        let request = OfflineGetRequest(url: "https://example.com/own-url-cache", cacheType: .urlCache(urlCache: urlCache))
+        try await storeURLCacheResponse(#"{"quote":"user-a"}"#, for: request, in: urlCache)
+        _ = await HRequestManager.sessionProfile(for: request)
+
+        // When the account changes
+        await Harbor.clearAllCache()
+
+        // Then the previous account's response is gone
+        let urlRequest = try await HURLBuilder.buildUrlRequest(request: request)
+        XCTAssertNil(urlCache.cachedResponse(for: urlRequest))
+    }
+
     func testURLCacheIgnoringLocalDataIsNotServedOffline() async throws {
         // Given a stored response but a policy that ignores local data
         let urlCache = URLCache(memoryCapacity: 1024 * 1024, diskCapacity: 0)
@@ -300,6 +349,16 @@ struct OfflineGetRequest: HGetRequestProtocol {
     typealias Model = MockModel
     var url: String
     var cacheType: HCache.CacheType?
+}
+
+/// A request that needs auth, to check that cached content is only served with a credential.
+private struct AuthOfflineGetRequest: HGetRequestProtocol {
+    typealias Model = MockModel
+    var url: String
+    var cacheType: HCache.CacheType?
+    var needsAuth: Bool { true }
+    /// The same endpoint without auth, to store a copy under the same key.
+    var asOffline: OfflineGetRequest { OfflineGetRequest(url: url, cacheType: cacheType) }
 }
 
 /// URLProtocol stub failing every request with `URLError.notConnectedToInternet`.

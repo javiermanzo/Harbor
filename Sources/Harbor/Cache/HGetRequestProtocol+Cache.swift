@@ -103,6 +103,8 @@ extension HGetRequestProtocol {
             return await HCache.Manager.shared.getCachedData(forKey: lookup.key, config: config, requestHeaders: lookup.requestHeaders, decode: cacheDecoder())
 
         case .urlCache(let urlCache, let requestPolicy):
+            // Like `.custom`: a request that needs auth has no lookup without a credential.
+            if needsAuth, await resolveAuthHeader(authHeader) == nil { return nil }
             guard let urlRequest = await urlRequest(),
                   let cached = urlCache.cachedResponse(for: urlRequest),
                   let httpResponse = cached.response as? HTTPURLResponse,
@@ -276,8 +278,10 @@ extension HGetRequestProtocol {
 
         case .urlCache(let urlCache, let requestPolicy):
             guard requestPolicy != .reloadIgnoringLocalCacheData,
-                  requestPolicy != .reloadIgnoringLocalAndRemoteCacheData,
-                  let urlRequest = await urlRequest(),
+                  requestPolicy != .reloadIgnoringLocalAndRemoteCacheData else { return nil }
+            // Like `.custom`: a request that needs auth is only served while a credential is available.
+            if needsAuth, await resolveAuthHeader(authHeader, enabled: resolvingAuthHeader) == nil { return nil }
+            guard let urlRequest = await urlRequest(),
                   let cached = urlCache.cachedResponse(for: urlRequest),
                   let httpResponse = cached.response as? HTTPURLResponse,
                   (200 ... 299).contains(httpResponse.statusCode) else { return nil }
@@ -305,7 +309,7 @@ private extension HGetRequestProtocol {
     /// - Returns: The effective `HCache.CacheType` to use for this request.
     func effectiveCacheType() async -> HCache.CacheType {
         if let requestCacheType = self.cacheType {
-           return requestCacheType
+            return requestCacheType
         } else {
             return await HRESTConfig.shared.cacheType
         }

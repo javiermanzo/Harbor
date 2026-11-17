@@ -122,8 +122,11 @@ extension HRequestManager {
             await provider.authFailed()
         }
         inFlightAuthFailures[rejectedHeader] = notification
+        let generation = authGeneration
         Task {
             await notification.value
+            // A provider replaced meanwhile owns the records now: this notification was its predecessor's.
+            guard generation == authGeneration else { return }
             if completedAuthFailures.count >= maxCompletedAuthFailures {
                 completedAuthFailures.removeAll()
             }

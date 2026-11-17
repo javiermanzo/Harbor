@@ -18,6 +18,7 @@ extension HRequestManager {
         guard let getRequest = request as? any HGetRequestProtocol else { return .defaults }
         switch getRequest.cacheType ?? HRESTConfig.shared.cacheType {
         case .urlCache(let urlCache, let requestPolicy):
+            registerURLCache(urlCache)
             return .urlCache(urlCache, requestPolicy)
         case .custom, .disabled:
             return .isolated

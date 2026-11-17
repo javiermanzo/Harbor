@@ -260,7 +260,7 @@ final class HarborOfflineCacheFallbackTests: XCTestCase {
         let urlCache = URLCache(memoryCapacity: 1024 * 1024, diskCapacity: 0)
         let request = OfflineGetRequest(url: "https://example.com/own-url-cache", cacheType: .urlCache(urlCache: urlCache))
         try await storeURLCacheResponse(#"{"quote":"user-a"}"#, for: request, in: urlCache)
-        _ = await request.cachedModel(authHeader: nil)
+        _ = await HRequestManager.sessionProfile(for: request)
 
         // When the account changes
         await Harbor.clearAllCache()

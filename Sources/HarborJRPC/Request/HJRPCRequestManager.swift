@@ -50,11 +50,14 @@ extension HJRPCRequestManager {
 
             // A `null` id is what a server sends when it could not read the request's id
             // (e.g. a parse error), so it does not count as a mismatch.
-            // A response without an `id` member cannot be tied to this request.
-            guard let envelopeID = envelope.id else {
+            // A successful response without an `id` member cannot be tied to this request. An
+            // error reply is still reported as such: gateways often omit the id there.
+            if envelope.id == nil, envelope.error == nil {
                 return .error(.invalidResponse)
             }
-            if envelopeID != .null, envelopeID != harborRequest.jrpcID {
+            if let envelopeID = envelope.id,
+               envelopeID != .null,
+               envelopeID != harborRequest.jrpcID {
                 return .error(.idMismatch(expected: harborRequest.jrpcID, actual: envelopeID))
             }
 

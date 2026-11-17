@@ -309,9 +309,6 @@ private extension HGetRequestProtocol {
     /// - Returns: The effective `HCache.CacheType` to use for this request.
     func effectiveCacheType() async -> HCache.CacheType {
         if let requestCacheType = self.cacheType {
-            if case .urlCache(let urlCache, _) = requestCacheType {
-                await HRequestManagerActor.run { HRequestManager.registerURLCache(urlCache) }
-            }
             return requestCacheType
         } else {
             return await HRESTConfig.shared.cacheType

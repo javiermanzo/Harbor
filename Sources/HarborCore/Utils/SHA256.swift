@@ -33,13 +33,13 @@ enum SHA256 {
 extension String {
     /// Lowercase hex-encoded SHA-256 digest of the string's UTF-8 bytes. Used for cache keys.
     package var sha256Hex: String {
-        let digits = Array("0123456789abcdef".utf8)
-        var hex = [UInt8]()
+        let digits = Array("0123456789abcdef")
+        var hex = ""
         hex.reserveCapacity(64)
-        for byte in CryptoKit.SHA256.hash(data: Data(self.utf8)) {
+        for byte in SHA256.sha256Data(data: Data(self.utf8)) {
             hex.append(digits[Int(byte >> 4)])
             hex.append(digits[Int(byte & 0x0f)])
         }
-        return String(bytes: hex, encoding: .utf8) ?? ""
+        return hex
     }
 }

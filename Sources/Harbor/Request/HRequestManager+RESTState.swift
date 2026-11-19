@@ -1,0 +1,122 @@
+//
+//  HRequestManager+RESTState.swift
+//  Harbor
+//
+//  Created by Javier Manzo on 16/10/2026.
+//
+
+import Foundation
+import HarborCore
+
+// MARK: - REST Cache State
+
+extension HRequestManager {
+    /// The authorization header each authenticated GET request last succeeded with, keyed by
+    /// its cache key (the composite URL). Offline lookups of requests that need auth use it to
+    /// know a credential is available without consulting the auth provider, whose header
+    /// resolution may refresh a token over the network. The credential is never part of a
+    /// cache key. Cleared by `forgetRememberedAuthHeaders()`
+    /// (`Harbor.clearAllCache()`) and when `Harbor.setAuthProvider(_:)` is called.
+    static var rememberedAuthHeaders: [String: HAuthorizationHeader] = [:]
+
+    /// The `URLCache`s that requests selected through their own `cacheType`, held weakly so
+    /// `Harbor.clearAllCache()` can clear them as well: it cannot reach a cache the app
+    /// created for a single request type otherwise.
+    private static var requestURLCaches: [WeakURLCache] = []
+
+    /// Records the `URLCache` a request uses, so `clearURLCaches()` reaches it. Idempotent.
+    /// - Parameter urlCache: The cache selected by a request's `cacheType`.
+    static func registerURLCache(_ urlCache: URLCache) {
+        requestURLCaches.removeAll { $0.cache == nil }
+        guard urlCache !== URLCache.shared, !requestURLCaches.contains(where: { $0.cache === urlCache }) else { return }
+        requestURLCaches.append(WeakURLCache(cache: urlCache))
+    }
+
+    /// Removes every response from the `URLCache`s registered by `registerURLCache(_:)`.
+    static func clearRequestURLCaches() {
+        for entry in requestURLCaches { entry.cache?.removeAllCachedResponses() }
+        requestURLCaches.removeAll { $0.cache == nil }
+    }
+
+    /// Bound of `rememberedAuthHeaders`; past it the map is reset before recording a new entry.
+    static let maxRememberedAuthHeaders = 512
+
+    /// Incremented when the cache is cleared; part of `cacheGeneration`.
+    private static var clearedCacheGeneration = 0
+
+    /// Changes whenever cached content must not be written back by requests already in
+    /// flight: when the cache is cleared or the auth provider is replaced (e.g. on logout). A
+    /// response whose attempt started under an earlier generation is returned to its caller
+    /// but neither stored nor remembered, so it cannot resurrect a previous user's data.
+    static var cacheGeneration: Int {
+        clearedCacheGeneration &+ authGeneration
+    }
+
+    /// Forgets the credentials remembered for offline lookups. Called when the cache is
+    /// cleared, so a previous user's credential never keys a lookup for the next one. Also
+    /// starts a new `cacheGeneration`, so responses of requests already in flight are not
+    /// written back to the cache. Replacing the auth provider does the same through the observer
+    /// installed by `rememberAuthHeader`.
+    static func forgetRememberedAuthHeaders() {
+        rememberedAuthHeaders.removeAll()
+        clearedCacheGeneration &+= 1
+    }
+
+    /// Makes `Harbor.setAuthProvider(_:)` drop the remembered credentials at once. Installed
+    /// when the first credential is recorded: until then there is nothing to forget.
+    private static func installAuthProviderObserver() {
+        guard authProviderDidChange == nil else { return }
+        authProviderDidChange = { rememberedAuthHeaders.removeAll() }
+    }
+}
+
+// MARK: - REST Authorization
+
+extension HRequestManager {
+    /// Fetches the provider's authorization header for requests that need auth.
+    /// Fails with `.authProviderNeeded` when the request needs auth but no provider is
+    /// configured. A provider returning `nil` means no credentials are available and the
+    /// request goes out without an authorization header.
+    /// - Parameter request: The target request.
+    /// - Returns: `Result` containing optional header or error.
+    static func authorizationHeaderIfNeeded<P: HRequestBaseRequestProtocol>(for request: P) async -> Result<HAuthorizationHeader?, HRequestError> {
+        await authorizationHeader(needsAuth: request.needsAuth)
+    }
+
+    /// Resolves the authorization header for cache keys and mocked attempts without failing
+    /// the flow: a missing provider must not turn a cache lookup or a mock into an error.
+    /// - Parameter request: The target request.
+    /// - Returns: Optional authorization header.
+    static func cacheAuthHeader<P: HRequestBaseRequestProtocol>(for request: P) async -> HAuthorizationHeader? {
+        guard case .success(let authHeader) = await authorizationHeaderIfNeeded(for: request) else { return nil }
+        return authHeader
+    }
+
+    /// Records the credential an authenticated GET request succeeded with, so offline lookups
+    /// can serve its cache entry without consulting the provider.
+    /// Requests that do not need auth or were sent without credentials record nothing.
+    /// - Parameters:
+    ///   - authHeader: The authorization header the successful attempt was sent with.
+    ///   - request: The request that succeeded.
+    static func rememberAuthHeader(_ authHeader: HAuthorizationHeader?, for request: any HGetRequestProtocol) {
+        guard request.needsAuth, let authHeader, let key = request.cacheNamespaceKey() else { return }
+        installAuthProviderObserver()
+        if rememberedAuthHeaders.count >= maxRememberedAuthHeaders, rememberedAuthHeaders[key] == nil {
+            rememberedAuthHeaders.removeAll()
+        }
+        rememberedAuthHeaders[key] = authHeader
+    }
+
+    /// The credential an authenticated GET request last succeeded with, if remembered.
+    /// - Parameter request: The request being looked up.
+    static func rememberedAuthHeader(for request: any HGetRequestProtocol) -> HAuthorizationHeader? {
+        guard request.needsAuth, let key = request.cacheNamespaceKey() else { return nil }
+        return rememberedAuthHeaders[key]
+    }
+}
+
+// MARK: - Private Helpers
+
+private struct WeakURLCache {
+    weak var cache: URLCache?
+}

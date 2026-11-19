@@ -1,0 +1,101 @@
+//
+//  PKCS12.swift
+//
+//
+//  Created by Javier Manzo on 19/06/2024.
+//
+
+import Foundation
+import LogBird
+
+/// Errors thrown when parsing a PKCS#12 archive.
+enum PKCS12Error {
+    /// `SecPKCS12Import` rejected the archive; carries the returned status
+    /// (`errSecAuthFailed` for a wrong password, other codes for malformed data).
+    case importFailed(OSStatus)
+    /// The import reported success but the returned items are missing or malformed.
+    case malformedContents
+}
+
+// MARK: - Error
+
+extension PKCS12Error: Error {}
+
+// MARK: - Equatable
+
+extension PKCS12Error: Equatable {}
+
+/// Helper class to extract client identity and certificates from a PKCS#12 archive.
+struct PKCS12 {
+
+    /// Logger instance for PKCS#12 import events. Toggled by `Harbor.setLoggingEnabled(_:)`.
+    static let logger = LogBird(subsystem: "com.harbor", category: "p12")
+
+    /// The certificate chain including intermediate certificates.
+    let certChain: [SecCertificate]?
+    /// The extracted client identity.
+    let identity: SecIdentity?
+
+    /// Creates a new PKCS12 container with parsed contents.
+    private init(certChain: [SecCertificate]?, identity: SecIdentity?) {
+        self.certChain = certChain
+        self.identity = identity
+    }
+
+    /// Parses the P12 data using the provided password.
+    ///
+    /// The identity is imported into process memory only (`kSecImportToMemoryOnly`) on
+    /// macOS 15 / iOS 18 and later. iOS has always behaved this way; on macOS 14 and
+    /// earlier `SecPKCS12Import` has no in-memory option and persists the imported private
+    /// key and certificates to the default (login) keychain.
+    /// - Parameters:
+    ///   - p12Data: The PKCS#12 archive data.
+    ///   - password: The password to decrypt the archive.
+    /// - Returns: A parsed `PKCS12` structure containing identity and certificates.
+    /// - Throws: `PKCS12Error.importFailed` if security import fails, or `.malformedContents` if data is corrupt.
+    static func parse(p12Data: Data, password: String) throws(PKCS12Error) -> PKCS12 {
+        let importOptions = NSMutableDictionary()
+        importOptions[kSecImportExportPassphrase as NSString] = password
+        if #available(macOS 15.0, iOS 18.0, tvOS 18.0, watchOS 11.0, visionOS 2.0, *) {
+            importOptions[kSecImportToMemoryOnly as NSString] = kCFBooleanTrue
+        }
+
+        var items: CFArray?
+
+        let status = SecPKCS12Import(p12Data as NSData, importOptions, &items)
+
+        guard status == errSecSuccess else {
+            #if DEBUG
+            let message = SecCopyErrorMessageString(status, nil) as String? ?? "Unknown error"
+            Self.logger.log("PKCS12: import failed with status \(status): \(message)")
+            #endif
+            throw .importFailed(status)
+        }
+
+        guard let theItemsNSArray = items as NSArray?,
+              let dictArray = theItemsNSArray as? [[String: AnyObject]] else {
+            if HBuild.isDebug {
+                Self.logger.log("PKCS12: error loading items")
+            }
+            throw .malformedContents
+        }
+
+        return PKCS12(certChain: getValue(by: kSecImportItemCertChain, dictionaryArray: dictArray),
+                      identity: getValue(by: kSecImportItemIdentity, dictionaryArray: dictArray))
+    }
+
+    /// Extracts a specific value from the array of dictionaries returned by `SecPKCS12Import`.
+    /// - Parameters:
+    ///   - key: The Security dictionary key to look up.
+    ///   - dictionaryArray: Array of imported item dictionaries.
+    /// - Returns: The cast value if found, `nil` otherwise.
+    private static func getValue<T>(by key: CFString, dictionaryArray: [[String: AnyObject]]) -> T? {
+        for dictionary in dictionaryArray {
+            if let value = dictionary[key as String] as? T {
+                return value
+            }
+        }
+
+        return nil
+    }
+}

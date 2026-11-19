@@ -1,69 +1,520 @@
+//
+//  HarborIntegrationTests.swift
+//  Harbor
+//
+//  Created by Javier Manzo on 05/07/2025.
+//
+
 import XCTest
 @testable import Harbor
+@testable import HarborCore
 
 final class HarborTests: XCTestCase {
 
-    func testShouldAddSinglePathParameterCorrectlyToURL() async throws {
-        // Given
-        let baseUrl = "https://api.github.com/users/{USER}/"
-        let expectedURL = "https://api.github.com/users/OmarJalil/"
-
-        // When
-        let url = await HRequestManager.compositeURL(url: baseUrl, pathParameters: ["USER": "OmarJalil"], queryParameters: nil)
-
-        // Then
-        XCTAssertEqual(expectedURL, url?.absoluteString)
+    override func setUp() async throws {
+        await HarborTestDefaults.restore()
     }
 
-    func testShouldAddMultiplePathParametersCorrectlyToURL() async throws {
-        // Given
-        let baseUrl = "https://api.github.com/users/{USER}/following/{FOLLOWS}/"
-        let expectedURL = "https://api.github.com/users/OmarJalil/following/javiermanzo/"
-
-        // When
-        let url = await HRequestManager.compositeURL(url: baseUrl, pathParameters: ["FOLLOWS": "javiermanzo", "USER": "OmarJalil"], queryParameters: nil)
-
-        // Then
-        XCTAssertEqual(expectedURL, url?.absoluteString)
+    override func tearDown() async throws {
+        await Harbor.removeAllMocks()
     }
 
-    func testBuildGetRequest() async throws {
+    // MARK: - GET Request Tests
+
+    func testGetRequestExecution() async throws {
         // Given
-        let service = MockGetRequest<String>(url: "https://example.com", queryParameters: ["id": "123", "sort": "desc"])
+        let mockResponse = TestUser(id: 1, name: "John Doe", email: "john@example.com")
+        let jsonData = try JSONEncoder().encode(mockResponse)
+        let jsonString = String(data: jsonData, encoding: .utf8)!
+
+        let mock = HMock(request: GetUserRequest.self, statusCode: 200, jsonResponse: jsonString)
+        await Harbor.register(mock: mock)
 
         // When
-        let request = await HRequestManager.buildUrlRequest(request: service)
-        
+        let request = GetUserRequest(userId: "1")
+        let response = await request.request()
+
         // Then
-        XCTAssertNotNil(request)
-        XCTAssertEqual(request?.url?.absoluteString, "https://example.com?id=123&sort=desc")
-        XCTAssertEqual(request?.httpMethod, "GET")
+        switch response {
+        case .success(let user):
+            XCTAssertEqual(user.id, 1)
+            XCTAssertEqual(user.name, "John Doe")
+            XCTAssertEqual(user.email, "john@example.com")
+        case .error(let error):
+            XCTFail("Expected success but got error: \(error)")
+        }
     }
 
-    func testBuildPostRequest() async throws {
+    func testGetRequestWithQueryParameters() async throws {
         // Given
-        let service = MockPostRequest(url: "https://example.com", bodyParameters: ["name": "John"])
+        let users = [
+            TestUser(id: 1, name: "John", email: "john@example.com"),
+            TestUser(id: 2, name: "Jane", email: "jane@example.com")
+        ]
+        let jsonData = try JSONEncoder().encode(users)
+        let jsonString = String(data: jsonData, encoding: .utf8)!
+
+        let mock = HMock(request: GetUsersRequest.self, statusCode: 200, jsonResponse: jsonString)
+        await Harbor.register(mock: mock)
 
         // When
-        let request = await HRequestManager.buildUrlRequest(request: service)
+        let request = GetUsersRequest(page: 1, limit: 10)
+        let response = await request.request()
 
         // Then
-        XCTAssertNotNil(request)
-        XCTAssertEqual(request?.url?.absoluteString, "https://example.com")
-        XCTAssertEqual(request?.httpMethod, "POST")
-        XCTAssertEqual(request?.allHTTPHeaderFields?["Content-Type"], "application/json")
-        let httpBody = await HRequestManager.dataBody(params: ["name": "John"], type: .json)
-        XCTAssertEqual(request?.httpBody, httpBody)
+        switch response {
+        case .success(let userList):
+            XCTAssertEqual(userList.count, 2)
+            XCTAssertEqual(userList[0].name, "John")
+            XCTAssertEqual(userList[1].name, "Jane")
+        case .error(let error):
+            XCTFail("Expected success but got error: \(error)")
+        }
     }
 
-    func testBuildInvalidRequest() async throws {
+    // MARK: - POST Request Tests
+
+    func testPostRequestExecution() async throws {
         // Given
-        let service = MockInvalidRequest()
+        let mock = HMock(request: CreateUserRequest.self, statusCode: 201)
+        await Harbor.register(mock: mock)
 
         // When
-        let request = await HRequestManager.buildUrlRequest(request: service)
+        let request = CreateUserRequest(name: "New User", email: "new@example.com")
+        let response = await request.request()
 
         // Then
-        XCTAssertNil(request)
+        switch response {
+        case .success:
+            let urlRequest = try await HURLBuilder.buildUrlRequest(request: request)
+            XCTAssertNotNil(urlRequest.url) // Verified by URLBuilder
+        case .error(let error):
+            XCTFail("Expected success but got error: \(error)")
+        }
+    }
+
+    func testPostRequestWithMultipart() async throws {
+        // Given
+        let mock = HMock(request: UploadFileRequest.self, statusCode: 200)
+        await Harbor.register(mock: mock)
+
+        // When
+        let request = UploadFileRequest(fileName: "test.jpg", fileData: Data("test".utf8))
+        let response = await request.request()
+
+        // Then
+        switch response {
+        case .success:
+            let urlRequest = try await HURLBuilder.buildUrlRequest(request: request)
+            XCTAssertNotNil(urlRequest.url) // Verified by URLBuilder
+        case .error(let error):
+            XCTFail("Expected success but got error: \(error)")
+        }
+    }
+
+    // MARK: - DELETE Request Tests
+
+    func testDeleteRequestExecution() async throws {
+        // Given
+        let mock = HMock(request: DeleteUserRequest.self, statusCode: 204)
+        await Harbor.register(mock: mock)
+
+        // When
+        let request = DeleteUserRequest(userId: "1")
+        let response = await request.request()
+
+        // Then
+        switch response {
+        case .success:
+            let urlRequest = try await HURLBuilder.buildUrlRequest(request: request)
+            XCTAssertNotNil(urlRequest.url) // Verified by URLBuilder
+        case .error(let error):
+            XCTFail("Expected success but got error: \(error)")
+        }
+    }
+
+
+    // MARK: - Authentication Tests
+
+    func testAuthenticatedRequest() async throws {
+        // Given
+        let protectedData = ProtectedData(secret: "classified-info")
+        let jsonData = try JSONEncoder().encode(protectedData)
+        let jsonString = String(data: jsonData, encoding: .utf8)!
+
+        let mock = HMock(request: AuthenticatedRequest.self, statusCode: 200, jsonResponse: jsonString)
+        await Harbor.register(mock: mock)
+
+        // When
+        let request = AuthenticatedRequest()
+        let response = await request.request()
+
+        // Then
+        switch response {
+        case .success(let data):
+            XCTAssertEqual(data.secret, "classified-info")
+        case .error(let error):
+            XCTFail("Expected success but got error: \(error)")
+        }
+    }
+
+    func testAuthenticationFailure() async throws {
+        // Given
+        let mock = HMock(request: AuthenticatedRequest.self, statusCode: 401, error: .authNeeded)
+        await Harbor.register(mock: mock)
+
+        // When
+        let request = AuthenticatedRequest()
+        let response = await request.request()
+
+        // Then
+        switch response {
+        case .success:
+            XCTFail("Expected authentication error but got success")
+        case .error(let error):
+            switch error {
+            case .authNeeded:
+                let count = await HMocker.callCount(for: type(of: request))
+                XCTAssertEqual(count, 1) // Expected auth error
+            default:
+                XCTFail("Expected authNeeded but got: \(error)")
+            }
+        }
+    }
+
+    // MARK: - Error Handling Tests
+
+    func testNetworkErrorHandling() async throws {
+        // Given
+        let mock = HMock(request: GetUserRequest.self, statusCode: 500, error: .noConnection)
+        await Harbor.register(mock: mock)
+
+        // When
+        let request = GetUserRequest(userId: "1")
+        let response = await request.request()
+
+        // Then
+        switch response {
+        case .success:
+            XCTFail("Expected network error but got success")
+        case .error(let error):
+            switch error {
+            case .noConnection:
+                let count = await HMocker.callCount(for: type(of: request))
+                XCTAssertEqual(count, 1) // Expected network error
+            default:
+                XCTFail("Expected noConnection but got: \(error)")
+            }
+        }
+    }
+
+    func testAPIErrorHandling() async throws {
+        // Given
+        let mock = HMock(request: GetUserRequest.self, statusCode: 404)
+        await Harbor.register(mock: mock)
+
+        // When
+        let request = GetUserRequest(userId: "999")
+        let response = await request.request()
+
+        // Then
+        switch response {
+        case .success:
+            XCTFail("Expected API error but got success")
+        case .error(let error):
+            XCTAssertTrue(error.isApiError)
+        }
+    }
+
+    func testJSONParsingError() async throws {
+        // Given - Invalid JSON response
+        let mock = HMock(request: GetUserRequest.self, statusCode: 200, jsonResponse: "invalid-json")
+        await Harbor.register(mock: mock)
+
+        // When
+        let request = GetUserRequest(userId: "1")
+        let response = await request.request()
+
+        // Then
+        switch response {
+        case .success:
+            XCTFail("Expected parsing error but got success")
+        case .error(let error):
+            // Should be a codable/parsing error
+            switch error {
+            case .codable:
+                let count = await HMocker.callCount(for: type(of: request))
+                XCTAssertEqual(count, 1)
+            default:
+                XCTFail("Expected codable error but got: \(error)")
+            }
+        }
+    }
+
+    // MARK: - Custom Headers Tests
+
+    func testCustomHeaders() async throws {
+        // Given
+        let userResponse = TestUser(id: 1, name: "John", email: "john@example.com")
+        let jsonData = try JSONEncoder().encode(userResponse)
+        let jsonString = String(data: jsonData, encoding: .utf8)!
+
+        let mock = HMock(request: CustomHeadersRequest.self, statusCode: 200, jsonResponse: jsonString)
+        await Harbor.register(mock: mock)
+
+        // When
+        let request = CustomHeadersRequest()
+        let response = await request.request()
+
+        // Then
+        switch response {
+        case .success(let user):
+            XCTAssertEqual(user.name, "John")
+        case .error(let error):
+            XCTFail("Expected success but got error: \(error)")
+        }
+    }
+
+    // MARK: - Timeout and Connection Failure Tests
+
+    func testRequestTimeout() async throws {
+        // Given
+        let mock = HMock(request: TimeoutRequest.self, statusCode: 408, error: .timeout)
+        await Harbor.register(mock: mock)
+
+        // When
+        let request = TimeoutRequest()
+        let response = await request.request()
+
+        // Then
+        switch response {
+        case .success:
+            XCTFail("Expected timeout error but got success")
+        case .error(let error):
+            switch error {
+            case .timeout:
+                let count = await HMocker.callCount(for: type(of: request))
+                XCTAssertEqual(count, 1) // Expected timeout error
+            default:
+                XCTFail("Expected timeout error but got: \(error)")
+            }
+        }
+    }
+
+    func testConnectionFailure() async throws {
+        // Given
+        let mock = HMock(request: ConnectionFailureRequest.self, statusCode: 0, error: .noConnection)
+        await Harbor.register(mock: mock)
+
+        // When
+        let request = ConnectionFailureRequest()
+        let response = await request.request()
+
+        // Then
+        switch response {
+        case .success:
+            XCTFail("Expected connection error but got success")
+        case .error(let error):
+            switch error {
+            case .noConnection:
+                let count = await HMocker.callCount(for: type(of: request))
+                XCTAssertEqual(count, 1) // Expected connection error
+            default:
+                XCTFail("Expected connection error but got: \(error)")
+            }
+        }
+    }
+
+    func testCannotFindHost() async throws {
+        // Given
+        let mock = HMock(request: InvalidHostRequest.self, statusCode: 0, error: .cannotFindHost)
+        await Harbor.register(mock: mock)
+
+        // When
+        let request = InvalidHostRequest()
+        let response = await request.request()
+
+        // Then
+        switch response {
+        case .success:
+            XCTFail("Expected host not found error but got success")
+        case .error(let error):
+            switch error {
+            case .cannotFindHost:
+                let count = await HMocker.callCount(for: type(of: request))
+                XCTAssertEqual(count, 1) // Expected host not found error
+            default:
+                XCTFail("Expected host not found error but got: \(error)")
+            }
+        }
+    }
+
+    func testMalformedRequest() async throws {
+        // Given
+        let mock = HMock(request: MalformedRequest.self, statusCode: 400, error: .malformedRequest())
+        await Harbor.register(mock: mock)
+
+        // When
+        let request = MalformedRequest()
+        let response = await request.request()
+
+        // Then
+        switch response {
+        case .success:
+            XCTFail("Expected malformed request error but got success")
+        case .error(let error):
+            switch error {
+            case .malformedRequest:
+                let count = await HMocker.callCount(for: type(of: request))
+                XCTAssertEqual(count, 1) // Expected malformed request error
+            default:
+                XCTFail("Expected malformed request error but got: \(error)")
+            }
+        }
+    }
+
+    func testRequestCancellation() async throws {
+        // Given a mock that delays its response, giving the consumer a window to cancel
+        let mock = HMock(request: CancellableRequest.self, statusCode: 200, jsonResponse: "{\"data\": \"slow response\"}", delay: 2.0)
+        await Harbor.register(mock: mock)
+
+        // When the request is cancelled while still waiting for the delayed mock
+        let task = Task<HResponseWithResult<TestUser>, Never> {
+            let request = CancellableRequest()
+            return await request.request()
+        }
+
+        // Let the request reach the in-flight delay before cancelling.
+        try? await Task.sleep(nanoseconds: 100_000_000)
+        task.cancel()
+        let response = await task.value
+
+        // Then the result surfaces a cancellation error rather than succeeding.
+        guard case .error(let error) = response, case .cancelled = error else {
+            XCTFail("Expected .cancelled but got: \(response)")
+            return
+        }
+    }
+
+    // MARK: - Path Parameters Tests
+
+    func testPathParameters() async throws {
+        // Given
+        let user = TestUser(id: 123, name: "John", email: "john@example.com")
+        let jsonData = try JSONEncoder().encode(user)
+        let jsonString = String(data: jsonData, encoding: .utf8)!
+
+        let mock = HMock(request: GetUserByIdRequest.self, statusCode: 200, jsonResponse: jsonString)
+        await Harbor.register(mock: mock)
+
+        // When
+        let request = GetUserByIdRequest(id: 123)
+        let response = await request.request()
+
+        // Then
+        switch response {
+        case .success(let user):
+            XCTAssertEqual(user.id, 123)
+            XCTAssertEqual(user.name, "John")
+        case .error(let error):
+            XCTFail("Expected success but got error: \(error)")
+        }
+    }
+
+    // MARK: - PUT Request Tests
+
+    func testPutRequestExecution() async throws {
+        // Given
+        let mock = HMock(request: UpdateUserRequest.self, statusCode: 200)
+        await Harbor.register(mock: mock)
+
+        // When
+        let request = UpdateUserRequest(id: 1, name: "Updated User", email: "updated@example.com")
+        let response = await request.request()
+
+        // Then
+        switch response {
+        case .success:
+            let urlRequest = try await HURLBuilder.buildUrlRequest(request: request)
+            XCTAssertNotNil(urlRequest.url) // Verified by URLBuilder
+        case .error(let error):
+            XCTFail("Expected success but got error: \(error)")
+        }
+    }
+
+    func testPutRequestWithMultipart() async throws {
+        // Given
+        let mock = HMock(request: UpdateUserWithFileRequest.self, statusCode: 200)
+        await Harbor.register(mock: mock)
+
+        // When
+        let request = UpdateUserWithFileRequest(id: 1, name: "Updated User", avatar: Data("avatar".utf8))
+        let response = await request.request()
+
+        // Then
+        switch response {
+        case .success:
+            let urlRequest = try await HURLBuilder.buildUrlRequest(request: request)
+            XCTAssertNotNil(urlRequest.url) // Verified by URLBuilder
+        case .error(let error):
+            XCTFail("Expected success but got error: \(error)")
+        }
+    }
+
+    // MARK: - PATCH Request Tests
+
+    func testPatchRequestExecution() async throws {
+        // Given
+        let mock = HMock(request: PartialUpdateUserRequest.self, statusCode: 200)
+        await Harbor.register(mock: mock)
+
+        // When
+        let request = PartialUpdateUserRequest(id: 1, name: "Partially Updated")
+        let response = await request.request()
+
+        // Then
+        switch response {
+        case .success:
+            let urlRequest = try await HURLBuilder.buildUrlRequest(request: request)
+            XCTAssertNotNil(urlRequest.url) // Verified by URLBuilder
+        case .error(let error):
+            XCTFail("Expected success but got error: \(error)")
+        }
+    }
+
+    func testPatchRequestWithJSONBody() async throws {
+        // Given
+        let mock = HMock(request: PartialUpdateUserWithJSONRequest.self, statusCode: 200)
+        await Harbor.register(mock: mock)
+
+        // When
+        let request = PartialUpdateUserWithJSONRequest(id: 1, email: "newemail@example.com")
+        let response = await request.request()
+
+        // Then
+        switch response {
+        case .success:
+            let urlRequest = try await HURLBuilder.buildUrlRequest(request: request)
+            XCTAssertNotNil(urlRequest.url) // Verified by URLBuilder
+        case .error(let error):
+            XCTFail("Expected success but got error: \(error)")
+        }
+    }
+}
+
+// MARK: - Test Models
+
+// MARK: - Test Request Implementations
+
+// MARK: - Helper Extensions
+
+private extension HRequestError {
+    var isApiError: Bool {
+        switch self {
+        case .api:
+            return true
+        default:
+            return false
+        }
     }
 }

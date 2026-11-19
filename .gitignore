@@ -1,5 +1,6 @@
 .DS_Store
 /.build
+build/
 /Packages
 /*.xcodeproj
 xcuserdata/
@@ -7,9 +8,14 @@ DerivedData/
 .swiftpm/config/registries.json
 .swiftpm/
 .netrc
+.cursor
+.claude
 
 Example/HarborExample.xcworkspace
 Example/HarborExample.xcodeproj/xcuserdata/
 Example/Pods
 Example/Podfile.lock
 Example/output
+
+TestResults
+TestResults.xcresult

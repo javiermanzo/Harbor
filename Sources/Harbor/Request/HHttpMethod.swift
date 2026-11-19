@@ -1,0 +1,37 @@
+//
+//  HHttpMethod.swift
+//  Harbor
+//
+//  Created by Javier Manzo on 16/02/2023.
+//
+
+import Foundation
+import HarborCore
+
+/// HTTP methods supported by Harbor networking library.
+public enum HHttpMethod: String, Sendable {
+    /// GET method for retrieving data.
+    case get = "GET"
+    /// POST method for creating new resources.
+    case post = "POST"
+    /// PUT method for updating existing resources.
+    case put = "PUT"
+    /// DELETE method for removing resources.
+    case delete = "DELETE"
+    /// PATCH method for partially updating resources.
+    case patch = "PATCH"
+}
+
+// MARK: - Idempotency
+
+extension HHttpMethod {
+    /// Whether repeating the request has the same effect as sending it once (RFC 9110 §9.2.2).
+    var isIdempotent: Bool {
+        switch self {
+        case .get, .put, .delete:
+            return true
+        case .post, .patch:
+            return false
+        }
+    }
+}

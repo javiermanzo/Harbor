@@ -7,9 +7,10 @@
 
 import XCTest
 @testable import Harbor
+@testable import HarborCore
 
 private final class MockAuthProvider: HAuthProviderProtocol {
-    func getAuthorizationHeader() async -> HAuthorizationHeader {
+    func getAuthorizationHeader() async -> HAuthorizationHeader? {
         return HAuthorizationHeader(key: "Authorization", value: "Bearer mock_token")
     }
 
@@ -18,59 +19,771 @@ private final class MockAuthProvider: HAuthProviderProtocol {
     }
 }
 
-extension HRequestError: Equatable {
-    public static func ==(lhs: HRequestError, rhs: HRequestError) -> Bool {
-        switch (lhs, rhs) {
-        case (.authProviderNeeded, .authProviderNeeded):
-            return true
-        case (.noConnectionError, .noConnectionError):
-            return true
-        case (.malformedRequestError, .malformedRequestError):
-            return true
-        case (.timeoutError, .timeoutError):
-            return true
-        case (.invalidHttpResponse, .invalidHttpResponse):
-            return true
-        case (.codableError(let lhsModel, _), .codableError(let rhsModel, _)):
-            return lhsModel == rhsModel
-        case (.apiError(let lhsStatusCode, _), .apiError(let rhsStatusCode, _)):
-            return lhsStatusCode == rhsStatusCode
-        default:
-            return false
+/// Auth provider that returns a scripted sequence of headers and records its usage.
+/// A `nil` element means the provider has no credentials at that point.
+@HRequestManagerActor
+private final class SpyAuthProvider: HAuthProviderProtocol {
+    private(set) var headerCallCount = 0
+    private(set) var authFailedCount = 0
+    private var headers: [HAuthorizationHeader?]
+
+    init(headers: [HAuthorizationHeader?]) {
+        self.headers = headers
+    }
+
+    func getAuthorizationHeader() async -> HAuthorizationHeader? {
+        headerCallCount += 1
+        guard !headers.isEmpty else { return nil }
+        return headers.removeFirst()
+    }
+
+    func authFailed() async {
+        authFailedCount += 1
+    }
+
+    /// Resets the recorded usage, keeping the remaining scripted headers.
+    func resetCounts() {
+        headerCallCount = 0
+        authFailedCount = 0
+    }
+}
+
+/// Auth provider whose `authFailed()` suspends until the test finishes it, returning a
+/// scripted sequence of `Authorization` values.
+private actor GatedAuthProvider: HAuthProviderProtocol {
+    private var headers: [String]
+    private var started = false
+    private var startWaiters: [CheckedContinuation<Void, Never>] = []
+    private var finishWaiter: CheckedContinuation<Void, Never>?
+    private var finished = false
+
+    init(headers: [String]) {
+        self.headers = headers
+    }
+
+    func getAuthorizationHeader() async -> HAuthorizationHeader? {
+        guard !headers.isEmpty else { return nil }
+        return HAuthorizationHeader(key: "Authorization", value: headers.removeFirst())
+    }
+
+    func authFailed() async {
+        started = true
+        startWaiters.forEach { $0.resume() }
+        startWaiters.removeAll()
+        guard !finished else { return }
+        await withCheckedContinuation { finishWaiter = $0 }
+    }
+
+    func waitUntilAuthFailedStarts() async {
+        guard !started else { return }
+        await withCheckedContinuation { startWaiters.append($0) }
+    }
+
+    func finishAuthFailed() {
+        finished = true
+        finishWaiter?.resume()
+        finishWaiter = nil
+    }
+}
+
+/// URLProtocol stub injected through `HConfig.protocolClasses`. It answers with a scripted
+/// sequence of status codes (repeating the last one) and records the Authorization header
+/// of every request it sees. Optionally it sends response headers (e.g. `Vary`, `ETag`),
+/// answers `304 Not Modified` when the request's `If-None-Match` matches the configured
+/// ETag, and echoes the Authorization header in the body.
+private final class AuthStubProtocol: URLProtocol {
+    private static let lock = NSLock()
+    nonisolated(unsafe) private static var _statusCodes: [Int] = [200]
+    nonisolated(unsafe) private static var _receivedAuthorizations: [String?] = []
+    nonisolated(unsafe) private static var _receivedIfNoneMatch: [String?] = []
+    nonisolated(unsafe) private static var _responseHeaders: [String: String]?
+    nonisolated(unsafe) private static var _etag: String?
+    nonisolated(unsafe) private static var _bodyIncludesAuthorization = false
+
+    static var receivedAuthorizations: [String?] {
+        lock.lock()
+        defer { lock.unlock() }
+        return _receivedAuthorizations
+    }
+
+    static var receivedIfNoneMatch: [String?] {
+        lock.lock()
+        defer { lock.unlock() }
+        return _receivedIfNoneMatch
+    }
+
+    static var statusCodes: [Int] {
+        get {
+            lock.lock()
+            defer { lock.unlock() }
+            return _statusCodes
         }
+        set {
+            lock.lock()
+            _statusCodes = newValue
+            lock.unlock()
+        }
+    }
+
+    static var responseHeaders: [String: String]? {
+        get {
+            lock.lock()
+            defer { lock.unlock() }
+            return _responseHeaders
+        }
+        set {
+            lock.lock()
+            _responseHeaders = newValue
+            lock.unlock()
+        }
+    }
+
+    static var etag: String? {
+        get {
+            lock.lock()
+            defer { lock.unlock() }
+            return _etag
+        }
+        set {
+            lock.lock()
+            _etag = newValue
+            lock.unlock()
+        }
+    }
+
+    static var bodyIncludesAuthorization: Bool {
+        get {
+            lock.lock()
+            defer { lock.unlock() }
+            return _bodyIncludesAuthorization
+        }
+        set {
+            lock.lock()
+            _bodyIncludesAuthorization = newValue
+            lock.unlock()
+        }
+    }
+
+    static func reset() {
+        lock.lock()
+        _statusCodes = [200]
+        _receivedAuthorizations = []
+        _receivedIfNoneMatch = []
+        _responseHeaders = nil
+        _etag = nil
+        _bodyIncludesAuthorization = false
+        lock.unlock()
+    }
+
+    override class func canInit(with request: URLRequest) -> Bool {
+        // Only stub the hosts the tests target; anything else fails loudly.
+        return request.url?.host == "example.com"
+    }
+
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest {
+        return request
+    }
+
+    override func startLoading() {
+        Self.lock.lock()
+        let index = Self._receivedAuthorizations.count
+        let authorization = request.value(forHTTPHeaderField: "Authorization")
+        let ifNoneMatch = request.value(forHTTPHeaderField: "If-None-Match")
+        Self._receivedAuthorizations.append(authorization)
+        Self._receivedIfNoneMatch.append(ifNoneMatch)
+        let statusCodes = Self._statusCodes
+        let responseHeaders = Self._responseHeaders
+        let etag = Self._etag
+        let bodyIncludesAuthorization = Self._bodyIncludesAuthorization
+        Self.lock.unlock()
+
+        var statusCode = statusCodes[min(index, statusCodes.count - 1)]
+        if let etag, ifNoneMatch == etag {
+            statusCode = 304
+        }
+
+        var headerFields = responseHeaders ?? [:]
+        if let etag {
+            headerFields["ETag"] = etag
+        }
+
+        guard let url = request.url,
+              let response = HTTPURLResponse(url: url, statusCode: statusCode, httpVersion: nil, headerFields: headerFields) else {
+            client?.urlProtocol(self, didFailWithError: URLError(.badURL))
+            return
+        }
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        if statusCode != 304 {
+            let quote = bodyIncludesAuthorization ? (authorization ?? "none") : "ok"
+            client?.urlProtocol(self, didLoad: Data("{\"quote\":\"\(quote)\"}".utf8))
+        }
+        client?.urlProtocolDidFinishLoading(self)
+    }
+
+    override func stopLoading() {}
+}
+
+/// Reference-type request conformer: the auth flow must never mutate the caller's instance.
+private final class ClassAuthGetRequest: HGetRequestProtocol, @unchecked Sendable {
+    typealias Model = MockModel
+
+    let url: String
+    var headerParameters: [String: String]?
+    let needsAuth: Bool
+
+    init(url: String, headerParameters: [String: String]? = nil, needsAuth: Bool = true) {
+        self.url = url
+        self.headerParameters = headerParameters
+        self.needsAuth = needsAuth
     }
 }
 
 @HRequestManagerActor
 final class HarborRequestManagerAuthTests: XCTestCase {
 
-    func testAddAuthCredentialsIfNeededWithAuthSuccess() async throws {
+    override func setUp() async throws {
+        Harbor.removeAllMocks()
+        Harbor.setAuthProvider(nil)
+        HConfig.shared.customURLSession = nil
+        Harbor.setProtocolClasses([AuthStubProtocol.self])
+        AuthStubProtocol.reset()
+    }
+
+    override func tearDown() async throws {
+        Harbor.removeAllMocks()
+        Harbor.setAuthProvider(nil)
+        HConfig.shared.customURLSession = nil
+        Harbor.setProtocolClasses(nil)
+        Harbor.setDefaultCacheType(.urlCache())
+        await Harbor.clearAllCache()
+        AuthStubProtocol.reset()
+    }
+
+    // MARK: - Authorization Header Resolution
+
+    func testAuthorizationHeaderIfNeededWithAuthSuccess() async throws {
         // Given
         let mockAuthProvider = MockAuthProvider()
-        HRequestManager.config = HConfig(authProvider: mockAuthProvider)
+        HConfig.shared.authProvider = mockAuthProvider
 
         let mockRequest = MockGetRequest<String>(needsAuth: true, url: "https://example.com/mock_endpoint")
 
         // When
-        let modifiedRequest = await HRequestManager.addAuthCredentialsIfNeeded(mockRequest)
+        let result = await HRequestManager.authorizationHeaderIfNeeded(for: mockRequest)
 
         // Then
-        XCTAssertNotNil(modifiedRequest, "Expected modified request with auth credentials")
-        XCTAssertEqual(modifiedRequest?.headerParameters?["Authorization"], "Bearer mock_token", "Expected authorization header to be set correctly")
+        guard case .success(let authHeader) = result else {
+            XCTFail("Expected the provider's authorization header")
+            return
+        }
+        XCTAssertEqual(authHeader, HAuthorizationHeader(key: "Authorization", value: "Bearer mock_token"))
     }
 
-    func testAddAuthCredentialsIfNeededWithoutAuth() async throws {
+    func testAuthorizationHeaderIfNeededWithoutAuth() async throws {
         // Given
         let mockAuthProvider = MockAuthProvider()
-        HRequestManager.config = HConfig(authProvider: mockAuthProvider)
+        HConfig.shared.authProvider = mockAuthProvider
 
         let mockRequest = MockGetRequest<String>(needsAuth: false, url: "https://example.com/mock_endpoint")
 
         // When
-        let modifiedRequest = await HRequestManager.addAuthCredentialsIfNeeded(mockRequest)
+        let result = await HRequestManager.authorizationHeaderIfNeeded(for: mockRequest)
 
         // Then
-        XCTAssertNotNil(modifiedRequest, "Expected original request since auth is not needed")
-        XCTAssertNil(modifiedRequest?.headerParameters?["Authorization"], "Expected no authorization header since auth is not needed")
+        guard case .success(let authHeader) = result else {
+            XCTFail("Expected success since auth is not needed")
+            return
+        }
+        XCTAssertNil(authHeader, "Expected no authorization header since auth is not needed")
+    }
+
+    func testAuthorizationHeaderIfNeededWithoutProviderFails() async throws {
+        // Given
+        HConfig.shared.authProvider = nil
+
+        let mockRequest = MockGetRequest<String>(needsAuth: true, url: "https://example.com/mock_endpoint")
+
+        // When
+        let result = await HRequestManager.authorizationHeaderIfNeeded(for: mockRequest)
+
+        // Then
+        guard case .failure(let error) = result, case .authProviderNeeded = error else {
+            XCTFail("Expected .authProviderNeeded but got: \(result)")
+            return
+        }
+    }
+
+    // MARK: - Auth Flow With Stubbed Network
+
+    func testAuthHeaderIsSentOnTheWireWithoutMutatingTheRequest() async throws {
+        // Given a class-conformed request and a provider with credentials
+        let provider = SpyAuthProvider(headers: [HAuthorizationHeader(key: "Authorization", value: "Bearer token_1")])
+        Harbor.setAuthProvider(provider)
+        AuthStubProtocol.statusCodes = [200]
+
+        let request = ClassAuthGetRequest(url: "https://example.com/secure", headerParameters: ["X-Custom": "value"])
+
+        // When
+        let response = await request.request()
+
+        // Then the request succeeds, the wire carried the provider's header, and the
+        // caller's request object was not mutated
+        guard case .success = response else {
+            XCTFail("Expected success but got: \(response)")
+            return
+        }
+        XCTAssertEqual(AuthStubProtocol.receivedAuthorizations, ["Bearer token_1"])
+        XCTAssertEqual(request.headerParameters, ["X-Custom": "value"])
+    }
+
+    func testAuthRetryWithFreshHeaderDoesNotMutateTheRequest() async throws {
+        // Given a class-conformed request, a provider that refreshes its token, and a 401 then a 200
+        let provider = SpyAuthProvider(headers: [
+            HAuthorizationHeader(key: "Authorization", value: "Bearer token_1"),
+            HAuthorizationHeader(key: "Authorization", value: "Bearer token_2")
+        ])
+        Harbor.setAuthProvider(provider)
+        AuthStubProtocol.statusCodes = [401, 200]
+
+        let request = ClassAuthGetRequest(url: "https://example.com/secure")
+
+        // When
+        let response = await request.request()
+
+        // Then the retry succeeds with the refreshed header, the provider was asked twice,
+        // and the caller's request object kept its original (nil) headers
+        guard case .success = response else {
+            XCTFail("Expected success but got: \(response)")
+            return
+        }
+        XCTAssertEqual(provider.headerCallCount, 2)
+        XCTAssertEqual(AuthStubProtocol.receivedAuthorizations, ["Bearer token_1", "Bearer token_2"])
+        XCTAssertNil(request.headerParameters)
+    }
+
+    func test401WithoutNewHeaderFromProviderGivesUpWithAuthNeeded() async throws {
+        // Given a provider that has credentials once and none after the 401
+        let provider = SpyAuthProvider(headers: [
+            HAuthorizationHeader(key: "Authorization", value: "Bearer token_1"),
+            nil
+        ])
+        Harbor.setAuthProvider(provider)
+        AuthStubProtocol.statusCodes = [401]
+
+        let request = ClassAuthGetRequest(url: "https://example.com/secure")
+
+        // When
+        let response = await request.request()
+
+        // Then the flow ends with .authNeeded and authFailed was called exactly once. The
+        // provider is asked for its header three times: for the request, to check whether
+        // the rejected header was already rotated, and after authFailed()
+        guard case .error(let error) = response, case .authNeeded = error else {
+            XCTFail("Expected .authNeeded but got: \(response)")
+            return
+        }
+        XCTAssertEqual(provider.headerCallCount, 3)
+        XCTAssertEqual(provider.authFailedCount, 1)
+    }
+
+    func testReplacingTheProviderDuringARefreshGivesUpWithoutTheOldProvidersHeader() async throws {
+        // Given a provider whose refresh is still running when the app logs out
+        let provider = GatedAuthProvider(headers: ["Bearer old", "Bearer old", "Bearer refreshed"])
+        Harbor.setAuthProvider(provider)
+        AuthStubProtocol.statusCodes = [401, 200]
+        let request = ClassAuthGetRequest(url: "https://example.com/secure")
+        let task = Task { await request.request() }
+        await provider.waitUntilAuthFailedStarts()
+
+        // When the provider is removed, then the old refresh finishes
+        Harbor.setAuthProvider(nil)
+        await provider.finishAuthFailed()
+        let response = await task.value
+
+        // Then the request gives up instead of retrying with the removed provider's header
+        guard case .error(.authNeeded) = response else {
+            return XCTFail("Expected .authNeeded but got: \(response)")
+        }
+        XCTAssertEqual(AuthStubProtocol.receivedAuthorizations, ["Bearer old"])
+    }
+
+    func testReplacingTheProviderDoesNotMakeTheNewProviderWaitForTheOldProvidersRefresh() async throws {
+        // Given the old provider's refresh in flight for a rejected header
+        let oldProvider = GatedAuthProvider(headers: ["Bearer same", "Bearer same"])
+        Harbor.setAuthProvider(oldProvider)
+        AuthStubProtocol.statusCodes = [401]
+        let first = Task { await ClassAuthGetRequest(url: "https://example.com/secure-old").request() }
+        await oldProvider.waitUntilAuthFailedStarts()
+
+        // When the provider is replaced by one that issues the same header and a request is rejected with it
+        let newProvider = SpyAuthProvider(headers: Array(repeating: HAuthorizationHeader(key: "Authorization", value: "Bearer same"), count: 3))
+        Harbor.setAuthProvider(newProvider)
+        let second = await ClassAuthGetRequest(url: "https://example.com/secure-new").request()
+
+        // Then the new provider is told about its own failure without waiting for the old refresh
+        guard case .error(.authNeeded) = second else {
+            await oldProvider.finishAuthFailed()
+            return XCTFail("Expected .authNeeded but got: \(second)")
+        }
+        XCTAssertEqual(newProvider.authFailedCount, 1)
+        await oldProvider.finishAuthFailed()
+        _ = await first.value
+    }
+
+    func testCancellingARequestStopsWaitingForTheRefresh() async throws {
+        // Given a request waiting for a refresh that does not finish (e.g. a login screen)
+        let provider = GatedAuthProvider(headers: ["Bearer old", "Bearer old", "Bearer refreshed"])
+        Harbor.setAuthProvider(provider)
+        AuthStubProtocol.statusCodes = [401, 200]
+        let request = ClassAuthGetRequest(url: "https://example.com/secure")
+        let task = Task { await request.request() }
+        await provider.waitUntilAuthFailedStarts()
+
+        // When its task is cancelled
+        task.cancel()
+        let response = await task.value
+
+        // Then it finishes with .cancelled without waiting for the refresh
+        guard case .error(.cancelled) = response else {
+            return XCTFail("Expected .cancelled but got: \(response)")
+        }
+        XCTAssertEqual(AuthStubProtocol.receivedAuthorizations.count, 1)
+        await provider.finishAuthFailed()
+    }
+
+    func testRequestWithoutCredentialsGoesOutWithoutAuthHeader() async throws {
+        // Given a provider without credentials
+        let provider = SpyAuthProvider(headers: [nil])
+        Harbor.setAuthProvider(provider)
+        AuthStubProtocol.statusCodes = [200]
+
+        let request = ClassAuthGetRequest(url: "https://example.com/secure")
+
+        // When
+        let response = await request.request()
+
+        // Then the request is sent without an authorization header
+        guard case .success = response else {
+            XCTFail("Expected success but got: \(response)")
+            return
+        }
+        XCTAssertEqual(AuthStubProtocol.receivedAuthorizations, [nil])
+    }
+
+    func test401OnRequestThatOptedOutOfAuthGivesUpWithoutConsultingTheProvider() async throws {
+        // Given a provider with credentials and a request that does not need auth, answered with a 401
+        let provider = SpyAuthProvider(headers: [HAuthorizationHeader(key: "Authorization", value: "Bearer token_1")])
+        Harbor.setAuthProvider(provider)
+        AuthStubProtocol.statusCodes = [401]
+
+        let request = ClassAuthGetRequest(url: "https://example.com/public", needsAuth: false)
+
+        // When
+        let response = await request.request()
+
+        // Then the flow gives up with .authNeeded and the provider is never consulted
+        guard case .error(let error) = response, case .authNeeded = error else {
+            XCTFail("Expected .authNeeded but got: \(response)")
+            return
+        }
+        XCTAssertEqual(provider.headerCallCount, 0)
+        XCTAssertEqual(provider.authFailedCount, 0)
+        XCTAssertEqual(AuthStubProtocol.receivedAuthorizations, [nil])
+    }
+
+    // MARK: - Vary: Authorization Cache Tests
+
+    func testVaryAuthorizationIsAlwaysRevalidatedWithTheCurrentCredential() async throws {
+        // Given a custom cache and a server that varies on Authorization
+        await Harbor.clearAllCache()
+        Harbor.setDefaultCacheType(.custom(HCache.Configuration(expirationTime: .oneHour)))
+        AuthStubProtocol.responseHeaders = ["Vary": "Authorization", "Cache-Control": "max-age=3600"]
+        AuthStubProtocol.etag = "\"vary-etag\""
+
+        let tokenA = HAuthorizationHeader(key: "Authorization", value: "Bearer token_A")
+        let tokenB = HAuthorizationHeader(key: "Authorization", value: "Bearer token_B")
+        let request = ClassAuthGetRequest(url: "https://example.com/vary")
+
+        // When user A fetches
+        Harbor.setAuthProvider(SpyAuthProvider(headers: [tokenA, tokenA]))
+        guard case .success(let modelA) = await request.request() else {
+            XCTFail("Expected success for the first request")
+            return
+        }
+        XCTAssertEqual(modelA.quote, "ok")
+
+        // Then the entry is never served without asking the server, even to the same credential:
+        // Harbor stores no value (nor digest) of the credential to match the variant with
+        let cachedForA = await request.cache()
+        XCTAssertNil(cachedForA)
+
+        // And a request with B's credential sends the stored validators, and the server's 304
+        // (its confirmation for B) serves the stored body
+        Harbor.setAuthProvider(SpyAuthProvider(headers: [tokenB]))
+        guard case .success(let modelB) = await request.request() else {
+            XCTFail("Expected success for the revalidation request")
+            return
+        }
+        XCTAssertEqual(modelB.quote, "ok")
+        XCTAssertEqual(AuthStubProtocol.receivedIfNoneMatch, [nil, "\"vary-etag\""])
+        XCTAssertEqual(AuthStubProtocol.receivedAuthorizations, ["Bearer token_A", "Bearer token_B"])
+    }
+
+    func testCacheReadWithoutExplicitHeaderResolvesItFromTheProvider() async throws {
+        // Given a stored entry and a provider issuing a credential
+        await Harbor.clearAllCache()
+        Harbor.setDefaultCacheType(.custom(HCache.Configuration(expirationTime: .oneHour)))
+        let token = HAuthorizationHeader(key: "Authorization", value: "Bearer token_A")
+        let provider = SpyAuthProvider(headers: [token])
+        Harbor.setAuthProvider(provider)
+
+        let request = ClassAuthGetRequest(url: "https://example.com/auto")
+        let url = try XCTUnwrap(URL(string: request.url))
+        await request.saveCache(Data("{\"quote\":\"cached\"}".utf8),
+                                response: HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil),
+                                authHeader: token)
+
+        // When the cache is read without an explicit header, the provider is consulted (a
+        // request that needs auth is only served while a credential is available) and the
+        // entry of the URL is served
+        let cached = await request.cache()
+        XCTAssertEqual(cached?.quote, "cached")
+        XCTAssertEqual(provider.headerCallCount, 1)
+    }
+
+    func testCacheReadNeverServesAVaryAuthorizationEntry() async throws {
+        // Given a stored Vary: Authorization entry and a provider issuing a different credential
+        await Harbor.clearAllCache()
+        Harbor.setDefaultCacheType(.custom(HCache.Configuration(expirationTime: .oneHour)))
+        let storedToken = HAuthorizationHeader(key: "Authorization", value: "Bearer token_A")
+        let otherToken = HAuthorizationHeader(key: "Authorization", value: "Bearer token_B")
+        Harbor.setAuthProvider(SpyAuthProvider(headers: [otherToken]))
+
+        let request = ClassAuthGetRequest(url: "https://example.com/vary-auto")
+        try await storeVaryAuthorizationEntry(Data("{\"quote\":\"cached\"}".utf8), for: request, authHeader: storedToken)
+
+        // When the cache is read, the entry is not served: it needs revalidation by the server
+        let cached = await request.cache()
+        XCTAssertNil(cached)
+    }
+
+    func testCacheReadWithoutExplicitHeaderMissesGracefullyWithoutProvider() async throws {
+        // Given a stored Vary: Authorization entry and no configured provider
+        await Harbor.clearAllCache()
+        Harbor.setDefaultCacheType(.custom(HCache.Configuration(expirationTime: .oneHour)))
+        Harbor.setAuthProvider(nil)
+        let token = HAuthorizationHeader(key: "Authorization", value: "Bearer token_A")
+
+        let request = ClassAuthGetRequest(url: "https://example.com/vary-auto")
+        try await storeVaryAuthorizationEntry(Data("{\"quote\":\"cached\"}".utf8), for: request, authHeader: token)
+
+        // When the cache is read, a request that needs auth has no lookup without a credential
+        let cached = await request.cache()
+        XCTAssertNil(cached)
+    }
+
+    /// Stores a body as a `Vary: Authorization` cache entry for the given request.
+    private func storeVaryAuthorizationEntry(_ data: Data, for request: ClassAuthGetRequest, authHeader: HAuthorizationHeader) async throws {
+        let url = try XCTUnwrap(URL(string: request.url))
+        let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: ["Vary": "Authorization"])
+        await request.saveCache(data, response: response, authHeader: authHeader)
+    }
+
+    // MARK: - Offline Stale Cache Tests
+
+    func testOfflineStaleCacheHitForRequestWithoutAuthDoesNotConsultTheAuthProvider() async throws {
+        // Given an offline monitor, a stale servable entry for a request that does not need
+        // auth, and a configured provider
+        HRequestManager.connectivityMonitor = FakeConnectivityMonitor(connected: false)
+        defer { HRequestManager.connectivityMonitor = HRequestManagerMonitor() }
+        await Harbor.clearAllCache()
+        Harbor.setDefaultCacheType(.custom(HCache.Configuration(expirationTime: .oneHour)))
+
+        let request = ClassAuthGetRequest(url: "https://example.com/offline-stale", needsAuth: false)
+        try await storeStaleEntry(Data("{\"quote\":\"stale\"}".utf8), for: request, headers: ["Cache-Control": "max-age=0, stale-if-error=300"])
+
+        let provider = SpyAuthProvider(headers: [HAuthorizationHeader(key: "Authorization", value: "Bearer token_A")])
+        Harbor.setAuthProvider(provider)
+
+        // When
+        let response = await request.request()
+
+        // Then the stale body is served without consulting the provider
+        guard case .success(let model) = response else {
+            XCTFail("Expected the stale body but got: \(response)")
+            return
+        }
+        XCTAssertEqual(model.quote, "stale")
+        XCTAssertEqual(provider.headerCallCount, 0)
+    }
+
+    func testOfflineRequestThatNeedsAuthNeverStoresAResponseSentWithoutCredentials() async throws {
+        // Given an offline monitor and, for the same URL, a response received while logged
+        // out (no credential: never stored) and one received with the current credential
+        HRequestManager.connectivityMonitor = FakeConnectivityMonitor(connected: false)
+        defer { HRequestManager.connectivityMonitor = HRequestManagerMonitor() }
+        await Harbor.clearAllCache()
+        Harbor.setDefaultCacheType(.custom(HCache.Configuration(expirationTime: .oneHour)))
+        Harbor.setAuthProvider(nil)
+
+        let token = HAuthorizationHeader(key: "Authorization", value: "Bearer token_A")
+        let request = ClassAuthGetRequest(url: "https://example.com/offline-logged-out")
+        let headers = ["Cache-Control": "max-age=0, stale-if-error=300"]
+        try await storeStaleEntry(Data("{\"quote\":\"logged-out\"}".utf8), for: request, headers: headers)
+        try await storeStaleEntry(Data("{\"quote\":\"logged-in\"}".utf8), for: request, headers: headers, authHeader: token)
+
+        let provider = SpyAuthProvider(headers: [token])
+        Harbor.setAuthProvider(provider)
+
+        // When
+        let response = await request.request()
+
+        // Then the credential is resolved and the entry stored with it is served
+        guard case .success(let model) = response else {
+            XCTFail("Expected the logged-in body but got: \(response)")
+            return
+        }
+        XCTAssertEqual(model.quote, "logged-in")
+        XCTAssertEqual(provider.headerCallCount, 1)
+    }
+
+    func testOfflineStaleCacheMissResolvesAuthHeaderAndRetriesLookup() async throws {
+        // Given an offline monitor and a stale servable entry stored with a credential
+        HRequestManager.connectivityMonitor = FakeConnectivityMonitor(connected: false)
+        defer { HRequestManager.connectivityMonitor = HRequestManagerMonitor() }
+        await Harbor.clearAllCache()
+        Harbor.setDefaultCacheType(.custom(HCache.Configuration(expirationTime: .oneHour)))
+        Harbor.setAuthProvider(nil)
+
+        let token = HAuthorizationHeader(key: "Authorization", value: "Bearer token_A")
+        let request = ClassAuthGetRequest(url: "https://example.com/offline-stale-auth")
+        try await storeStaleEntry(Data("{\"quote\":\"stale-auth\"}".utf8),
+                                  for: request,
+                                  headers: ["Cache-Control": "max-age=0, stale-if-error=300"],
+                                  authHeader: token)
+
+        let provider = SpyAuthProvider(headers: [token])
+        Harbor.setAuthProvider(provider)
+
+        // When: the request needs auth, so the header is resolved once before the lookup
+        let response = await request.request()
+
+        // Then
+        guard case .success(let model) = response else {
+            XCTFail("Expected the stale body but got: \(response)")
+            return
+        }
+        XCTAssertEqual(model.quote, "stale-auth")
+        XCTAssertEqual(provider.headerCallCount, 1)
+    }
+
+    // MARK: - Offline Remembered Credential Tests
+
+    func testOfflineRequestThatNeedsAuthReusesTheCredentialItSucceededWithWithoutConsultingTheProvider() async throws {
+        // Given a request that succeeded online with the provider's credential
+        await Harbor.clearAllCache()
+        Harbor.setDefaultCacheType(.custom(HCache.Configuration(expirationTime: .oneHour)))
+        let token = HAuthorizationHeader(key: "Authorization", value: "Bearer token_A")
+        let provider = SpyAuthProvider(headers: [token, token])
+        Harbor.setAuthProvider(provider)
+
+        let request = ClassAuthGetRequest(url: "https://example.com/offline-remembered")
+        guard case .success = await request.request() else {
+            XCTFail("Expected the online request to succeed")
+            return
+        }
+        XCTAssertEqual(provider.headerCallCount, 1)
+        provider.resetCounts()
+
+        // When the device goes offline
+        HRequestManager.connectivityMonitor = FakeConnectivityMonitor(connected: false)
+        defer { HRequestManager.connectivityMonitor = HRequestManagerMonitor() }
+        let response = await request.request()
+
+        // Then the entry is served with the remembered credential: the provider,
+        // whose header resolution could refresh a token over the network, is never consulted
+        guard case .success(let model) = response else {
+            XCTFail("Expected the cached body but got: \(response)")
+            return
+        }
+        XCTAssertEqual(model.quote, "ok")
+        XCTAssertEqual(provider.headerCallCount, 0)
+    }
+
+    func testReplacingTheAuthProviderForgetsTheRememberedCredential() async throws {
+        // Given a request that succeeded online with one provider
+        await Harbor.clearAllCache()
+        Harbor.setDefaultCacheType(.custom(HCache.Configuration(expirationTime: .oneHour)))
+        let token = HAuthorizationHeader(key: "Authorization", value: "Bearer token_A")
+        Harbor.setAuthProvider(SpyAuthProvider(headers: [token]))
+
+        let request = ClassAuthGetRequest(url: "https://example.com/offline-forgotten")
+        guard case .success = await request.request() else {
+            XCTFail("Expected the online request to succeed")
+            return
+        }
+
+        // When the provider is replaced and the device goes offline
+        let newProvider = SpyAuthProvider(headers: [token])
+        Harbor.setAuthProvider(newProvider)
+        HRequestManager.connectivityMonitor = FakeConnectivityMonitor(connected: false)
+        defer { HRequestManager.connectivityMonitor = HRequestManagerMonitor() }
+        let response = await request.request()
+
+        // Then the remembered credential was forgotten: the new provider is consulted and,
+        // issuing a credential, the entry of the URL is served
+        guard case .success(let model) = response else {
+            XCTFail("Expected the cached body but got: \(response)")
+            return
+        }
+        XCTAssertEqual(model.quote, "ok")
+        XCTAssertEqual(newProvider.headerCallCount, 1)
+    }
+
+    func testClearingTheCacheForgetsTheRememberedCredential() async throws {
+        // Given a request that succeeded online with the provider's credential
+        await Harbor.clearAllCache()
+        Harbor.setDefaultCacheType(.custom(HCache.Configuration(expirationTime: .oneHour)))
+        let token = HAuthorizationHeader(key: "Authorization", value: "Bearer token_A")
+        let provider = SpyAuthProvider(headers: [token, token])
+        Harbor.setAuthProvider(provider)
+
+        let request = ClassAuthGetRequest(url: "https://example.com/offline-cleared")
+        guard case .success = await request.request() else {
+            XCTFail("Expected the online request to succeed")
+            return
+        }
+        provider.resetCounts()
+
+        // When the cache is cleared and the device goes offline
+        await Harbor.clearAllCache()
+        HRequestManager.connectivityMonitor = FakeConnectivityMonitor(connected: false)
+        defer { HRequestManager.connectivityMonitor = HRequestManagerMonitor() }
+        let response = await request.request()
+
+        // Then nothing is remembered: the provider is consulted and the lookup misses
+        guard case .error(let error) = response, case .noConnection = error else {
+            XCTFail("Expected .noConnection but got: \(response)")
+            return
+        }
+        XCTAssertEqual(provider.headerCallCount, 1)
+    }
+
+    func testReplacingTheAuthProviderForgetsTheRememberedCredentialsAtOnce() async {
+        let request = MockGetRequest<MockModel>(needsAuth: true, url: "https://example.com/remembered")
+        HRequestManager.rememberAuthHeader(HAuthorizationHeader(key: "Authorization", value: "Bearer old"), for: request)
+        XCTAssertEqual(HRequestManager.rememberedAuthHeaders.count, 1)
+
+        Harbor.setAuthProvider(nil)
+
+        // Without any later request touching the map
+        XCTAssertTrue(HRequestManager.rememberedAuthHeaders.isEmpty)
+    }
+
+    /// Stores a body as an immediately expired, stale servable cache entry for the given request.
+    private func storeStaleEntry(_ data: Data, for request: ClassAuthGetRequest, headers: [String: String], authHeader: HAuthorizationHeader? = nil) async throws {
+        let url = try XCTUnwrap(URL(string: request.url))
+        let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: headers)
+        await request.saveCache(data, response: response, authHeader: authHeader)
     }
 }

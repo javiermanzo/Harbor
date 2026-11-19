@@ -1,0 +1,148 @@
+name: CI
+
+on:
+  push:
+    branches: [ "main", "release/*" ]
+  pull_request:
+    branches: [ "main", "release/*" ]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  unit-tests-and-coverage:
+    runs-on: macos-26
+    steps:
+    - name: Checkout
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        fetch-depth: 0
+    - name: Build library
+      # `swift build` only builds the library products; test targets are built by `swift test`.
+      # A fresh runner compiles every module, so every warning is emitted into the log.
+      # `-warnings-as-errors` is not used: it would also fail the build on warnings from the
+      # dependencies compiled from `.build/checkouts`.
+      run: |
+        set -o pipefail
+        swift build -v 2>&1 | tee build.log
+    - name: Fail on warnings in Harbor sources
+      # Only warnings located under this repository's `Sources/` are fatal. The pattern is
+      # anchored to the workspace path so dependency paths (`.build/checkouts/*/Sources/`)
+      # can never match.
+      # Recent toolchains color diagnostics even when piped, so ANSI escapes are stripped first.
+      run: |
+        sed 's/\x1b\[[0-9;]*m//g' build.log > build-plain.log
+        if grep -E "^${GITHUB_WORKSPACE}/Sources/[^:]+:[0-9]+:[0-9]+: warning:" build-plain.log; then
+          echo "::error::Compiler warnings found in Sources/. Fix them locally with: swift build -Xswiftc -warnings-as-errors"
+          exit 1
+        fi
+        echo "No compiler warnings in Sources/"
+    - name: Test
+      timeout-minutes: 15
+      run: swift test --enable-code-coverage
+    - name: Setup llvm-cov
+      run: sudo ln -s $(xcrun --find llvm-cov) /usr/local/bin/llvm-cov
+    - name: Generate LCOV
+      uses: maxep/spm-lcov-action@765d4ca99e04bd445addad335a670ee64c12661b # v0.3.0
+      with:
+        output-file: ./lcov.info
+    - name: Upload Coverage Artifact (Base)
+      if: github.event_name == 'push'
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      with:
+        name: coverage-base
+        path: ./lcov.info
+    - name: Download Base Coverage
+      if: github.event_name == 'pull_request'
+      uses: dawidd6/action-download-artifact@b6e2e70617bc3265edd6dab6c906732b2f1ae151 # v21
+      continue-on-error: true
+      with:
+        github_token: ${{ secrets.GITHUB_TOKEN }}
+        workflow: ci.yml
+        branch: ${{ github.base_ref }}
+        name: coverage-base
+        path: ./base-coverage/
+    - name: Generate HTML Coverage Report
+      if: github.event_name == 'pull_request'
+      env:
+        GITHUB_BASE_REF: ${{ github.base_ref }}
+      run: python3 scripts/generate_html_report.py ./lcov.info ./base-coverage/lcov.info ./coverage_html
+    - name: Upload HTML Coverage Report Artifact (PR)
+      if: github.event_name == 'pull_request'
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      with:
+        name: coverage-html-report
+        path: ./coverage_html
+    - name: Generate Coverage Report
+      if: github.event_name == 'pull_request'
+      env:
+        GITHUB_BASE_REF: ${{ github.base_ref }}
+        PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      run: python3 scripts/generate_coverage_report.py ./lcov.info ./base-coverage/lcov.info ./coverage_comment.md
+
+    - name: Post Coverage Comment to PR
+      # A pull request from a fork gets a read-only token: it cannot comment.
+      if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+      uses: actions/github-script@d746ffe35508b1917358783b479e04febd2b8f71 # v9.0.0
+      with:
+        github-token: ${{ secrets.GITHUB_TOKEN }}
+        script: |
+          const fs = require('fs');
+          if (!fs.existsSync('./coverage_comment.md')) return;
+          const body = fs.readFileSync('./coverage_comment.md', 'utf8');
+          const issue_number = context.payload.pull_request.number;
+          const owner = context.repo.owner;
+          const repo = context.repo.repo;
+
+          const comments = await github.paginate(github.rest.issues.listComments, {
+            owner,
+            repo,
+            issue_number,
+            per_page: 100,
+          });
+
+          const botComment = comments.find(c =>
+            c.user && c.user.login === 'github-actions[bot]' &&
+            (c.body.includes('Coverage Report') || c.body.includes('Line Coverage Report'))
+          );
+
+          if (botComment) {
+            await github.rest.issues.updateComment({
+              owner,
+              repo,
+              comment_id: botComment.id,
+              body,
+            });
+          } else {
+            await github.rest.issues.createComment({
+              owner,
+              repo,
+              issue_number,
+              body,
+            });
+          }
+
+  ios-integration-tests:
+    runs-on: macos-26
+    steps:
+    - name: Checkout
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+    
+    # Run Example App Tests (Integration via xcodebuild)
+    # Using iPhone 17 on macos-26 (available on the latest simulator runtime)
+    - name: Run Example App Tests
+      run: |
+        xcodebuild test \
+          -project Example/HarborExample.xcodeproj \
+          -scheme HarborExample \
+          -destination 'platform=iOS Simulator,name=iPhone 17' \
+          -resultBundlePath TestResults \
+          CODE_SIGN_IDENTITY="" \
+          CODE_SIGNING_REQUIRED=NO \
+          CODE_SIGNING_ALLOWED=NO \
+          COMPILER_INDEX_STORE_ENABLE=NO

@@ -10,14 +10,16 @@ How a request moves through Harbor, and where each concern lives in `Sources/`.
 | `Harbor` | REST requests, cache, mocks, multipart, request execution (re-exports `HarborCore`) | `Harbor+REST.swift`, `Request/`, `Cache/`, `Config/`, `Debug/`, `Mock/`, `Utils/` |
 | `HarborJRPC` | JSON-RPC 2.0 on top of Harbor's REST pipeline (re-exports `Harbor`) | `HarborJRPC.swift`, `HarborExports.swift`, `Request/`, `Config/` |
 | `HarborWebSocket` | WebSocket connections on top of `HarborCore` only (re-exports it) | `HarborWebSocket.swift`, `Request/`, `Connection/`, `Config/`, `Debug/` |
+| `HarborImage` | Image loading, caching, processing and the SwiftUI view on top of `HarborCore` only (re-exports it) | `HarborImage.swift`, `HarborImage+Loading.swift`, `Request/`, `Loader/`, `Cache/`, `Decoding/`, `SVG/`, `Processing/`, `Encoding/`, `Prefetch/`, `Views/`, `Mock/`, `Config/`, `Debug/` |
 
 ```text
 HarborCore ◄── Harbor ◄── HarborJRPC
     ▲
-    └────────── HarborWebSocket
+    ├────────── HarborWebSocket
+    └────────── HarborImage
 ```
 
-Only `HarborCore` depends on [LogBird](https://github.com/javiermanzo/LogBird) (`from: "2.1.0"`) for logging. The products log through the `HLogger` facade with Harbor's own `HLogLevel`, `HLogValue` and `HLogExtraMessage`, without importing LogBird; inside HarborCore only the SSL and PKCS#12 diagnostics loggers and the redaction defaults use LogBird directly. `HarborCore` is not a product: its internals (`HConfig`, `HLogger`, `HRedactionPolicy`, the session pool, the auth refresh, the attempt loop and the error mapping of `HRequestManager`, `HURLBuilder.compositeURL`) are `package`, and the types that were already public (`HRetryPolicy`, `HRequestError`, `HAuthProviderProtocol`, `HDebugRequestProtocol`, `HMTLS`, `HURLSessionDelegate`, the shared `Harbor` setters, ...) are re-exported with `@_exported import HarborCore` by `Harbor` and `HarborWebSocket` (`HarborJRPC` gets them through `Harbor`). A WebSocket-only app therefore links no cache, mocks, request protocols or multipart code, and can still call `Harbor.setAuthProvider(_:)`. `HarborJRPC` stays on `Harbor` because a JSON-RPC call is a REST POST, and re-exports it (`@_exported import Harbor`), so `import HarborJRPC` is enough too.
+Only `HarborCore` depends on [LogBird](https://github.com/javiermanzo/LogBird) (`from: "2.1.0"`) for logging. The products log through the `HLogger` facade with Harbor's own `HLogLevel`, `HLogValue` and `HLogExtraMessage`, without importing LogBird; inside HarborCore only the SSL and PKCS#12 diagnostics loggers and the redaction defaults use LogBird directly. `HarborCore` is not a product: its internals (`HConfig`, `HLogger`, `HRedactionPolicy`, the session pool, the auth refresh, the attempt loop and the error mapping of `HRequestManager`, `HURLBuilder.compositeURL`) are `package`, and the types that were already public (`HRetryPolicy`, `HRequestError`, `HAuthProviderProtocol`, `HDebugRequestProtocol`, `HMTLS`, `HURLSessionDelegate`, the shared `Harbor` setters, ...) are re-exported with `@_exported import HarborCore` by `Harbor`, `HarborWebSocket` and `HarborImage` (`HarborJRPC` gets them through `Harbor`). A WebSocket-only app therefore links no cache, mocks, request protocols or multipart code, and can still call `Harbor.setAuthProvider(_:)`. `HarborJRPC` stays on `Harbor` because a JSON-RPC call is a REST POST, and re-exports it (`@_exported import Harbor`), so `import HarborJRPC` is enough too.
 
 ## Protocol hierarchy
 
@@ -127,9 +129,32 @@ connect()
 
 `HWebSocket` reads messages continuously into an unbounded `AsyncThrowingStream` (message kinds it does not know are skipped). When `receive()` fails it waits (bounded) for the task completion, then ends the stream normally if a close frame was recorded (`task.closeCode` or the delegate's `didCloseWith`), or cancels the task and throws the mapped error otherwise: on an open connection everything but cancellation, a certificate rejection and an oversized message maps to `.connectionFailed`. `close(code:reason:)` sends reserved codes as `.normalClosure`, cuts the reason to 123 bytes, cancels the task with them, finishes the stream and releases the session lease. Keep-alive pings race `sendPing` against a timer: a missing pong closes the connection with `.pingTimeout` (unless the server's close frame arrived meanwhile), while a ping that fails with an error leaves the classification to the receive loop (the connection is closing or lost); `ping()` and `send` racing a close report `.notConnected`. See `../harbor-websocket/examples.md`.
 
+## Image loads
+
+```text
+HarborImage.image(for:) / data(for:) / events(for:) / HImageView
+ ├─ HImageResolvedRequest: URLs composed, defaults applied, cache keys (URL + processing, never headers)
+ ├─ memory hit (image loads only, not data(for:); HImageMemoryCache, read synchronously) → .memory
+ └─ shared flight per key and generations (HImageFlight: one load, many subscribers; cancelled with its last subscriber)
+      ├─ data: / file: URL → render, no disk
+      ├─ mocked URL (debug) → skips the disk and the connectivity check
+      ├─ disk: processed variant, else original → render (HImageDiskCache, index on the actor, IO off it)
+      ├─ .returnCacheDontLoad → .notCached; offline → expired entries, else .noConnection
+      └─ per URL (then fallbackURLs): mock (debug) or a download shared with byte loads (downloadFlights)
+           ├─ download slot (HImageLimiter), then the auth header
+           └─ HRequestManager.runAttemptLoop: leased .isolated session, HImageDownloadDelegate
+              (body, progress, size limit, HTaskDelegateContext), 401 → refresh, retry policy
+      → HImagePipeline (off the actor): detect format → decode (custom decoders, SVG renderer, ImageIO
+        with downsampling) → processors → encoding → store variant/original if the cache, auth and
+        image generations did not change → memory
+      → a transient failure (transport, timeout, 5xx) serves an expired disk copy instead
+```
+
+The optional `onEvent` callbacks are relayed to the main actor in order by `HImageEventRelay`; they only report events of the `async` API, the documented exception to "no callbacks". See `../harbor-image/`.
+
 ## Related files
 
-- `Sources/HarborCore/Request/HRequestManagerActor.swift` (the global actor) and `HRequestManager.swift` (shared state and attempt outcomes) and its shared extensions: `+Auth` (authorization, refresh), `+AttemptLoop` (retry/401 loop used by REST and WebSocket), `+Retry` (error mapping, `Retry-After`, backoff), `+URLSessionPool` (session cache, `HSessionProfile`). REST-only extensions in `Sources/Harbor/Request/`: `+Execution` (request flows), `+Mock`, `+RESTSession` (request to session profile), `+RESTState` (remembered credentials, cache generation).
+- `Sources/HarborCore/Request/HRequestManagerActor.swift` (the global actor) and `HRequestManager.swift` (shared state and attempt outcomes) and its shared extensions: `+Auth` (authorization, refresh), `+AttemptLoop` (retry/401 loop used by REST, WebSocket and HarborImage), `+Retry` (error mapping, `Retry-After`, backoff), `+URLSessionPool` (session cache, `HSessionProfile`). REST-only extensions in `Sources/Harbor/Request/`: `+Execution` (request flows), `+Mock`, `+RESTSession` (request to session profile), `+RESTState` (remembered credentials, cache generation).
 - `Sources/Harbor/Request/HGetRequestProtocol.swift` (defaults, `requestStream`) and the other protocol files (one per protocol).
 - `Sources/HarborCore/Request/HRetryPolicy.swift`: retry classification.
 - `Sources/HarborCore/Utils/HURLBuilder.swift`: URL composition and encoding (shared); `Sources/Harbor/Utils/HURLBuilder+Request.swift`: header, body, multipart and cache-validator construction (REST).

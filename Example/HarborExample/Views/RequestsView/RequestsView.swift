@@ -158,6 +158,25 @@ struct RequestsView: View {
                                 ExampleButton(title: "WebSocket - Close", icon: "xmark.circle", isDestructive: true) { closeWebSocket() }
                             }
 
+                            // MARK: - Images
+                            ExampleSection(title: "Images (HarborImage)") {
+                                NavigationLink(destination: ImagesView()) {
+                                    HStack(spacing: 16) {
+                                        Image(systemName: "photo.on.rectangle.angled")
+                                            .font(.system(size: 20, weight: .medium))
+                                            .frame(width: 32)
+                                        Text("Open the Images demo")
+                                            .font(.system(.body, design: .rounded))
+                                            .fontWeight(.medium)
+                                            .foregroundColor(.primary)
+                                        Spacer()
+                                    }
+                                    .padding()
+                                    .background(Color(UIColor.tertiarySystemBackground))
+                                    .cornerRadius(12)
+                                }
+                            }
+
                             // MARK: - mTLS
                             ExampleSection(title: "Security (mTLS)") {
                                 ExampleButton(title: "GET - With mTLS", icon: "lock.icloud") { performMTLSRequest() }

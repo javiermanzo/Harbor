@@ -14,6 +14,9 @@
 - Memory (decoded, sized by decoded bytes) and disk (LRU, expiration, `Caches/HarborImage`) cache: `HImageCache.Configuration`, `HImageCacheType`, `HImageCachePolicy`, `HarborImage.setCacheConfiguration(_:)`, `setDefaultCacheType(_:)`, `cached(for:)`, `store(_:for:)` and `remove(_:)` (every size and processing of the image), `clearCache(_:)`, `diskCacheSize()`, `diskCacheCount()`. Keys never contain a header or credential; a load in flight when the cache is cleared, the auth provider replaced or the image stored is not stored, and later loads never join it; expired entries are served offline and when a download fails transiently (transport, timeout, `5xx`); `Cache-Control: no-store` is not written to disk.
 - `HImagePrefetcher`, `HarborImage.prefetch(_:)` and `View.hImagePrefetch(_:destination:)`; `setDefaultRetryPolicy(_:)` and `registerDecoder(_:)`; limits with `setMaxDownloadSizeInMBs(_:)` (successful responses only), `setMaxImagePixels(_:)` and `setMaxConcurrentDownloads(_:)`; `HImageMock` for previews and tests (debug builds only, answered before the disk cache and the connectivity check).
 
+### Changed
+- Example app: the home screen is split into one view per feature (`Views/Features/<Area>/<Feature>Section.swift`) gathered in one view per group (`Views/Home/Groups`), instead of a single view with nine extensions. The console output and the loading flag live in a shared `ExampleRunner` injected through the environment, and the Images demo has one view per section. No behavior change.
+
 ## [4.0.0] - 2026-11-19
 
 Upgrading from 3.0.0: items tagged **[Breaking]** need code changes. See the [migration guide](.agents/skills/harbor-migration-v3-to-v4/SKILL.md).

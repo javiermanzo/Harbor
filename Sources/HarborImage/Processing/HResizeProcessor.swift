@@ -22,7 +22,8 @@ public struct HResizeProcessor: HImageProcessor {
         case stretch
     }
 
-    /// The size in pixels, rounded to whole pixels and at least 1.
+    /// The size in pixels, rounded to whole pixels, at least 1 and at most 65,536 per side
+    /// (an infinite or not-a-number side is clamped).
     public let size: CGSize
     /// How the image is scaled to the size.
     public let mode: Mode
@@ -35,9 +36,22 @@ public struct HResizeProcessor: HImageProcessor {
     ///   - mode: How the image is scaled to the size. Default: `.fit`.
     ///   - allowsUpscaling: Whether a smaller image is enlarged. Default: `false`.
     public init(size: CGSize, mode: Mode = .fit, allowsUpscaling: Bool = false) {
-        self.size = CGSize(width: max(1, size.width.rounded()), height: max(1, size.height.rounded()))
+        self.size = CGSize(width: Self.clamped(size.width), height: Self.clamped(size.height))
         self.mode = mode
         self.allowsUpscaling = allowsUpscaling
+    }
+}
+
+// MARK: - Clamping
+
+private extension HResizeProcessor {
+    /// The largest side in pixels, so converting a size to `Int` never traps.
+    static let maxSide: CGFloat = 65_536
+
+    /// Rounds a side to whole pixels between 1 and `maxSide`; not-a-number becomes 1.
+    static func clamped(_ side: CGFloat) -> CGFloat {
+        guard !side.isNaN else { return 1 }
+        return min(maxSide, max(1, side.rounded()))
     }
 }
 

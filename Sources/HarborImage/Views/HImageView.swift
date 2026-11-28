@@ -229,15 +229,19 @@ extension HImageView {
         let loopLimit = options.playback.loopCount ?? animation.loopCount
         var loops = 0
         while !Task.isCancelled {
+            var shown = false
             for index in 0..<animation.frameCount {
                 guard let frame = await animation.frame(at: index), !Task.isCancelled else {
                     if Task.isCancelled { return }
                     continue
                 }
+                shown = true
                 show(.success(makeImage(frame)), for: key)
                 let delay = animation.frameDurations[index] / options.playback.speed
                 guard await HImageView.sleep(seconds: delay) else { return }
             }
+            // Without a single decodable frame the loop would spin without ever sleeping.
+            guard shown else { return }
             loops += 1
             if loopLimit > 0, loops >= loopLimit { return }
         }

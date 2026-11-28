@@ -25,6 +25,18 @@ final class HarborImageProcessingTests: XCTestCase {
 
     // MARK: - Geometry
 
+    func testResizeClampsAnInfiniteOrNotANumberSize() async {
+        // When
+        let processor = HResizeProcessor(size: CGSize(width: 200, height: CGFloat.infinity), mode: .fit)
+        let invalid = HResizeProcessor(size: CGSize(width: CGFloat.nan, height: -5), mode: .fit)
+
+        // Then
+        XCTAssertEqual(processor.size, CGSize(width: 200, height: 65_536))
+        XCTAssertEqual(processor.decodingTarget.pixelHeight, 65_536)
+        XCTAssertEqual(invalid.size, CGSize(width: 1, height: 1))
+        XCTAssertEqual(invalid.identifier, "resize(1x1,fit,false)")
+    }
+
     func testResizeFitKeepsTheAspectRatio() async throws {
         // When
         let output = try await HResizeProcessor(size: CGSize(width: 20, height: 20), mode: .fit).process(TestImages.image(width: 40, height: 20), context: context)

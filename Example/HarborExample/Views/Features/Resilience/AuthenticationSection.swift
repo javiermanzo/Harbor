@@ -1,20 +1,37 @@
 //
-//  RequestsView+Auth.swift
+//  AuthenticationSection.swift
 //  HarborExample
 //
-//  Authentication, headers and retry requests
+//  Authenticated requests and the `401` token refresh flow.
 //
 
 import SwiftUI
 import Harbor
 
-// MARK: - Authentication, headers and retry requests
-extension RequestsView {
-    func performAuthenticatedRequest() {
-        addResult("=== GET - Authenticated ===")
+struct AuthenticationSection: View {
+    @EnvironmentObject private var runner: ExampleRunner
+
+    // Auth providers are actors (not `ObservableObject`s), so `@State` keeps one instance alive
+    // across SwiftUI render passes.
+    /// Auth provider for authenticated requests
+    @State private var authProvider = TokenAuthProvider()
+    /// Auth provider for the token-refresh demo (starts with an expired token)
+    @State private var refreshAuthProvider = RefreshingAuthProvider()
+
+    var body: some View {
+        ExampleSection(title: "Authentication") {
+            ExampleButton(title: "GET - With Auth", icon: "lock.shield") { performAuthenticatedRequest() }
+            ExampleButton(title: "GET - Auth with Token Refresh", icon: "lock.rotation") { performAuthWithRefresh() }
+        }
+    }
+
+    // MARK: - Actions
+
+    private func performAuthenticatedRequest() {
+        runner.log("=== GET - Authenticated ===")
         // Read the @State provider on the main actor before handing it to the task.
         let authProvider = authProvider
-        performWithLoading {
+        runner.run {
             await authProvider.setToken("demo_token_123", expiresIn: 3600)
             await Harbor.setAuthProvider(authProvider)
 
@@ -23,19 +40,19 @@ extension RequestsView {
             await MainActor.run {
                 switch response {
                 case .success(let user):
-                    addResult("Authenticated user: \(user.name)")
+                    runner.log("Authenticated user: \(user.name)")
                 case .error(let error):
-                    addResult("Error: \(error.localizedDescription)")
+                    runner.log("Error: \(error.localizedDescription)")
                 }
             }
         }
     }
 
-    func performAuthWithRefresh() {
-        addResult("=== Auth with Token Refresh ===")
+    private func performAuthWithRefresh() {
+        runner.log("=== Auth with Token Refresh ===")
         // Read the @State provider on the main actor before handing it to the task.
         let refreshAuthProvider = refreshAuthProvider
-        performWithLoading {
+        runner.run {
             await refreshAuthProvider.reset()
 
             // Route auth-demo.local through the local stub server (no real network traffic): the
@@ -63,47 +80,11 @@ extension RequestsView {
             await MainActor.run {
                 switch response {
                 case .success(let data):
-                    addResult("Server rejected the expired token with 401")
-                    addResult("authFailed() refreshed the token \(refreshCount)x; Harbor re-sent the request")
-                    addResult("Retry succeeded: \(data.message)")
+                    runner.log("Server rejected the expired token with 401")
+                    runner.log("authFailed() refreshed the token \(refreshCount)x; Harbor re-sent the request")
+                    runner.log("Retry succeeded: \(data.message)")
                 case .error(let error):
-                    addResult("Error: \(error.localizedDescription)")
-                }
-            }
-        }
-    }
-
-    // MARK: - Headers
-
-    func performRequestWithHeaders() {
-        addResult("=== GET - Custom Headers ===")
-        performWithLoading {
-            let response = await GetDataWithHeadersRequest().request()
-
-            await MainActor.run {
-                switch response {
-                case .success(let users):
-                    addResult("Got \(users.count) users (with custom headers)")
-                case .error(let error):
-                    addResult("Error: \(error.localizedDescription)")
-                }
-            }
-        }
-    }
-
-    // MARK: - Retry
-
-    func performRequestWithRetry() {
-        addResult("=== GET - With Retry ===")
-        performWithLoading {
-            let response = await GetUnreliableDataRequest().request()
-
-            await MainActor.run {
-                switch response {
-                case .success(let users):
-                    addResult("Got \(users.count) users (after retries)")
-                case .error(let error):
-                    addResult("Error after retries: \(error.localizedDescription)")
+                    runner.log("Error: \(error.localizedDescription)")
                 }
             }
         }

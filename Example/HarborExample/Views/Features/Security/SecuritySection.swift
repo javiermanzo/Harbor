@@ -1,22 +1,32 @@
 //
-//  RequestsView+Security.swift
+//  SecuritySection.swift
 //  HarborExample
 //
-//  mTLS and SSL pinning
+//  mTLS with a bundled client identity and SSL pinning.
 //
 
 import SwiftUI
 import Harbor
 
-// MARK: - mTLS and SSL pinning
-extension RequestsView {
-    func performMTLSRequest() {
-        addResult("=== mTLS Request ===")
-        performWithLoading {
+struct SecuritySection: View {
+    @EnvironmentObject private var runner: ExampleRunner
+
+    var body: some View {
+        ExampleSection(title: "Security (mTLS)") {
+            ExampleButton(title: "GET - With mTLS", icon: "lock.icloud") { performMTLSRequest() }
+            ExampleButton(title: "Configure SSL Pinning", icon: "checkmark.shield") { configureSSLPinning() }
+        }
+    }
+
+    // MARK: - Actions
+
+    private func performMTLSRequest() {
+        runner.log("=== mTLS Request ===")
+        runner.run {
             // Load the client certificate bundled with the app and configure mTLS.
             guard let p12URL = Bundle.main.url(forResource: "certificate", withExtension: "p12") else {
                 await MainActor.run {
-                    addResult("certificate.p12 not found in the app bundle")
+                    runner.log("certificate.p12 not found in the app bundle")
                 }
                 return
             }
@@ -44,13 +54,13 @@ extension RequestsView {
                     message = error.localizedDescription
                 }
                 await MainActor.run {
-                    addResult("Could not configure mTLS: \(message)")
+                    runner.log("Could not configure mTLS: \(message)")
                 }
                 return
             }
 
             await MainActor.run {
-                addResult("Client identity loaded from certificate.p12")
+                runner.log("Client identity loaded from certificate.p12")
             }
 
             let response = await MTLSRequest().request()
@@ -58,37 +68,37 @@ extension RequestsView {
             await MainActor.run {
                 switch response {
                 case .success(let result):
-                    addResult("mTLS successful!")
-                    addResult("Secure connection established with client certificate.")
-                    addResult("Identity: \(result.sslClientSDN ?? "Unknown")")
+                    runner.log("mTLS successful!")
+                    runner.log("Secure connection established with client certificate.")
+                    runner.log("Identity: \(result.sslClientSDN ?? "Unknown")")
                 case .error(let error):
                     if case .timeout = error {
-                        addResult("Request timed out.")
-                        addResult("Note: The public test server is frequently offline.")
-                        addResult("However, your client certificate was loaded and Harbor is configured correctly.")
+                        runner.log("Request timed out.")
+                        runner.log("Note: The public test server is frequently offline.")
+                        runner.log("However, your client certificate was loaded and Harbor is configured correctly.")
                     } else {
-                        addResult("MTLS Error: \(error.localizedDescription)")
+                        runner.log("MTLS Error: \(error.localizedDescription)")
                     }
                 }
             }
         }
     }
 
-    func configureSSLPinning() {
-        addResult("=== Configuring SSL Pinning ===")
-        performWithLoading {
+    private func configureSSLPinning() {
+        runner.log("=== Configuring SSL Pinning ===")
+        runner.run {
             let host = "jsonplaceholder.typicode.com"
             do {
                 // Read the live server certificate and compute its pin.
                 let certificate = try await ServerCertificateFetcher.fetchCertificate(from: host)
                 guard let pin = await Harbor.computePin(for: certificate) else {
                     await MainActor.run {
-                        addResult("Could not compute a pin for the server certificate")
+                        runner.log("Could not compute a pin for the server certificate")
                     }
                     return
                 }
                 await MainActor.run {
-                    addResult("Computed pin: \(pin)")
+                    runner.log("Computed pin: \(pin)")
                 }
 
                 // Pin only the demo host; other endpoints keep default validation.
@@ -99,14 +109,14 @@ extension RequestsView {
                 await MainActor.run {
                     switch response {
                     case .success(let users):
-                        addResult("Pinned request to \(host) succeeded (\(users.count) users)")
+                        runner.log("Pinned request to \(host) succeeded (\(users.count) users)")
                     case .error(let error):
-                        addResult("Pinned request failed: \(error.localizedDescription)")
+                        runner.log("Pinned request failed: \(error.localizedDescription)")
                     }
                 }
             } catch {
                 await MainActor.run {
-                    addResult("Could not fetch the server certificate: \(error.localizedDescription)")
+                    runner.log("Could not fetch the server certificate: \(error.localizedDescription)")
                 }
             }
         }

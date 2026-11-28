@@ -48,6 +48,7 @@ extension {ENTITY}: {PROTOCOL}             // one extension per protocol conform
 
 ## Example App
 `Example/HarborExample` showcases every feature (GET, POST incl. `rawBody` and multipart, caching, streaming, JSON-RPC, WebSocket, images, auth with token refresh, retry, mTLS, SSL pinning, mocking). It is built in Swift 6 language mode (`SWIFT_VERSION = 6.0`, `SWIFT_STRICT_CONCURRENCY = complete`). When modifying it:
+- Layout of `Example/HarborExample/Views`: `Home` (the index of `ExampleArea`s, `ExampleSetup`, and one `Groups/<Area>Group` screen per area), `Features/<Area>/<Feature>Section` (one view per feature, with its own state and actions), `Components` (`ExampleSection`, `ExampleButton`, `ExampleRunner`, ...) and `Settings`. A new demo is a `<Feature>Section` that logs and runs requests through the `ExampleRunner` of the environment (`runner.log`, `runner.run`), added to the `Group` screen of its area.
 - Keep UI state in `@State` (or `@StateObject` for classes) to prevent lifecycle reference leaks across SwiftUI render passes.
 - Isolate networking calls with `Task { await ... }`. If passing closures to a `Task` inside a SwiftUI View, mark the closure `@Sendable` to detach it from the view's implicit `@MainActor`, and read `@State` values on the main actor before handing them to the closure.
 - Read global configuration (like `Harbor.mocksEnabled`) with `await` so it doesn't trigger Main Actor warnings.

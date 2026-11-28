@@ -8,15 +8,16 @@
 [![Platforms](https://img.shields.io/badge/Platforms-macOS_iOS-yellowgreen?style=flat-square)](https://img.shields.io/badge/Platforms-macOS_iOS-yellowgreen?style=flat-square) 
 [![Swift Package Manager](https://img.shields.io/badge/Swift_Package_Manager-compatible-orange?style=flat-square)](https://swiftpackageindex.com/javiermanzo/Harbor)
 
-Harbor is a protocol-oriented networking library for Swift, built for Swift 6 strict concurrency (`async/await` and a global actor, no callbacks). You declare each request as a `Sendable` struct and Harbor takes care of the rest.
+Harbor is a protocol-oriented networking library for Swift, built for Swift 6 strict concurrency (`async/await` and a global actor; callbacks only where they are optional, in `HarborImage`). You declare each request as a `Sendable` struct and Harbor takes care of the rest.
 
-It ships as three products, so you only link what you use:
+It ships as four products, so you only link what you use:
 
 | Product | What it gives you |
 | --- | --- |
 | `Harbor` | REST requests (GET, POST, PUT, PATCH, DELETE) with typed results that never throw, a multi-layer HTTP cache with ETags and offline fallback, multipart uploads, streaming, and mocks for tests |
 | `HarborJRPC` | JSON-RPC 2.0 calls, batches and notifications, built on top of `Harbor` |
 | `HarborWebSocket` | WebSocket connections (RFC 6455): an `AsyncSequence` of incoming messages, `send`, keep-alive pings and a handshake that goes through the same pipeline as REST. It does not depend on `Harbor` |
+| `HarborImage` | Remote images: a SwiftUI view, direct calls with optional callbacks, memory and disk cache, processors (resize, crop, masks, borders, filters, custom), compression, JPEG/PNG/GIF/WebP/HEIC/SVG and animated images, prefetching. Downloads go through the same pipeline as REST. It does not depend on `Harbor` |
 
 ## Table of Contents
 - [Requirements](#requirements)
@@ -38,6 +39,7 @@ It ships as three products, so you only link what you use:
   - [Streaming Requests](#streaming-requests)
   - [JSON-RPC](#json-rpc)
   - [WebSocket](#websocket)
+  - [Images](#images)
   - [Debugging & Logging](#debugging--logging)
   - [Mocking](#mocking)
 - [AI Assistant Skills](#ai-assistant-skills)
@@ -69,12 +71,13 @@ Then add the products you need to your target:
     dependencies: [
         .product(name: "Harbor", package: "Harbor"),
         .product(name: "HarborJRPC", package: "Harbor"),      // Only if you need JSON-RPC support
-        .product(name: "HarborWebSocket", package: "Harbor") // Only if you need WebSocket support
+        .product(name: "HarborWebSocket", package: "Harbor"), // Only if you need WebSocket support
+        .product(name: "HarborImage", package: "Harbor")      // Only if you need image loading
     ]
 )
 ```
 
-`HarborWebSocket` does not need `Harbor`: it carries the shared configuration (`Harbor.setAuthProvider(_:)`, SSL pinning, mTLS, logging, retry policy) and links none of the REST code (cache, mocks, request protocols). Add `Harbor` only if you also make REST requests.
+`HarborWebSocket` and `HarborImage` do not need `Harbor`: they carry the shared configuration (`Harbor.setAuthProvider(_:)`, SSL pinning, mTLS, logging, retry policy) and link none of the REST code (cache, mocks, request protocols). Add `Harbor` only if you also make REST requests.
 
 ---
 
@@ -589,6 +592,60 @@ Other details:
 - `HWebSocketError` is the WebSocket's own error set, split by the life of a connection. Opening: `.invalidURL(reason:)`, `.authProviderNeeded`, `.authNeeded`, `.handshakeFailed(statusCode:)`, `.noConnection`, `.timeout`, `.cannotFindHost`, `.cannotConnectToHost`, `.certificate`. Open: `.notConnected`, `.pingTimeout`, `.messageTooBig`, `.connectionFailed(URLError)` (any connection lost without a close frame, including the POSIX errors `URLSession` reports for a dropped socket), `.encodingFailed` and `.decodingFailed`. Any time: `.cancelled`, `.unknown`. `messages` throws only `.connectionFailed`, `.pingTimeout` and `.messageTooBig`. `connect()`, `send`, `ping()` and `decode(_:)` use typed throws.
 - `HMock` does not apply to WebSocket connections; test against a loopback server (see `.agents/skills/harbor-websocket/examples.md`).
 
+### Images
+
+The `HarborImage` product loads, caches, processes and shows images. Downloads go through Harbor's pipeline (auth provider with the `401` refresh flow, default headers, retry policy, mTLS, pinning, redirect policy, custom session); images are cached in memory (decoded) and on disk.
+
+```swift
+import HarborImage
+
+// SwiftUI
+HImageView(url: "https://cdn.example.com/a.jpg") { image in
+    image.resizable().scaledToFill()
+} placeholder: {
+    ProgressView()
+}
+.processors([.resize(to: CGSize(width: 240, height: 240), mode: .fill), .mask(.circle)])
+.downsampling(to: CGSize(width: 80, height: 80))      // decode at the displayed size
+.transition(.fade())                                  // or .scale, .blur, .custom(AnyTransition, animation:)
+.onSuccess { result in print(result.source) }         // optional callbacks, main actor
+
+// One closure per phase (progress, image, error)
+HImageView(request: AvatarRequest(userId: 7)) { phase in
+    switch phase {
+    case .empty(let progress): ProgressView(value: progress ?? 0)
+    case .success(let image): image.resizable().scaledToFit()
+    case .failure(let error): Text(error.localizedDescription)
+    }
+}
+```
+
+Without a view, with `async/await` (from code without an async context, open a `Task`; cancelling it cancels the load):
+
+```swift
+let response = await HarborImage.image(for: HImageRequest(url: url))            // never throws
+let response = await HarborImage.image(for: request, onEvent: { event in ... }) // optional callback, main actor
+```
+
+Processing and compression, also available on images you already have:
+
+```swift
+HImageRequest(url: url,
+              processors: [.crop(size: CGSize(width: 800, height: 800)), .roundedCorners(32), .border(width: 4, color: .white)],
+              encoding: .jpeg(quality: 0.8, maxBytes: 150_000))
+
+let thumbnail = try await HarborImage.process(photo, with: [.resize(to: CGSize(width: 512, height: 512)), .grayscale])
+let upload = try await HarborImage.encode(photo, as: .heic(quality: 0.7))
+```
+
+Other details:
+- Requests conform to `HImageRequestProtocol` (only `url` is required) or use `HImageRequest`. Concurrent loads of the same image share one download; cancelling one caller does not cancel the others.
+- Built-in processors: resize (`.fit`, `.fill`, `.stretch`), crop, masks (circle, ellipse, rounded rect, capsule, custom path, alpha of another image), border, rotate, flip, padding, blur, tint, grayscale, brightness/contrast/saturation and overlay. Conform to `HImageProcessor` to add your own; its `identifier` is part of the cache key.
+- Formats are detected from the bytes: JPEG, PNG, GIF, WebP, HEIC, AVIF, TIFF, BMP, ICO and SVG (own renderer for a documented subset; anything outside it fails with `.unsupportedFormat` instead of rendering wrong). GIF, APNG and animated WebP play in `HImageView`. Register an `HImageDecoder` for other formats. Encoding produces JPEG, PNG or HEIC (WebP is decode-only).
+- Cache: `HarborImage.setCacheConfiguration(_:)`, `HImageCacheType` (`.memoryAndDisk`, `.memoryOnly`, `.diskOnly`, `.disabled`), `HImageCachePolicy` (`.useCache`, `.reloadIgnoringCache`, `.returnCacheDontLoad`), `ignoredQueryParameters` / `cacheKey` for signed URLs, offline fallback to expired entries. Keys never contain credentials: **call `HarborImage.clearCache()` when the signed-in account changes.**
+- `HImagePrefetcher` and `.hImagePrefetch(_:)` warm the cache; `setMaxDownloadSizeInMBs(_:)` and `setMaxImagePixels(_:)` bound downloads and decoded pixels; `HImageMock` serves canned images in debug builds.
+- See `.agents/skills/harbor-image/` for the full reference.
+
 ### Debugging & Logging
 
 Harbor logs through [LogBird](https://github.com/javiermanzo/LogBird). Logging is enabled by default in DEBUG builds and disabled in release; `setLoggingEnabled(true)` turns it on in release builds too. Security warnings (such as a custom session bypassing SSL pinning) are always logged.
@@ -663,6 +720,7 @@ If you use an AI coding assistant, Harbor ships documentation written for it:
   - [**harbor**](.agents/skills/harbor/SKILL.md): REST requests, with deep dives on request protocols, caching and testing, and copy-ready examples.
   - [**harbor-jrpc**](.agents/skills/harbor-jrpc/SKILL.md): JSON-RPC 2.0 calls, notifications and batches.
   - [**harbor-websocket**](.agents/skills/harbor-websocket/SKILL.md): WebSocket connections, pings, reconnection and testing.
+  - [**harbor-image**](.agents/skills/harbor-image/SKILL.md): images, with deep dives on processing, the cache and the SVG subset.
 - [**harbor-core**](.agents/skills/harbor-core/SKILL.md): what every product shares (global configuration, authentication and token refresh, SSL pinning, mTLS, custom sessions, retry policy, logging and redaction) and the architecture.
 - [**harbor-migration-v3-to-v4**](.agents/skills/harbor-migration-v3-to-v4/SKILL.md): the v3 → v4 migration guide, listing every breaking change and how to refactor it.
 

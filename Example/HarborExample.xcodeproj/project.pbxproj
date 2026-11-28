@@ -12,6 +12,7 @@
 		8D9D58622EF05B7100F148DB /* Harbor in Frameworks */ = {isa = PBXBuildFile; productRef = 8D9D58612EF05B7100F148DB /* Harbor */; };
 		8D9D58642EF05B7100F148DB /* HarborJRPC in Frameworks */ = {isa = PBXBuildFile; productRef = 8D9D58632EF05B7100F148DB /* HarborJRPC */; };
 		8D9D58662EF05B7100F148DB /* HarborWebSocket in Frameworks */ = {isa = PBXBuildFile; productRef = 8D9D58652EF05B7100F148DB /* HarborWebSocket */; };
+		8D9D58682EF05B7100F148DB /* HarborImage in Frameworks */ = {isa = PBXBuildFile; productRef = 8D9D58672EF05B7100F148DB /* HarborImage */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -62,6 +63,7 @@
 				8D9D58622EF05B7100F148DB /* Harbor in Frameworks */,
 				8D9D58642EF05B7100F148DB /* HarborJRPC in Frameworks */,
 				8D9D58662EF05B7100F148DB /* HarborWebSocket in Frameworks */,
+				8D9D58682EF05B7100F148DB /* HarborImage in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -150,6 +152,7 @@
 				8D9D58612EF05B7100F148DB /* Harbor */,
 				8D9D58632EF05B7100F148DB /* HarborJRPC */,
 				8D9D58652EF05B7100F148DB /* HarborWebSocket */,
+				8D9D58672EF05B7100F148DB /* HarborImage */,
 			);
 			productName = HarborExample;
 			productReference = 3B339D5F29A587A900ACD0E3 /* HarborExample.app */;
@@ -603,6 +606,10 @@
 		8D9D58652EF05B7100F148DB /* HarborWebSocket */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = HarborWebSocket;
+		};
+		8D9D58672EF05B7100F148DB /* HarborImage */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = HarborImage;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

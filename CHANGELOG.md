@@ -1,6 +1,21 @@
 # Changelog
 
-## [Unreleased]
+## [4.1.0] - 2026-11-27
+
+### Added
+
+**HarborImage** (new product, depends only on `HarborCore`)
+- `HImageView`: a SwiftUI view with content-and-placeholder and per-phase (`HImagePhase`: progress, image, error) initializers, modifiers for processors, encoding, cache type and policy, retry policy, downsampling at the displayed size, transitions (`.fade`, `.scale`, `.blur`, `.custom(AnyTransition, animation:)`), animated playback (`HAnimatedImagePlayback`), scale and accessibility label, and optional `.onSuccess`, `.onFailure`, `.onProgress` callbacks. A cached image shows in the first render, without placeholder nor transition.
+- Direct calls without a view: `HarborImage.image(for:onEvent:)` and `data(for:onEvent:)` (`async`, never throw, optional callback on the main actor; cancelling the calling task cancels the load) and `events(for:)` (`AsyncStream<HImageEvent>`). Concurrent loads of the same URL share one download, image and byte loads alike; cancelling a caller only cancels the download when no other caller waits for it.
+- `HImageRequestProtocol` / `HImageRequest`: path, query and header parameters, `needsAuth` (Harbor's auth provider and `401` refresh), retry policy, timeout, `cacheType`, `cachePolicy`, `cacheKey` and `ignoredQueryParameters` (signed URLs), `processors`, `encoding`, `targetSize` (downsampling while decoding) and `fallbackURLs`. `http(s)`, `data:` and `file:` URLs.
+- Processors (`HImageProcessor`, custom ones included): resize (fit, fill, stretch), crop, masks (`HImageMaskShape`: circle, ellipse, rounded rect, capsule, custom path, alpha of another image), border, rotate, flip, padding, blur, tint, grayscale, color adjustments and overlay. `HarborImage.process(_:with:)` runs them on images the app already has.
+- `HImageEncoding` (JPEG, PNG, HEIC, with `maxBytes`) for the result and the cached variant, and `HarborImage.encode(_:as:)`.
+- Decoding: JPEG, PNG, GIF, WebP, HEIC, AVIF, TIFF, BMP and ICO through ImageIO (EXIF orientation applied, downsampling while decoding; files with several sizes or pages show the largest), animated GIF/APNG/WebP (`HImageAnimation`, frames decoded on demand), SVG with a dependency-free renderer for a documented subset (anything outside it, unsafe content and documents too deep or too costly to render are rejected) and `HImageDecoder` for other formats.
+- Memory (decoded, sized by decoded bytes) and disk (LRU, expiration, `Caches/HarborImage`) cache: `HImageCache.Configuration`, `HImageCacheType`, `HImageCachePolicy`, `HarborImage.setCacheConfiguration(_:)`, `setDefaultCacheType(_:)`, `cached(for:)`, `store(_:for:)` and `remove(_:)` (every size and processing of the image), `clearCache(_:)`, `diskCacheSize()`, `diskCacheCount()`. Keys never contain a header or credential; a load in flight when the cache is cleared, the auth provider replaced or the image stored is not stored, and later loads never join it; expired entries are served offline and when a download fails transiently (transport, timeout, `5xx`); `Cache-Control: no-store` is not written to disk.
+- `HImagePrefetcher`, `HarborImage.prefetch(_:)` and `View.hImagePrefetch(_:destination:)`; `setDefaultRetryPolicy(_:)` and `registerDecoder(_:)`; limits with `setMaxDownloadSizeInMBs(_:)` (successful responses only), `setMaxImagePixels(_:)` and `setMaxConcurrentDownloads(_:)`; `HImageMock` for previews and tests (debug builds only, answered before the disk cache and the connectivity check).
+
+### Changed
+- Example app: the home screen is an index of areas (`ExampleArea`: REST, Data, Auth and resilience, JSON-RPC and WebSocket, Images, Security, Testing and debugging) and each area opens its own screen (`Views/Home/Groups`) with one view per feature (`Views/Features/<Area>/<Feature>Section.swift`), instead of a single long screen built from one view with nine extensions. The console output and the loading flag live in a shared `ExampleRunner` injected through the environment, and the Images demo has one view per section. No behavior change.
 
 ## [4.0.0] - 2026-11-19
 

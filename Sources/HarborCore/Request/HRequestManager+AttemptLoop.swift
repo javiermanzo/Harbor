@@ -10,10 +10,10 @@ import Foundation
 // MARK: - Attempt Loop
 
 extension HRequestManager {
-    /// The attempt loop shared by the REST pipeline and the other Harbor products (e.g. the
-    /// WebSocket handshake): retries with `Retry-After` or backoff delays, the 401 refresh
-    /// flow (`authFailed()` at most once over the loop) and the cancellation check before
-    /// every attempt. See `runAttempts` for the REST entry point.
+    /// The attempt loop shared by the REST pipeline and the other Harbor products (the
+    /// WebSocket handshake, image downloads): retries with `Retry-After` or backoff delays, the
+    /// 401 refresh flow (`authFailed()` at most once over the loop) and the cancellation check
+    /// before every attempt. See `runAttempts` for the REST entry point.
     /// - Parameters:
     ///   - needsAuth: Whether the operation needs auth; a 401 on one that does not gives up
     ///     without consulting the provider.

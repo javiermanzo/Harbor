@@ -17,6 +17,9 @@ let package = Package(
         .library(
             name: "HarborWebSocket",
             targets: ["HarborWebSocket"]),
+        .library(
+            name: "HarborImage",
+            targets: ["HarborImage"]),
     ],
 
     dependencies: [
@@ -27,7 +30,7 @@ let package = Package(
         // Targets can depend on other targets in this package, and on products in packages this package depends on.
         // Shared infrastructure (auth, security, logging, session pool, retry loop). Not a product:
         // its internals are `package`, and what was already public is re-exported by
-        // `Harbor` and `HarborWebSocket`.
+        // `Harbor`, `HarborWebSocket` and `HarborImage`.
         .target(
             name: "HarborCore",
             dependencies: [
@@ -54,6 +57,13 @@ let package = Package(
         .testTarget(
             name: "HarborWebSocketTests",
             dependencies: ["HarborWebSocket", "HarborCore"]),
+
+        .target(
+            name: "HarborImage",
+            dependencies: ["HarborCore"]),
+        .testTarget(
+            name: "HarborImageTests",
+            dependencies: ["HarborImage", "HarborCore"]),
     ],
     swiftLanguageModes: [.v6]
 )

@@ -2,7 +2,7 @@
 //  HomeView.swift
 //  HarborExample
 //
-//  Home screen: an index of the areas of Harbor, the console and the settings sheet
+//  Home screen: an index of the areas of Harbor and the settings sheet
 //
 
 import SwiftUI
@@ -14,7 +14,7 @@ struct HomeView: View {
 
     var body: some View {
         NavigationView {
-            ExampleScreen {
+            ExampleScreen(showsConsole: false) {
                 ForEach(ExampleArea.allCases) { area in
                     ExampleAreaRow(area: area)
                 }

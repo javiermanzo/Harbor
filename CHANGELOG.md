@@ -15,7 +15,7 @@
 - `HImagePrefetcher`, `HarborImage.prefetch(_:)` and `View.hImagePrefetch(_:destination:)`; `setDefaultRetryPolicy(_:)` and `registerDecoder(_:)`; limits with `setMaxDownloadSizeInMBs(_:)` (successful responses only), `setMaxImagePixels(_:)` and `setMaxConcurrentDownloads(_:)`; `HImageMock` for previews and tests (debug builds only, answered before the disk cache and the connectivity check).
 
 ### Changed
-- Example app: the home screen is split into one view per feature (`Views/Features/<Area>/<Feature>Section.swift`) gathered in one view per group (`Views/Home/Groups`), instead of a single view with nine extensions. The console output and the loading flag live in a shared `ExampleRunner` injected through the environment, and the Images demo has one view per section. No behavior change.
+- Example app: the home screen is an index of areas (`ExampleArea`: REST, Data, Auth and resilience, JSON-RPC and WebSocket, Images, Security, Testing and debugging) and each area opens its own screen (`Views/Home/Groups`) with one view per feature (`Views/Features/<Area>/<Feature>Section.swift`), instead of a single long screen built from one view with nine extensions. The console output and the loading flag live in a shared `ExampleRunner` injected through the environment, and the Images demo has one view per section. No behavior change.
 
 ## [4.0.0] - 2026-11-19
 

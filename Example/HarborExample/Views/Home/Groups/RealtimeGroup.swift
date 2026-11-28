@@ -2,16 +2,20 @@
 //  RealtimeGroup.swift
 //  HarborExample
 //
-//  JSON-RPC and WebSocket.
+//  Screen of the "JSON-RPC and WebSocket" area
 //
 
 import SwiftUI
 
 struct RealtimeGroup: View {
+    private let area = ExampleArea.realtime
+
     var body: some View {
-        ExampleGroup(title: "JSON-RPC and WebSocket", subtitle: "Protocols beyond plain REST.") {
+        ExampleScreen(subtitle: area.subtitle) {
             JSONRPCSection()
             WebSocketSection()
         }
+        .navigationTitle(area.title)
+        .navigationBarTitleDisplayMode(.inline)
     }
 }

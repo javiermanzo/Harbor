@@ -2,7 +2,7 @@
 //  HomeView.swift
 //  HarborExample
 //
-//  Home screen: one group per area of Harbor, a sticky console and the settings sheet
+//  Home screen: an index of the areas of Harbor, the console and the settings sheet
 //
 
 import SwiftUI
@@ -14,27 +14,9 @@ struct HomeView: View {
 
     var body: some View {
         NavigationView {
-            ZStack {
-                Color(UIColor.systemGroupedBackground)
-                    .ignoresSafeArea()
-
-                VStack(spacing: 0) {
-                    ScrollView {
-                        VStack(spacing: 32) {
-                            RESTGroup()
-                            DataGroup()
-                            ResilienceGroup()
-                            RealtimeGroup()
-                            MediaGroup()
-                            SecurityGroup()
-                            ToolingGroup()
-                        }
-                        .padding()
-                    }
-
-                    ResultsConsoleView(results: runner.results) {
-                        withAnimation { runner.clear() }
-                    }
+            ExampleScreen {
+                ForEach(ExampleArea.allCases) { area in
+                    ExampleAreaRow(area: area)
                 }
             }
             .task { await ExampleSetup.configureOnce() }

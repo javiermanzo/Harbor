@@ -2,16 +2,20 @@
 //  ToolingGroup.swift
 //  HarborExample
 //
-//  Mocking and debug logging.
+//  Screen of the "Testing and debugging" area
 //
 
 import SwiftUI
 
 struct ToolingGroup: View {
+    private let area = ExampleArea.tooling
+
     var body: some View {
-        ExampleGroup(title: "Testing and debugging", subtitle: "Mocks and request logging.") {
+        ExampleScreen(subtitle: area.subtitle) {
             MockingSection()
             DebugSection()
         }
+        .navigationTitle(area.title)
+        .navigationBarTitleDisplayMode(.inline)
     }
 }

@@ -2,18 +2,22 @@
 //  RESTGroup.swift
 //  HarborExample
 //
-//  The HTTP methods: GET, POST, PUT, PATCH and DELETE.
+//  Screen of the "REST requests" area
 //
 
 import SwiftUI
 
 struct RESTGroup: View {
+    private let area = ExampleArea.rest
+
     var body: some View {
-        ExampleGroup(title: "REST requests", subtitle: "One call per HTTP method.") {
+        ExampleScreen(subtitle: area.subtitle) {
             BasicRequestsSection()
             PostRequestsSection()
             PutPatchSection()
             DeleteSection()
         }
+        .navigationTitle(area.title)
+        .navigationBarTitleDisplayMode(.inline)
     }
 }

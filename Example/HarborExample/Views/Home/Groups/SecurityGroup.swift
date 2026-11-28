@@ -2,15 +2,19 @@
 //  SecurityGroup.swift
 //  HarborExample
 //
-//  mTLS and SSL pinning.
+//  Screen of the "Security" area
 //
 
 import SwiftUI
 
 struct SecurityGroup: View {
+    private let area = ExampleArea.security
+
     var body: some View {
-        ExampleGroup(title: "Security", subtitle: "Client certificates and certificate pinning.") {
+        ExampleScreen(subtitle: area.subtitle) {
             SecuritySection()
         }
+        .navigationTitle(area.title)
+        .navigationBarTitleDisplayMode(.inline)
     }
 }

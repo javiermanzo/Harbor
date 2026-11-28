@@ -21,6 +21,17 @@ final class HarborExampleUITests: XCTestCase {
 
         XCTAssertTrue(app.navigationBars["Harbor Examples"].waitForExistence(timeout: 10))
         XCTAssertTrue(app.staticTexts["> Ready"].exists)
+        XCTAssertTrue(button(titled: "REST requests", in: app).exists)
+    }
+
+    func testAreaOpensItsDemoSections() throws {
+        let app = XCUIApplication()
+        app.launch()
+
+        XCTAssertTrue(app.navigationBars["Harbor Examples"].waitForExistence(timeout: 10))
+        button(titled: "REST requests", in: app).tap()
+
+        XCTAssertTrue(app.navigationBars["REST requests"].waitForExistence(timeout: 5))
         XCTAssertTrue(button(titled: "GET - Simple Request", in: app).exists)
     }
 

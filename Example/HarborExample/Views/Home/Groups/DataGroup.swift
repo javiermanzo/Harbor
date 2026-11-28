@@ -2,17 +2,21 @@
 //  DataGroup.swift
 //  HarborExample
 //
-//  Caching, streaming and pagination.
+//  Screen of the "Data" area
 //
 
 import SwiftUI
 
 struct DataGroup: View {
+    private let area = ExampleArea.data
+
     var body: some View {
-        ExampleGroup(title: "Data", subtitle: "Caching, streaming and pagination.") {
+        ExampleScreen(subtitle: area.subtitle) {
             CachingSection()
             StreamingSection()
             PaginationSection()
         }
+        .navigationTitle(area.title)
+        .navigationBarTitleDisplayMode(.inline)
     }
 }

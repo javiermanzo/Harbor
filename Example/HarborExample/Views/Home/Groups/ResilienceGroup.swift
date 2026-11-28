@@ -2,17 +2,21 @@
 //  ResilienceGroup.swift
 //  HarborExample
 //
-//  Authentication, custom headers and retries.
+//  Screen of the "Auth and resilience" area
 //
 
 import SwiftUI
 
 struct ResilienceGroup: View {
+    private let area = ExampleArea.resilience
+
     var body: some View {
-        ExampleGroup(title: "Auth and resilience", subtitle: "Authentication, headers and retries.") {
+        ExampleScreen(subtitle: area.subtitle) {
             AuthenticationSection()
             CustomHeadersSection()
             RetrySection()
         }
+        .navigationTitle(area.title)
+        .navigationBarTitleDisplayMode(.inline)
     }
 }
